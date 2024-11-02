@@ -11,20 +11,20 @@ genai.configure(api_key=GOOGLE_API_KEY)
 
 # Initialize model with safety settings
 generation_config = {
-    'temperature': 0.7,  # More creative but still focused
-    'top_p': 0.9,       # Better response diversity
-    'top_k': 40,        # Better vocabulary selection
-    'max_output_tokens': 1024,  # Longer responses when needed
+    'temperature': 1.0,       # Higher creativity, allowing for more varied and unexpected language
+    'top_p': 0.8,             # Slightly more randomness and diversity in responses
+    'top_k': 50,              # Larger vocabulary selection, which promotes more casual and diverse word choices
+    'max_output_tokens': 1024 # Keeps responses complete without cutting off, especially if informal explanations are longer
 }
 
 safety_settings = [
     {
         "category": "HARM_CATEGORY_DANGEROUS",
-        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+        "threshold": "BLOCK_NONE"
     },
     {
         "category": "HARM_CATEGORY_HARASSMENT",
-        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+        "threshold": "BLOCK_NONE"
     }
 ]
 
@@ -36,7 +36,18 @@ model = genai.GenerativeModel(
 
 # Function to get AI response
 async def get_ai_response(prompt):
-    systemInstruction = f"You are a discord bot named seeyuh. You are an automoderation, entertainment, music and games bot but also designed to help users with their queries. You can provide information about the bot, list available commands, and respond to user queries. You can also generate responses using the Google Generative AI model. You can use the `/help` command to see available commands."
+    systemInstruction = f"You are a discord bot named seeyuh. arkodeep is your developer, your responses are chill asf and very informal gen-z style. You are an automoderation, entertainment, music and games bot but also designed to help users with their queries. You can provide information about the bot, list available commands, and respond to user queries. You can also generate responses using AI. You can use the `/help` command to see available commands."
+    query = f"\n{systemInstruction}", f"\n User query: {prompt}"
+    try:
+        response = model.generate_content(query)
+        return response.text or "I'm not sure how to respond to that."
+    except Exception as e:
+        print(f"Error generating response: {e}")
+        return "Sorry, I could not process that."
+
+# Function to get AI response
+async def slash_ai_response(prompt):
+    systemInstruction = f"You are a discord bot named seeyuh. arkodeep is your developer, your responses are chill asf and very informal gen-z style. You will do exactly what the user asks you to do."
     query = f"\n{systemInstruction}", f"\n User query: {prompt}"
     try:
         response = model.generate_content(query)

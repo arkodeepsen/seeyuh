@@ -3,7 +3,7 @@ from discord.ext import commands
 from dotenv import load_dotenv
 import os
 import time
-from ai import get_ai_response
+from ai import get_ai_response, slash_ai_response
 
 # Load environment variables
 load_dotenv()
@@ -77,7 +77,7 @@ async def info_command(interaction: discord.Interaction, user: discord.User = No
             f"**Owner:** [{owner.name}](https://discord.com/users/{owner.id})\n"
             f"**Currently serving:** {len(bot.guilds)} servers\n"
             f"**Invite:** [Click here](https://discord.com/oauth2/authorize?client_id={bot.user.id}&permissions=8&scope=bot%20applications.commands)\n"
-            f"**Support:** [GitHub](https://github.com/arkodeepsen)\n"
+            f"**Support:** [GitHub](https://github.com/arkodeepsen/seeyuh.git)\n"
             f"For more information, use `/info @user` to get user details."
         )
         embed.set_thumbnail(url=bot.user.avatar.url)
@@ -161,6 +161,22 @@ async def serverinfo_command(interaction: discord.Interaction):
     embed.set_footer(text=f"{bot.user.name}", icon_url=bot.user.avatar.url)
     await interaction.response.send_message(embed=embed)
 
+@bot.tree.command(name="roast", description="Roast a user in a light-hearted way!")
+async def roast_command(interaction: discord.Interaction, user: discord.User):
+    # Acknowledge the interaction immediately to prevent timeouts
+    await interaction.response.defer()
+
+    # Create a roast prompt specifically targeting the user
+    roast_prompt = f"Roast {user.display_name} in a funny, light-hearted, and slang style. Make it playful and not too harsh."
+
+    # Get the AI response for the roast
+    response = await slash_ai_response(roast_prompt)
+    
+    # Send the roast as a reply after deferring
+    await interaction.followup.send(
+        f"{response}"
+    )
+
 @bot.event
 async def on_message(message):
     if message.author == bot.user:
@@ -171,58 +187,91 @@ async def on_message(message):
         command_content = content.replace(f"<@!{bot.user.id}>", "").strip()
         words = command_content.split()
 
-        # Check if there are more than two words
-        if len(words) > 2:
-            # Treat the message as an AI query
-            response = await get_ai_response(command_content)
+        # Check for mentioned users
+        mentioned_users = [user for user in message.mentions if user != bot.user]
+
+        # If there are more than three words, treat as an AI query
+        if len(words) > 3:
+            ai_prompt = command_content
+            if mentioned_users:
+                user_name = mentioned_users[0].display_name
+                ai_prompt = f"{command_content} {user_name}"
+            
+            response = await get_ai_response(ai_prompt)
             await message.channel.send(response)
-        else:
-            command_found = False
-            for word in words:
-                # Check if the command exists
-                command = bot.tree.get_command(word)
-                if command:
-                    command_found = True
-                    
-                    # Create a mock interaction object
-                    class MockInteraction:
+            return  # Exit early to avoid command processing
+
+        # Proceed with command processing if message has three or fewer words
+        command_found = False
+        for word in words:
+            # Check if the command exists
+            command = bot.tree.get_command(word)
+            if command:
+                command_found = True
+
+                # Define the MockInteraction class within the on_message function
+                class MockInteraction:
+                    def __init__(self, message, mentioned_user=None):
+                        self.channel = message.channel
+                        self.guild = message.guild
+                        self.user = message.author
+                        self.id = message.id
+                        self.mentioned_user = mentioned_user  # Set the mentioned user
+
+                    async def send_message(self, content):
+                        await self.channel.send(content)
+
+                    # Simulating the `interaction.response` object
+                    class Response:
                         def __init__(self, channel):
                             self.channel = channel
 
-                        async def response(self):
-                            pass  # Not used for this context
+                        async def send_message(self, embed=None, content=None):
+                            if embed:
+                                await self.channel.send(embed=embed)
+                            else:
+                                await self.channel.send(content)
 
-                        async def send_message(self, content):
+                        async def defer(self):
+                            # Placeholder defer to mimic interaction.defer()
+                            pass
+
+                    # Adding a mock `followup` class to simulate followup messages
+                    class Followup:
+                        def __init__(self, channel):
+                            self.channel = channel
+
+                        async def send(self, content):
                             await self.channel.send(content)
 
-                        async def followup(self, content):
-                            await self.channel.send(content)
+                    @property
+                    def response(self):
+                        return self.Response(self.channel)
 
-                        # Simulating the `interaction.response` object
-                        class Response:
-                            def __init__(self, channel):
-                                self.channel = channel
+                    @property
+                    def followup(self):
+                        return self.Followup(self.channel)
 
-                            async def send_message(self, embed=None, content=None):
-                                if embed:
-                                    await self.channel.send(embed=embed)
-                                else:
-                                    await self.channel.send(content)
+                # If a specific user was mentioned, pass them into the command
+                target_user = mentioned_users[0] if mentioned_users else None
+                mock_interaction = MockInteraction(message, target_user)
 
-                        @property
-                        def response(self):
-                            return self.Response(self.channel)
-
-                    mock_interaction = MockInteraction(message.channel)
-
-                    # Call the command callback with the mock interaction
+                # Call the command callback with the mock interaction
+                if target_user:
+                    await command.callback(mock_interaction, target_user)  # Include the user argument
+                else:
                     await command.callback(mock_interaction)
-                    break
+                break
+
+        if not command_found:
+            # Treat as an AI query, include any mentioned user's name
+            ai_prompt = command_content
+            if mentioned_users:
+                user_name = mentioned_users[0].display_name
+                ai_prompt = f"{command_content} {user_name}"
             
-            if not command_found:
-                # If no command was found, treat it as an AI query
-                response = await get_ai_response(command_content)
-                await message.channel.send(response)
+            response = await get_ai_response(ai_prompt)
+            await message.channel.send(response)
 
     await bot.process_commands(message)
 
