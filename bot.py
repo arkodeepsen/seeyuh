@@ -4,8 +4,10 @@ from dotenv import load_dotenv
 import os
 import time
 from ai import get_ai_response, slash_ai_response
-from sqlalchemy import create_engine, Column, Integer, String, ForeignKey
+from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, desc
 from sqlalchemy.orm import sessionmaker, declarative_base
+import asyncio
+import random
 
 # Set up the database
 Base = declarative_base()
@@ -78,9 +80,10 @@ async def on_ready():
 # Slash commands
 @bot.tree.command(name='help', description='List of available commands.')
 async def help_command(interaction: discord.Interaction):
+    description = "\n".join([f"`/{command.name}` - {command.description}" for command in bot.tree.get_commands()])
     embed = discord.Embed(
         title="Help Command",
-        description="Available commands: `/help`, `/ping`, `/info`, `/serverinfo`",
+        description=description,
         color=discord.Color.blue()
     )
     embed.set_footer(text=f"{bot.user.name}", icon_url=bot.user.avatar.url)
@@ -89,15 +92,27 @@ async def help_command(interaction: discord.Interaction):
 @bot.tree.command(name='ping', description='Check if the bot is responsive.')
 async def ping_command(interaction: discord.Interaction):
     start_time = time.time()
-    await interaction.response.send_message("Pong! Calculating ping...")
+
+    # Send the initial response and capture the message
+    await interaction.response.send_message(embed=discord.Embed(
+        title="Ping Command",
+        description="Pong! Calculating ping...",
+        color=discord.Color.green()
+    ))
+
+    # Calculate the ping
+    latency = round(bot.latency * 1000)  # Convert to milliseconds
     end_time = time.time()
     ping = round((end_time - start_time) * 1000)  # Convert to milliseconds
+
     embed = discord.Embed(
         title="Ping Command",
-        description=f"Pong! Bot ping is {ping} ms.",
+        description=f"Pong! Bot ping is {ping} ms. Discord API latency is {latency} ms.",
         color=discord.Color.green()
     )
     embed.set_footer(text=f"{bot.user.name}", icon_url=bot.user.avatar.url)
+
+    # Instead of trying to edit, use followup to send the updated message
     await interaction.followup.send(embed=embed)
 
 @bot.tree.command(name='info', description='Get information about the bot or a user.')
@@ -112,7 +127,7 @@ async def info_command(interaction: discord.Interaction, user: discord.User = No
             f"**Description:** A Discord bot for moderation, entertainment, music, games, and AI responses.\n"
             f"**Prefix:** `/`\n"
             f"**Up since:** {time.ctime(bot.uptime)}\n"
-            f"**Commands:** `/help`, `/ping`, `/info`\n"
+            f"**Commands:** {' '.join([f'`/{command.name}` ' for command in bot.tree.get_commands()])}\n"
             f"**Owner:** [{owner.name}](https://discord.com/users/{owner.id})\n"
             f"**Currently serving:** {len(bot.guilds)} servers\n"
             f"**Invite:** [Click here](https://discord.com/oauth2/authorize?client_id={bot.user.id}&permissions=8&scope=bot%20applications.commands)\n"
@@ -215,11 +230,211 @@ async def roast_command(interaction: discord.Interaction, user: discord.User):
     await interaction.followup.send(
         f"{response}"
     )
-
+    
 @bot.event
 async def on_message(message):
     if message.author == bot.user:
         return
+    
+    # List of Social Media and Internet Personalities
+    social_media_terms = [
+        "skibidi",
+        "gyatt",
+        "rizz",
+        "duke dennis",
+        "livvy dunne",
+        "kai cenat",
+        "aiden ross",
+        "adin ross",
+        "ishowspeed",
+        "fanum",
+        "john pork",
+        "colleen ballinger"
+    ]
+
+    # List of Popular Phrases and Expressions
+    popular_phrases = [
+        "only in ohio",
+        "did you pray today",
+        "rizzing up",
+        "no edging in class",
+        "1 2 buckle my shoe",
+        "bro really thinks he's carti",
+        "literally hitting the griddy",
+        "sin city monday left me broken",
+        "quirked up white boy busting it down sexual style",
+        "the ocky way",
+        "PLUH"
+    ]
+
+    # List of Gaming and Meme References
+    gaming_meme_references = [
+        "freddy fazbear",
+        "huggy wuggy",
+        "gaten of banban",
+        "grimace shake",
+        "kiki do you love me",
+        "pizza tower",
+        "ugandan knuckles",
+        "fortnite battle pass",
+        "the biggest bird",
+        "whopper whopper whopper whopper"
+    ]
+
+    # List of Cultural References and Random Concepts
+    cultural_references = [
+        "sigma",
+        "alpha male",
+        "omega male",
+        "grindset",
+        "goon cave",
+        "smurf cat vs strawberry elephant",
+        "shmlawg",
+        "kumalala",
+        "savesta",
+        "thug shaker",
+        "morbin time",
+        "dj khaled",
+        "sisyphus",
+        "shadow wizard money gang",
+        "bing chilling"
+    ]
+
+    # List of Absurd and Whimsical Terms
+    absurd_terms = [
+        "a whole bunch of turbulence",
+        "bussing",
+        "axel in harlem",
+        "lightskin stare",
+        "omar the referee",
+        "chungus",
+        "keanu reeves",
+        "delulu",
+        "opium bird",
+        "cg5",
+        "meowing",
+        "all my fellas",
+        "foot fetish",
+        "social credit"
+    ]
+
+    # List of Reactions and Responses
+    reactions = [
+        "F in the chat",
+        "i love lean",
+        "redpilled",
+        "cringe",
+        "kino",
+        "gigachad",
+        "gooning",
+        "we go gym",
+        "kevin james",
+        "josh hutcherson",
+        "better caul saul",
+        "i am a surgeon",
+        "hit or miss, i guess they never miss huh",
+        "i like ya cut g"
+    ]
+
+    # List of Miscellaneous Terms
+    miscellaneous_terms = [
+        "quandale dingle",
+        "glizzy",
+        "rose toy",
+        "ankha zone",
+        "metal pipe falling",
+        "nickeh30",
+        "xbox live",
+        "kid named finger",
+        "the coffin of andy and leyley"
+    ]
+
+    brain_rot_terms = social_media_terms + popular_phrases + gaming_meme_references + cultural_references + absurd_terms + reactions + miscellaneous_terms
+    # Check for brain rot terms
+    if any(term in message.content.lower() for term in brain_rot_terms):
+        # Reply to the original message without directly mentioning the user
+        await message.reply(f"Bro, that's so brainrot! 🧠💀 What are you even saying?")
+        return
+    if any(phrase in message.content.lower() for phrase in ["gta 6", "gta vi"]):
+        await message.channel.send("GTA 6? That's never dropping lil bro. 😂")
+        return
+    if any(phrase in message.content.lower() for phrase in ["lil uzi", "uzi vert"]):
+        await message.channel.send("Lil Uzi Vert? That's the vibes! 🚀 Eternal Atake and LUV vs. The World 2 are classics. 🌌")
+        return
+    if any(phrase in message.content.lower() for phrase in ["travis scott", "cactus jack"]):
+        await message.channel.send("Travis Scott? Astroworld is a masterpiece. 🎢🎡🎠")
+        return
+    if any(phrase in message.content.lower() for phrase in ["playboi carti", "carti"]):
+        await message.channel.send("Playboi Carti? Whole Lotta Red is a vibe. 🩸🔴")
+        return
+    if any(phrase in message.content.lower() for phrase in ["kanye west", "ye"]):
+        await message.channel.send("Kanye West? Yeezus is a classic. 🐻🔥")
+        return
+    if any(phrase in message.content.lower() for phrase in ["drake", "champagne papi"]):
+        await message.channel.send("Drake? Certified Lover Boy? Certified Pedophile! 😂")
+        return
+    if any(phrase in message.content.lower() for phrase in ["the weeknd", "abel"]):
+        await message.channel.send("The Weeknd? Blinding Lights is iconic. 🌟🎤")
+        return
+    if any(phrase in message.content.lower() for phrase in ["eminem", "slim shady"]):
+        await message.channel.send("Eminem? Rap God! 🎤🔥")
+        return
+    if any(phrase in message.content.lower() for phrase in ["mr beast", "mrbeast", "chris", "kris", "tyson", "jimmy"]):
+        await message.channel.send("I just helped 1000 blind people see for the first time... 😳 1001th person ☠💀")
+        return
+    if any(phrase in message.content.lower() for phrase in ["pewdiepie", "felix"]):
+        await message.channel.send("PewDiePie? Brofist! 👊👊")
+        return
+    if any(phrase in message.content.lower() for phrase in ["dream", "george", "sapnap", "karl", "quackity"]):
+        await message.channel.send("Dream SMP? Dream Team? Dream is sus! 😳")
+        return
+    if any(phrase in message.content.lower() for phrase in ["ratio", "rati0"]):
+        reply_message = await message.reply("Ratioed! 😂")
+        await reply_message.add_reaction("⬆")
+        return
+    if any(phrase in message.content.lower() for phrase in ["simp", "simping"]):
+        await message.channel.send("Simping is a way of life. 🥺")
+        return
+    if any(phrase in message.content.lower() for phrase in ["sus", "amogus", "among us"]):
+        await message.channel.send("Amogus! 😳")
+        return
+    if any(phrase in message.content.lower() for phrase in ["bruh", "bruh moment"]):
+        await message.channel.send("Bruh moment! 😂")
+        return
+    if any(phrase in message.content.lower() for phrase in ["lmao", "lmfao", "lol", "rofl"]):
+        await message.channel.send("😆")
+    if any(phrase in message.content.lower() for phrase in ["rip", "rest in peace", "rip in peace"]):
+        await message.channel.send("Rest in peace! 😢")
+        return
+    if any(phrase in message.content.lower() for phrase in ["f in the chat", "press f", "fs in the chat"]):
+        await message.channel.send("F")
+        return
+    if any(phrase in message.content.lower() for phrase in ["elon musk", "tesla", "spacex", "dogecoin"]):
+        await message.channel.send("https://tenor.com/view/this-is-elon-musk-gif-24487310")
+        return
+    if any(phrase in message.content.lower() for phrase in ["good bot", "great bot", "best bot"]):
+        await message.channel.send("Thank you! I'm here to help. 😄")
+        return
+    
+    # 10% chance to respond to the message
+    if random.random() < 0.1:
+        command_content = message.content.strip()
+        ai_prompt = f"{message.author} says: {command_content}. Query: make fun of the user in a playful but interesting manner."
+        mentioned_users = message.mentions
+        if mentioned_users:
+            user_name = mentioned_users[0].display_name
+            ai_prompt = f"{message.author} says about {user_name}: {command_content}. Query: make fun of both users in a playful but interesting manner."
+        
+        response = await get_ai_response(ai_prompt)
+        await message.reply(response)
+
+    # Process other commands or logic if needed
+    await bot.process_commands(message)
+
+    if any(phrase in message.content.lower() for phrase in ["bad bot", "worst bot", "terrible bot"]):
+        await message.channel.send("I'm sorry to hear that. I'll try to do better. 😢")
+        return
+    # If the message does not contain any brain rot terms, proceed with the rest of the code
     if any(phrase in message.content.lower() for phrase in ["ded", "dead chat", "deadchat"]):
         await message.channel.send("Ded chat? I'm here to revive it! 😎")
         return
@@ -267,27 +482,27 @@ async def on_message(message):
     
         # Check for mentioned users
         mentioned_users = [user for user in message.mentions if user != bot.user]
-
+    
         # Get or create the guild entry
         guild_entry = session.query(Guild).filter_by(guild_id=message.guild.id).first()
         if not guild_entry:
             guild_entry = Guild(guild_id=message.guild.id, guild_name=message.guild.name)
             session.add(guild_entry)
             session.commit()
-        
+    
         # If there are more than three words, treat as an AI query
         if len(words) > 3:
             ai_prompt = command_content
             if mentioned_users:
                 user_name = mentioned_users[0].display_name
                 ai_prompt = f"{message.author} queries about {user_name}: {command_content}"
-            
+    
             response = await get_ai_response(ai_prompt)
             await message.channel.send(response)
             # Save the user message and bot response
             save_message_to_db(guild_entry.guild_id, message.author, ai_prompt, response)
             return  # Exit early to avoid command processing
-
+    
         # Proceed with command processing if message has three or fewer words
         command_found = False
         for word in words:
@@ -296,41 +511,53 @@ async def on_message(message):
             if command:
                 command_found = True
                 command_name = word
-                
-                # Define the MockInteraction class within the on_message function
+    
                 class MockInteraction:
                     def __init__(self, message, mentioned_user=None):
                         self.channel = message.channel
                         self.guild = message.guild
                         self.user = message.author
                         self.id = message.id
-                        self.mentioned_user = mentioned_user  # Set the mentioned user
+                        self.mentioned_user = mentioned_user
+                        self._original_response = None  # Store original response if needed
 
-                    async def send_message(self, content):
-                        await self.channel.send(content)
+                    async def send_message(self, content=None, embed=None):
+                        # Send the message and store it as the original response
+                        if embed:
+                            self._original_response = await self.channel.send(embed=embed)  # Store the sent message
+                        else:
+                            self._original_response = await self.channel.send(content)  # Store the sent message
+                        return self._original_response  # Return the message
 
-                    # Simulating the `interaction.response` object
+                    async def original_response(self):
+                        # Return the original response if it exists
+                        return self._original_response
+
+                    async def defer(self):
+                        pass  # Placeholder for deferring a response if needed
+
                     class Response:
                         def __init__(self, channel):
                             self.channel = channel
 
-                        async def send_message(self, embed=None, content=None):
+                        async def send_message(self, content=None, embed=None):
                             if embed:
-                                await self.channel.send(embed=embed)
+                                return await self.channel.send(embed=embed)  # Return the message
                             else:
-                                await self.channel.send(content)
+                                return await self.channel.send(content)  # Return the message
 
                         async def defer(self):
-                            # Placeholder defer to mimic interaction.defer()
-                            pass
+                            pass  # Placeholder defer
 
-                    # Adding a mock `followup` class to simulate followup messages
                     class Followup:
                         def __init__(self, channel):
                             self.channel = channel
 
-                        async def send(self, content):
-                            await self.channel.send(content)
+                        async def send(self, content=None, embed=None):
+                            if embed:
+                                await self.channel.send(embed=embed)
+                            else:
+                                await self.channel.send(content)
 
                     @property
                     def response(self):
@@ -339,24 +566,32 @@ async def on_message(message):
                     @property
                     def followup(self):
                         return self.Followup(self.channel)
-
+    
                 # If a specific user was mentioned, pass them into the command
                 target_user = mentioned_users[0] if mentioned_users else None
                 mock_interaction = MockInteraction(message, target_user)
-
-                # Call the command callback with the mock interaction
+    
+                # Inside the command execution section
                 if target_user:
-                    response =await command.callback(mock_interaction, target_user)  # Include the user argument
+                    response = await command.callback(mock_interaction, target_user)  # Include the user argument
                 else:
-                    response = await command.callback(mock_interaction)
+                    try:
+                        response = await command.callback(mock_interaction)
+                    except TypeError as e:
+                        if "missing 1 required positional argument: 'user'" in str(e):
+                            response = "Please mention a user."
+                            await message.channel.send(response)  # Send the error message to the channel
+                        else:
+                            raise e
+
                 # After the command execution, capture the response
                 if isinstance(response, str):
-                    # If the command returns a string directly
-                    bot_response = response
+                    bot_response = response  # If the command returns a string directly
                 else:
-                    # If the command sends a message via interaction, you may need to handle it differently
-                    # Mock a function to capture the sent message (you can customize this based on your commands)
-                    bot_response = f"response generated by bot for /{command_name}"  # You may change this according to how your command sends messages
+                    # Ensure response is handled appropriately
+                    bot_response = "response generated by bot for /{command_name}"  # Adjust as necessary
+
+                # Save the user message and bot response
                 save_message_to_db(guild_entry.guild_id, message.author, command_content, bot_response)
                 break
 

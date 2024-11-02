@@ -25,6 +25,10 @@ safety_settings = [
     {
         "category": "HARM_CATEGORY_HARASSMENT",
         "threshold": "BLOCK_NONE"
+    },
+    {
+        "category": "HARM_CATEGORY_SEXUAL",
+        "threshold": "BLOCK_NONE"
     }
 ]
 
