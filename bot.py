@@ -4,6 +4,45 @@ from dotenv import load_dotenv
 import os
 import time
 from ai import get_ai_response, slash_ai_response
+from sqlalchemy import create_engine, Column, Integer, String, ForeignKey
+from sqlalchemy.orm import sessionmaker, declarative_base
+
+# Set up the database
+Base = declarative_base()
+
+class Guild(Base):
+    __tablename__ = 'guilds'
+
+    id = Column(Integer, primary_key=True)
+    guild_id = Column(String, unique=True)
+    guild_name = Column(String)
+
+class User(Base):
+    __tablename__ = 'users'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(String, unique=True)
+    username = Column(String)
+    discriminator = Column(String)
+    guild_id = Column(String, ForeignKey('guilds.guild_id'))
+
+class Message(Base):
+    __tablename__ = 'messages'
+
+    id = Column(Integer, primary_key=True)
+    content = Column(String)
+    user_id = Column(String, ForeignKey('users.user_id'))
+    guild_id = Column(String, ForeignKey('guilds.guild_id'))
+    response = Column(String)
+
+# Create the SQLite database
+DATABASE_URL = "sqlite:///bot_messages.db"
+engine = create_engine(DATABASE_URL)
+Base.metadata.create_all(engine)
+
+# Create a session
+Session = sessionmaker(bind=engine)
+session = Session()
 
 # Load environment variables
 load_dotenv()
@@ -181,24 +220,72 @@ async def roast_command(interaction: discord.Interaction, user: discord.User):
 async def on_message(message):
     if message.author == bot.user:
         return
-
-    if bot.user.mentioned_in(message):
+    if any(phrase in message.content.lower() for phrase in ["ded", "dead chat", "deadchat"]):
+        await message.channel.send("Ded chat? I'm here to revive it! 😎")
+        return
+    if any(phrase in message.content.lower() for phrase in ["yamete", "kudasai", "moan", "horny"]):
+        await message.channel.send("⣿⣿⣷⡁⢆⠈⠕⢕⢂⢕⢂⢕⢂⢔⢂⢕⢄⠂⣂⠂⠆⢂⢕⢂⢕⢂⢕⢂⢕⢂\n"
+                                "⣿⣿⣿⡷⠊⡢⡹⣦⡑⢂⢕⢂⢕⢂⢕⢂⠕⠔⠌⠝⠛⠶⠶⢶⣦⣄⢂⢕⢂⢕\n"
+                                "⣿⣿⠏⣠⣾⣦⡐⢌⢿⣷⣦⣅⡑⠕⠡⠐⢿⠿⣛⠟⠛⠛⠛⠛⠡⢷⡈⢂⢕⢂\n"
+                                "⠟⣡⣾⣿⣿⣿⣿⣦⣑⠝⢿⣿⣿⣿⣿⣿⡵⢁⣤⣶⣶⣿⢿⢿⢿⡟⢻⣤⢑⢂\n"
+                                "⣾⣿⣿⡿⢟⣛⣻⣿⣿⣿⣦⣬⣙⣻⣿⣿⣷⣿⣿⢟⢝⢕⢕⢕⢕⢽⣿⣿⣷⣔\n"
+                                "⣿⣿⠵⠚⠉⢀⣀⣀⣈⣿⣿⣿⣿⣿⣿⣿⣿⣿⣗⢕⢕⢕⢕⢕⢕⣽⣿⣿⣿⣿\n"
+                                "⢷⣂⣠⣴⣾⡿⡿⡻⡻⣿⣿⣴⣿⣿⣿⣿⣿⣿⣷⣵⣵⣵⣷⣿⣿⣿⣿⣿⣿⡿\n"
+                                "⢌⠻⣿⡿⡫⡪⡪⡪⡪⣺⣿⣿⣿⣿⣿⠿⠿⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠃\n"
+                                "⠣⡁⠹⡪⡪⡪⡪⣪⣾⣿⣿⣿⣿⠋⠐⢉⢍⢄⢌⠻⣿⣿⣿⣿⣿⣿⣿⣿⠏⠈\n"
+                                "⡣⡘⢄⠙⣾⣾⣾⣿⣿⣿⣿⣿⣿⡀⢐⢕⢕⢕⢕⢕⡘⣿⣿⣿⣿⣿⣿⠏⠠⠈\n"
+                                "⠌⢊⢂⢣⠹⣿⣿⣿⣿⣿⣿⣿⣿⣧⢐⢕⢕⢕⢕⢕⢅⣿⣿⣿⣿⡿⢋⢜⠠⠈\n"
+                                "⠄⠁⠕⢝⡢⠈⠻⣿⣿⣿⣿⣿⣿⣿⣷⣕⣑⣑⣑⣵⣿⣿⣿⡿⢋⢔⢕⣿⠠⠈\n"
+                                "⠨⡂⡀⢑⢕⡅⠂⠄⠉⠛⠻⠿⢿⣿⣿⣿⣿⣿⣿⣿⣿⡿⢋⢔⢕⢕⣿⣿⠠⠈\n"
+                                "⠄⠪⣂⠁⢕⠆⠄⠂⠄⠁⡀⠂⡀⠄⢈⠉⢍⢛⢛⢛⢋⢔⢕⢕⢕⣽⣿⣿⠠⠈")
+        return
+    if any(phrase in message.content.lower() for phrase in ["motivation", "motivate"]):
+        await message.channel.send("Did someone say....\n"
+                           "⠀⠀⢐⢸⢸⢭⢗⢯⡺⡵⣝⢮⡳⣝⢮⢳⢕⢽⢸⡪⡪⡊⢆⢑⢐⠀⠀⠀⠀⠀\n"
+                           "⠀⢀⢢⢣⢏⢯⣓⢧⢳⡳⣕⢷⣝⡮⣗⡽⡹⣜⢕⢧⢳⢩⠢⡡⢂⠈⠀⠀⠀⠀\n"
+                           "⠀⢂⢕⢕⢕⢗⢎⡮⣳⢽⢺⡳⣳⢽⡳⣝⢽⢸⢸⢣⢣⢣⠱⡨⢂⠂⡀⠀⠀⠀\n"
+                           "⠀⡰⡑⡕⡕⡕⡧⡯⢮⡳⡕⠕⠌⢂⠡⢑⢕⢧⢑⠑⠁⠠⢁⢂⢂⠂⠀⠀⠀⠀\n"
+                           "⠀⠔⢈⢎⢮⢪⡳⣝⣕⢖⢜⠬⢌⢂⢌⢮⢽⢕⠅⠀⠀⠢⡂⡄⠄⠀⠀⠀⠀⠀\n"
+                           "⠀⠐⢐⢕⢇⡗⣝⣞⢮⣻⣪⢯⢮⢮⢺⣪⢯⣫⢊⠀⠀⢁⠢⡂⡂⢄⢁⠀⠀⠀\n"
+                           "⠀⠀⡂⢳⣈⢯⡪⡺⣝⣞⢾⢝⣮⡳⡽⣺⢝⣞⢆⠠⠀⠐⠠⡃⢕⠡⠀⠀⠀⠀\n"
+                           "⠀⠀⠀⠨⢺⢜⢜⡝⡮⣺⢽⢝⡮⣫⢯⠞⡟⡎⡇⠀⠀⠀⠐⠈⠔⡈⠀⠀⠀⠀\n"
+                           "⠀⠀⠀⠌⠢⡑⢕⢭⡫⣞⢽⢕⡯⣗⢷⢕⡮⡢⡂⠄⢁⠠⢈⠄⠡⠀⠀⠀⠀⢀\n"
+                           "⠀⠀⠀⠠⠑⢜⠸⡜⡞⣎⢗⡽⡺⣵⡫⡯⡺⡪⠣⡁⡂⠌⠠⠐⠀⠀⠀⠀⠀⢀\n"
+                           "⠀⠀⠀⠀⠅⠁⠈⡎⡯⣪⡳⡕⡝⡔⡅⣖⢔⢜⢄⢂⠠⠈⠄⡀⠀⠀⠀⠀⠀⠀\n"
+                           "⠀⠀⠀⢐⠀⠀⠀⡇⡏⡮⣪⢳⡹⣪⢣⢣⢡⢱⢨⠠⡂⠌⡐⠀⠀⠀⠀⠀⠀⠀\n"
+                           "⠀⠀⠀⠈⠀⠀⢀⠘⢎⢎⢎⢧⡫⣎⣗⣝⢮⢪⣊⠪⡐⢐⠀⠀⠀⠀⠀⠀⠀⠀\n"
+                           "⠀⠀⡀⠌⠀⠀⠀⠀⠌⠘⠜⡜⡜⡮⢮⢺⢸⢪⢒⠕⡈⠀⠀⠀⠀⠀⠀⠀⠀⠄\n"
+                           "⢀⢀⠂⢅⠂⠀⠀⠀⠀⠐⠀⡈⠢⢣⢃⡃⡁⠊⠐⠀⠀⠀⢀⠀⠀⠀⠀⠀⢐⠀\n"
+                           "\n"
+                           "...M O T I V A T I O N?")
+        return
+    if bot.user.mentioned_in(message) or "seeyuh" in message.content.lower():
         content = message.content.strip()
         command_content = content.replace(f"<@!{bot.user.id}>", "").strip()
+        command_content = command_content.replace("seeyuh", "").strip()
         words = command_content.split()
-
+    
         # Check for mentioned users
         mentioned_users = [user for user in message.mentions if user != bot.user]
 
+        # Get or create the guild entry
+        guild_entry = session.query(Guild).filter_by(guild_id=message.guild.id).first()
+        if not guild_entry:
+            guild_entry = Guild(guild_id=message.guild.id, guild_name=message.guild.name)
+            session.add(guild_entry)
+            session.commit()
+        
         # If there are more than three words, treat as an AI query
         if len(words) > 3:
             ai_prompt = command_content
             if mentioned_users:
                 user_name = mentioned_users[0].display_name
-                ai_prompt = f"{command_content} {user_name}"
+                ai_prompt = f"{message.author} queries about {user_name}: {command_content}"
             
             response = await get_ai_response(ai_prompt)
             await message.channel.send(response)
+            # Save the user message and bot response
+            save_message_to_db(guild_entry.guild_id, message.author, ai_prompt, response)
             return  # Exit early to avoid command processing
 
         # Proceed with command processing if message has three or fewer words
@@ -208,7 +295,8 @@ async def on_message(message):
             command = bot.tree.get_command(word)
             if command:
                 command_found = True
-
+                command_name = word
+                
                 # Define the MockInteraction class within the on_message function
                 class MockInteraction:
                     def __init__(self, message, mentioned_user=None):
@@ -258,9 +346,18 @@ async def on_message(message):
 
                 # Call the command callback with the mock interaction
                 if target_user:
-                    await command.callback(mock_interaction, target_user)  # Include the user argument
+                    response =await command.callback(mock_interaction, target_user)  # Include the user argument
                 else:
-                    await command.callback(mock_interaction)
+                    response = await command.callback(mock_interaction)
+                # After the command execution, capture the response
+                if isinstance(response, str):
+                    # If the command returns a string directly
+                    bot_response = response
+                else:
+                    # If the command sends a message via interaction, you may need to handle it differently
+                    # Mock a function to capture the sent message (you can customize this based on your commands)
+                    bot_response = f"response generated by bot for /{command_name}"  # You may change this according to how your command sends messages
+                save_message_to_db(guild_entry.guild_id, message.author, command_content, bot_response)
                 break
 
         if not command_found:
@@ -268,12 +365,32 @@ async def on_message(message):
             ai_prompt = command_content
             if mentioned_users:
                 user_name = mentioned_users[0].display_name
-                ai_prompt = f"{command_content} {user_name}"
+                ai_prompt = f"{message.author} queries about {user_name}: {command_content}"
             
             response = await get_ai_response(ai_prompt)
             await message.channel.send(response)
 
+            # Save the user message and bot response
+            save_message_to_db(guild_entry.guild_id, message.author, ai_prompt, response)
+
     await bot.process_commands(message)
+    
+def save_message_to_db(guild_id, author, user_message, bot_response):
+    # Get or create the user entry
+    user_entry = session.query(User).filter_by(user_id=author.id).first()
+    if not user_entry:
+        user_entry = User(user_id=author.id, username=author.name, discriminator=author.discriminator, guild_id=guild_id)
+        session.add(user_entry)
+        session.commit()
+
+    new_message = Message(
+        content=user_message,
+        user_id=user_entry.user_id,
+        guild_id=guild_id,
+        response=bot_response
+    )
+    session.add(new_message)
+    session.commit()
 
 # Run the bot
 bot.run(DISCORD_TOKEN)
