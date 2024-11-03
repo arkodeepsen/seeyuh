@@ -217,6 +217,10 @@ async def serverinfo_command(interaction: discord.Interaction):
     embed.set_footer(text=f"{bot.user.name}", icon_url=bot.user.avatar.url)
     await interaction.response.send_message(embed=embed)
 
+@bot.tree.command(name='say', description='Make the bot say something.')
+async def say_command(interaction: discord.Interaction, content: str):
+    await interaction.response.send_message(content)
+
 @bot.tree.command(name="roast", description="Roast a user in a light-hearted way!")
 async def roast_command(interaction: discord.Interaction, user: discord.User):
     # Acknowledge the interaction immediately to prevent timeouts
@@ -232,7 +236,42 @@ async def roast_command(interaction: discord.Interaction, user: discord.User):
     await interaction.followup.send(
         f"{response}"
     )
-    
+
+from datetime import timezone as dt_timezone
+from datetime import datetime, timedelta
+# Define the function outside of on_message
+def fetch_recent_message(supabase, guild_id, user_id):
+    recent_threshold = datetime.now(dt_timezone.utc) - timedelta(seconds=300)
+
+    # Fetch the last message from the user within the recent threshold
+    user_message_response = supabase.table('messages') \
+        .select('*') \
+        .eq('guild_id', guild_id) \
+        .eq('user_id', user_id) \
+        .order('created_at', desc=True) \
+        .limit(1) \
+        .execute()
+
+    if user_message_response.data:
+        user_message = user_message_response.data[0]
+        user_timestamp = datetime.strptime(user_message['created_at'], '%Y-%m-%dT%H:%M:%S.%f%z')
+        
+        if user_timestamp > recent_threshold:
+            return user_message  # Return user's last message if it's recent
+
+    # If the user's last message is too old or nonexistent, get the last guild message
+    guild_message_response = supabase.table('messages') \
+        .select('*') \
+        .eq('guild_id', guild_id) \
+        .order('created_at', desc=True) \
+        .limit(1) \
+        .execute()
+
+    if guild_message_response.data:
+        return guild_message_response.data[0]  # Return the last guild message
+
+    return None  # No recent messages found
+  
 @bot.event
 async def on_message(message):
     if message.author == bot.user:
@@ -458,21 +497,6 @@ async def on_message(message):
     if any(phrase in message.content.lower() for phrase in ["good bot", "great bot", "best bot"]):
         await message.channel.send("Thank you! I'm here to help. 😄")
         return
-    
-    # 10% chance to respond to the message
-    if random.random() < 0.1:
-        command_content = message.content.strip()
-        ai_prompt = f"{message.author} says: {command_content}. Query: make fun of the user in a playful but interesting manner."
-        mentioned_users = message.mentions
-        if mentioned_users:
-            user_name = mentioned_users[0].display_name
-            ai_prompt = f"{message.author} says about {user_name}: {command_content}. Query: make fun of both users in a playful but interesting manner."
-        
-        response = await get_ai_response(ai_prompt)
-        await message.reply(response)
-
-    # Process other commands or logic if needed
-    await bot.process_commands(message)
 
     if any(phrase in message.content.lower() for phrase in ["bad bot", "worst bot", "terrible bot"]):
         await message.channel.send("I'm sorry to hear that. I'll try to do better. 😢")
@@ -522,7 +546,16 @@ async def on_message(message):
         command_content = content.replace(f"<@!{bot.user.id}>", "").strip()
         command_content = command_content.replace("seeyuh", "").strip()
         words = command_content.split()
-    
+
+        # Retrieve the last relevant message, prioritizing the user’s recent message
+        last_message = fetch_recent_message(supabase, guild_id=str(message.guild.id), user_id=str(message.author.id))
+
+        if last_message:
+            context_message = f"Last relevant message in the guild: {last_message['content']}\n"
+            context_message += f"Bot response to that message: {last_message['response']}\n"
+        else:
+            context_message = ""
+
         # Check for mentioned users
         mentioned_users = [user for user in message.mentions if user != bot.user]
 
@@ -548,15 +581,18 @@ async def on_message(message):
     
         # If there are more than three words, treat as an AI query
         if len(words) > 3:
-            ai_prompt = command_content
+            author_name = message.author.display_name
+            current_query = f"from user {author_name} : {command_content}."
+            ai_prompt = context_message + "Current query: " + current_query
             if mentioned_users:
                 user_name = mentioned_users[0].display_name
-                ai_prompt = f"{message.author} queries about {user_name}: {command_content}"
+                current_query = f"from user {author_name} about user {user_name} : {command_content}."
+                ai_prompt = context_message + "Current query: " + current_query
     
             response = await get_ai_response(ai_prompt)
             await message.channel.send(response)
             # Save the user message and bot response
-            save_message_to_db(str(message.guild.id), message.author, ai_prompt, response)
+            save_message_to_db(str(message.guild.id), message.author, current_query, response)
             return  # Exit early to avoid command processing
     
         # Proceed with command processing if message has three or fewer words
@@ -653,17 +689,151 @@ async def on_message(message):
 
         if not command_found:
             # Treat as an AI query, include any mentioned user's name
-            ai_prompt = command_content
+            author_name = message.author.display_name
+            current_query = f"from user {author_name} : {command_content}."
+            ai_prompt = context_message + "Current query: " + current_query
             if mentioned_users:
                 user_name = mentioned_users[0].display_name
-                ai_prompt = f"{message.author} queries about {user_name}: {command_content}"
+                current_query = f"from user {author_name} about user {user_name} : {command_content}."
+                ai_prompt = context_message + "Current query:" + current_query
             
             response = await get_ai_response(ai_prompt)
             await message.channel.send(response)
-
             # Save the user message and bot response
-            save_message_to_db(str(message.guild.id), message.author, ai_prompt, response)
+            save_message_to_db(str(message.guild.id), message.author, current_query, response)
+            return  # Exit early to avoid command processing
+    
+    command_content = message.content.strip()
+    words = command_content.split()
+    if 0 < len(words) <= 2:
+        # Check for mentioned users
+        mentioned_users = [user for user in message.mentions if user != bot.user]
+        # Proceed with command processing if message has three or fewer words
+        command_found = False
+        for word in words:
+            # Check if the command exists
+            command = bot.tree.get_command(word)
+            if command:
+                command_found = True
+                command_name = word
 
+                # Check if the guild entry exists
+                guild_entry = supabase.table('guilds').select('*').eq('guild_id', str(message.guild.id)).execute()
+
+                # Insert or update the guild entry based on existence
+                if not guild_entry.data:  # If no existing entry, insert
+                    try:
+                        supabase.table('guilds').insert({
+                            'guild_id': str(message.guild.id),
+                            'guild_name': message.guild.name
+                        }).execute()
+                    except Exception as e:
+                        print(f"Error inserting guild: {e}")
+                else:  # If entry exists, update
+                    try:
+                        supabase.table('guilds').update({
+                            'guild_name': message.guild.name
+                        }).eq('guild_id', str(message.guild.id)).execute()
+                    except Exception as e:
+                        print(f"Error updating guild: {e}")
+                
+                class MockInteraction:
+                    def __init__(self, message, mentioned_user=None):
+                        self.channel = message.channel
+                        self.guild = message.guild
+                        self.user = message.author
+                        self.id = message.id
+                        self.mentioned_user = mentioned_user
+                        self._original_response = None  # Store original response if needed
+
+                    async def send_message(self, content=None, embed=None):
+                        # Send the message and store it as the original response
+                        if embed:
+                            self._original_response = await self.channel.send(embed=embed)  # Store the sent message
+                        else:
+                            self._original_response = await self.channel.send(content)  # Store the sent message
+                        return self._original_response  # Return the message
+
+                    async def original_response(self):
+                        # Return the original response if it exists
+                        return self._original_response
+
+                    async def defer(self):
+                        pass  # Placeholder for deferring a response if needed
+
+                    class Response:
+                        def __init__(self, channel):
+                            self.channel = channel
+
+                        async def send_message(self, content=None, embed=None):
+                            if embed:
+                                return await self.channel.send(embed=embed)  # Return the message
+                            else:
+                                return await self.channel.send(content)  # Return the message
+
+                        async def defer(self):
+                            pass  # Placeholder defer
+
+                    class Followup:
+                        def __init__(self, channel):
+                            self.channel = channel
+
+                        async def send(self, content=None, embed=None):
+                            if embed:
+                                await self.channel.send(embed=embed)
+                            else:
+                                await self.channel.send(content)
+
+                    @property
+                    def response(self):
+                        return self.Response(self.channel)
+
+                    @property
+                    def followup(self):
+                        return self.Followup(self.channel)
+    
+                # If a specific user was mentioned, pass them into the command
+                target_user = mentioned_users[0] if mentioned_users else None
+                mock_interaction = MockInteraction(message, target_user)
+    
+                # Inside the command execution section
+                if target_user:
+                    response = await command.callback(mock_interaction, target_user)  # Include the user argument
+                else:
+                    try:
+                        response = await command.callback(mock_interaction)
+                    except TypeError as e:
+                        if "missing 1 required positional argument: 'user'" in str(e):
+                            response = "Please mention a user."
+                            await message.channel.send(response)  # Send the error message to the channel
+                        else:
+                            raise e
+
+                # After the command execution, capture the response
+                if isinstance(response, str):
+                    bot_response = response  # If the command returns a string directly
+                else:
+                    # Ensure response is handled appropriately
+                    bot_response = f"Response generated by bot for /{command_name}"  # Adjust as necessary
+
+                # Save the user message and bot response
+                save_message_to_db(str(message.guild.id), message.author, command_content, bot_response)
+                break
+    
+        # 10% chance to respond to the message
+    if random.random() < 0.1:
+        command_content = message.content.strip()
+        author_name = message.author.display_name
+        ai_prompt = f"{author_name} says: {command_content}. Query: make a funny but interesting response to the user's message."
+        mentioned_users = [user for user in message.mentions if user != bot.user]
+        if mentioned_users:
+            user_name = mentioned_users[0].display_name
+            ai_prompt = f"{author_name} says about {user_name}: {command_content}. Query: make fun of both users in a playful but interesting manner."
+        
+        response = await get_ai_response(ai_prompt)
+        await message.reply(response)
+        return
+            
     await bot.process_commands(message)
     
 def save_message_to_db(guild_id, author, user_message, bot_response):
@@ -681,13 +851,15 @@ def save_message_to_db(guild_id, author, user_message, bot_response):
         except Exception as e:
             print(f"Error inserting user: {e}")
 
+    created_at = datetime.now(dt_timezone.utc).isoformat()  # Get the current timestamp in UTC and convert to ISO format
     # Insert new message without specifying the id
     try:
         supabase.table('messages').insert({
             'content': user_message,
             'user_id': str(author.id),
             'guild_id': guild_id,
-            'response': bot_response
+            'response': bot_response,
+            'created_at': created_at  # Add timestamp in ISO format
         }).execute()
     except Exception as e:
         print(f"Error inserting message: {e}")
