@@ -76,8 +76,34 @@ bot = commands.Bot(command_prefix='/', intents=intents)
 async def on_ready():
     bot.uptime = time.time()
     print(f'Logged in as {bot.user}')
+    
+    # Start the presence update loop
+    bot.loop.create_task(update_presence())
+
     # Sync commands with Discord
     await bot.tree.sync()
+
+# Asynchronous task to update the bot's presence
+async def update_presence():
+    # Define the PartialEmoji with the emoji ID
+    custom_emoji = discord.PartialEmoji(name="seeyuh", id=1302628356147122207)
+    while True:
+        # Get the current number of unique users and guilds
+        unique_users = len(bot.users)
+        guild_count = len(bot.guilds)
+
+        # Set the bot's activity with updated user count
+        activity = discord.Activity(
+            type=discord.ActivityType.listening,
+            name=f"{unique_users} users across {guild_count} servers! 😉"  # Updated text
+        )
+        await bot.change_presence(
+            status=discord.Status.idle,
+            activity=activity
+        )
+
+        # Wait a few minutes before updating again (e.g., 5 minutes)
+        await asyncio.sleep(300)
 
 # Slash commands
 @bot.tree.command(name='help', description='List of available commands.')
@@ -133,7 +159,7 @@ async def info_command(interaction: discord.Interaction, user: discord.User = No
             f"**Owner:** [{owner.name}](https://discord.com/users/{owner.id})\n"
             f"**Currently serving:** {len(bot.guilds)} servers\n"
             f"**Invite:** [Click here](https://discord.com/oauth2/authorize?client_id={bot.user.id}&permissions=8&scope=bot%20applications.commands)\n"
-            f"**Support:** [GitHub](https://github.com/arkodeepsen/seeyuh.git)\n"
+            f"**Support:** [GitHub](https://github.com/arkodeepsen)\n"
             f"For more information, use `/info @user` to get user details."
         )
         embed.set_thumbnail(url=bot.user.avatar.url)
@@ -221,13 +247,22 @@ async def serverinfo_command(interaction: discord.Interaction):
 async def say_command(interaction: discord.Interaction, content: str):
     await interaction.response.send_message(content)
 
+@bot.tree.command(name='emoji', description='Get a random emoji from seeyuh custom emojis.')
+async def emoji_command(interaction: discord.Interaction):
+    await interaction.response.send_message("<:seeyuh:1302628356147122207>")
+
 @bot.tree.command(name="roast", description="Roast a user in a light-hearted way!")
 async def roast_command(interaction: discord.Interaction, user: discord.User):
+    # Check if the bot is mentioned
+    if user == bot.user:
+        await interaction.response.send_message("I can't roast myself! Try roasting someone else. 😅")
+        return
+
     # Acknowledge the interaction immediately to prevent timeouts
     await interaction.response.defer()
 
     # Create a roast prompt specifically targeting the user
-    roast_prompt = f"Roast {user.display_name} in a funny, light-hearted, and slang style. Make it playful and not too harsh."
+    roast_prompt = f"Roast {user.name} in a funny, light-hearted, and slang style. Make it playful and not too harsh."
 
     # Get the AI response for the roast
     response = await slash_ai_response(roast_prompt)
@@ -605,21 +640,23 @@ async def on_message(message):
                 command_name = word
     
                 class MockInteraction:
-                    def __init__(self, message, mentioned_user=None):
+                    def __init__(self, message, mentioned_user=None, content=None, embed=None):
                         self.channel = message.channel
                         self.guild = message.guild
                         self.user = message.author
                         self.id = message.id
                         self.mentioned_user = mentioned_user
                         self._original_response = None  # Store original response if needed
+                        self.content = content
+                        self.embed = embed
 
                     async def send_message(self, content=None, embed=None):
                         # Send the message and store it as the original response
                         if embed:
-                            self._original_response = await self.channel.send(embed=embed)  # Store the sent message
+                            self._original_response = await self.channel.send(embed=embed)
                         else:
-                            self._original_response = await self.channel.send(content)  # Store the sent message
-                        return self._original_response  # Return the message
+                            self._original_response = await self.channel.send(content)
+                        return self._original_response
 
                     async def original_response(self):
                         # Return the original response if it exists
@@ -633,10 +670,11 @@ async def on_message(message):
                             self.channel = channel
 
                         async def send_message(self, content=None, embed=None):
+                            # Ensure we send either content or embed properly
                             if embed:
-                                return await self.channel.send(embed=embed)  # Return the message
+                                return await self.channel.send(embed=embed)
                             else:
-                                return await self.channel.send(content)  # Return the message
+                                return await self.channel.send(content)
 
                         async def defer(self):
                             pass  # Placeholder defer
@@ -658,7 +696,7 @@ async def on_message(message):
                     @property
                     def followup(self):
                         return self.Followup(self.channel)
-    
+
                 # If a specific user was mentioned, pass them into the command
                 target_user = mentioned_users[0] if mentioned_users else None
                 mock_interaction = MockInteraction(message, target_user)
@@ -671,8 +709,17 @@ async def on_message(message):
                         response = await command.callback(mock_interaction)
                     except TypeError as e:
                         if "missing 1 required positional argument: 'user'" in str(e):
-                            response = "Please mention a user."
+                            response = f"User not mentioned, unreadable or you mentioned me. Please mention a user or try `/{word}` if issue persists."
                             await message.channel.send(response)  # Send the error message to the channel
+            
+                        elif "missing 1 required positional argument: 'content' in str(e)":
+                            response = f"Use `/{word} content` `/help` to know more."
+                            await message.channel.send(response)  # Send the error message to the channel
+                            
+                        elif "missing 2 required positional arguments: 'content' and 'embed'" in str(e):
+                            response = f"Content or embed not provided. Please use `/{word}` if issue persists."
+                            await message.channel.send(response)  # Send the error message to the channel
+                            
                         else:
                             raise e
 
@@ -705,7 +752,7 @@ async def on_message(message):
     
     command_content = message.content.strip()
     words = command_content.split()
-    if 0 < len(words) <= 2:
+    if 0 < len(words) <= 2 and not bot.user.mentioned_in(message) and "seeyuh" not in message.content.lower():
         # Check for mentioned users
         mentioned_users = [user for user in message.mentions if user != bot.user]
         # Proceed with command processing if message has three or fewer words
@@ -738,21 +785,23 @@ async def on_message(message):
                         print(f"Error updating guild: {e}")
                 
                 class MockInteraction:
-                    def __init__(self, message, mentioned_user=None):
+                    def __init__(self, message, mentioned_user=None, content=None, embed=None):
                         self.channel = message.channel
                         self.guild = message.guild
                         self.user = message.author
                         self.id = message.id
                         self.mentioned_user = mentioned_user
                         self._original_response = None  # Store original response if needed
+                        self.content = content
+                        self.embed = embed
 
                     async def send_message(self, content=None, embed=None):
                         # Send the message and store it as the original response
                         if embed:
-                            self._original_response = await self.channel.send(embed=embed)  # Store the sent message
+                            self._original_response = await self.channel.send(embed=embed)
                         else:
-                            self._original_response = await self.channel.send(content)  # Store the sent message
-                        return self._original_response  # Return the message
+                            self._original_response = await self.channel.send(content)
+                        return self._original_response
 
                     async def original_response(self):
                         # Return the original response if it exists
@@ -766,10 +815,11 @@ async def on_message(message):
                             self.channel = channel
 
                         async def send_message(self, content=None, embed=None):
+                            # Ensure we send either content or embed properly
                             if embed:
-                                return await self.channel.send(embed=embed)  # Return the message
+                                return await self.channel.send(embed=embed)
                             else:
-                                return await self.channel.send(content)  # Return the message
+                                return await self.channel.send(content)
 
                         async def defer(self):
                             pass  # Placeholder defer
@@ -804,7 +854,13 @@ async def on_message(message):
                         response = await command.callback(mock_interaction)
                     except TypeError as e:
                         if "missing 1 required positional argument: 'user'" in str(e):
-                            response = "Please mention a user."
+                            response = f"User not mentioned, unreadable or you mentioned me. Please mention a user or try `/{word}` if issue persists."
+                            await message.channel.send(response)  # Send the error message to the channel
+                        elif "missing 1 required positional argument: 'content' in str(e)":
+                            response = f"Use `/{word} content` `/help` to know more."
+                            await message.channel.send(response)  # Send the error message to the channel
+                        elif "missing 2 required positional arguments: 'content' and 'embed'" in str(e):
+                            response = f"Content or embed not provided. Please use `/{word}` if issue persists."
                             await message.channel.send(response)  # Send the error message to the channel
                         else:
                             raise e
@@ -821,14 +877,14 @@ async def on_message(message):
                 break
     
         # 10% chance to respond to the message
-    if random.random() < 0.1:
+    if random.random() < 0.01:
         command_content = message.content.strip()
         author_name = message.author.name
-        ai_prompt = f"{author_name} says: {command_content}. Query: make a funny but interesting response to the user's message."
+        ai_prompt = f"{author_name} says: {command_content}. Query: make a funny but interesting response to the user's message or drop a serious response according to the topic."
         mentioned_users = [user for user in message.mentions if user != bot.user]
         if mentioned_users:
             user_name = mentioned_users[0].name
-            ai_prompt = f"{author_name} says about {user_name}: {command_content}. Query: make fun of both users in a playful but interesting manner."
+            ai_prompt = f"{author_name} says about {user_name}: {command_content}. Query: make fun of both users in a playful but interesting manner or drop some information related to the topic."
         
         response = await get_ai_response(ai_prompt)
         await message.reply(response)
