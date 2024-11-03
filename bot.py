@@ -4,14 +4,28 @@ from dotenv import load_dotenv
 import os
 import time
 from ai import get_ai_response, slash_ai_response
-from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, desc
-from sqlalchemy.orm import sessionmaker, declarative_base
+from supabase import create_client, Client
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy.orm import sessionmaker
 import asyncio
 import random
 
-# Set up the database
+# Load environment variables
+from dotenv import load_dotenv
+load_dotenv()
+DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
+OWNER = os.getenv('OWNER_ID')
+
+# Supabase setup
+url = os.getenv("SUPABASE_URL")
+key = os.getenv("SUPABASE_KEY")
+supabase: Client = create_client(url, key)
+
+# SQLAlchemy base
 Base = declarative_base()
 
+# Define the Guild model
 class Guild(Base):
     __tablename__ = 'guilds'
 
@@ -19,6 +33,7 @@ class Guild(Base):
     guild_id = Column(String, unique=True)
     guild_name = Column(String)
 
+# Define the User model
 class User(Base):
     __tablename__ = 'users'
 
@@ -28,6 +43,7 @@ class User(Base):
     discriminator = Column(String)
     guild_id = Column(String, ForeignKey('guilds.guild_id'))
 
+# Define the Message model
 class Message(Base):
     __tablename__ = 'messages'
 
@@ -36,20 +52,6 @@ class Message(Base):
     user_id = Column(String, ForeignKey('users.user_id'))
     guild_id = Column(String, ForeignKey('guilds.guild_id'))
     response = Column(String)
-
-# Create the SQLite database
-DATABASE_URL = "sqlite:///bot_messages.db"
-engine = create_engine(DATABASE_URL)
-Base.metadata.create_all(engine)
-
-# Create a session
-Session = sessionmaker(bind=engine)
-session = Session()
-
-# Load environment variables
-load_dotenv()
-DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
-OWNER = os.getenv('OWNER_ID')
 
 # Define the bot with intents
 intents = discord.Intents.default()
@@ -353,10 +355,49 @@ async def on_message(message):
     # Check for brain rot terms
     if any(term in message.content.lower() for term in brain_rot_terms):
         # Reply to the original message without directly mentioning the user
-        await message.reply(f"Bro, that's so brainrot! 🧠💀 What are you even saying?")
+        responses = [
+            "Bro, that's so brainrot! 🧠💀", 
+            "What are you even saying? 🧠💀",
+            "Brainrot alert! 🧠💀",
+            "What kind of brainrot is this? 🧠💀",
+            "That's some serious brainrot! 🧠💀",
+            "Brainrot detected! 🧠💀",
+            "You need to chill with the brainrot! 🧠💀",
+            "Brainrot overload! 🧠💀",
+            "This is peak brainrot content! 🧠💀",
+            "Brainrot vibes only! 🧠💀",
+            "Certified brainrot moment! 🧠💀",
+            "Brainrot central! 🧠💀",
+            "Brainrot level: 1000! 🧠💀",
+            "Brainrot king/queen! 🧠💀",
+            "Brainrot champion! 🧠💀",
+            "Brainrot madness! 🧠💀",
+            "Ultimate brainrot! 🧠💀",
+            "Brainrot extravaganza! 🧠💀",
+            "Brainrot fiesta! 🧠💀",
+            "Brainrot overload detected! 🧠💀",
+            "Brainrot vibes detected! 🧠💀",
+            "Brainrot intensity: MAX! 🧠💀",
+            "Brainrot phenomenon! 🧠💀",
+            "Brainrot sensation! 🧠💀",
+            "Brainrot mania! 🧠💀",
+            "Brainrot frenzy! 🧠💀",
+            "Brainrot explosion! 🧠💀",
+            "Brainrot epidemic! 🧠💀",
+            "Brainrot outbreak! 🧠💀",
+            "Brainrot invasion! 🧠💀"
+        ]
+        await message.reply(random.choice(responses))
         return
     if any(phrase in message.content.lower() for phrase in ["gta 6", "gta vi"]):
-        await message.channel.send("GTA 6? That's never dropping lil bro. 😂")
+        responses = [
+            "GTA 6? That's never dropping lil bro. 😂",
+            "GTA 6? Keep dreaming, lil bro! 😅",
+            "GTA 6? Maybe in another lifetime, lil bro. 😆",
+            "GTA 6? We'll be old by then, lil bro. 😂",
+            "GTA 6? Not in this decade, lil bro! 😜"
+        ]
+        await message.channel.send(random.choice(responses))
         return
     if any(phrase in message.content.lower() for phrase in ["lil uzi", "uzi vert"]):
         await message.channel.send("Lil Uzi Vert? That's the vibes! 🚀 Eternal Atake and LUV vs. The World 2 are classics. 🌌")
@@ -364,28 +405,28 @@ async def on_message(message):
     if any(phrase in message.content.lower() for phrase in ["travis scott", "cactus jack"]):
         await message.channel.send("Travis Scott? Astroworld is a masterpiece. 🎢🎡🎠")
         return
-    if any(phrase in message.content.lower() for phrase in ["playboi carti", "carti"]):
+    if any(phrase in message.content.lower() for phrase in ["playboi carti", "carti", "slatt", "vamp", "whole lotta red", "wlr", "homixide", "0pium"]):
         await message.channel.send("Playboi Carti? Whole Lotta Red is a vibe. 🩸🔴")
         return
-    if any(phrase in message.content.lower() for phrase in ["kanye west", "ye"]):
+    if any(phrase in message.content.lower() for phrase in ["kanye west", "yeezy"]):
         await message.channel.send("Kanye West? Yeezus is a classic. 🐻🔥")
         return
     if any(phrase in message.content.lower() for phrase in ["drake", "champagne papi"]):
         await message.channel.send("Drake? Certified Lover Boy? Certified Pedophile! 😂")
         return
-    if any(phrase in message.content.lower() for phrase in ["the weeknd", "abel"]):
+    if any(phrase in message.content.lower() for phrase in ["the weeknd", "abel tesfaye"]):
         await message.channel.send("The Weeknd? Blinding Lights is iconic. 🌟🎤")
         return
     if any(phrase in message.content.lower() for phrase in ["eminem", "slim shady"]):
         await message.channel.send("Eminem? Rap God! 🎤🔥")
         return
-    if any(phrase in message.content.lower() for phrase in ["mr beast", "mrbeast", "chris", "kris", "tyson", "jimmy"]):
+    if any(phrase in message.content.lower() for phrase in ["mr beast", "mrbeast", "chris ", "kris ", "tyson", "jimmy"]):
         await message.channel.send("I just helped 1000 blind people see for the first time... 😳 1001th person ☠💀")
         return
     if any(phrase in message.content.lower() for phrase in ["pewdiepie", "felix"]):
         await message.channel.send("PewDiePie? Brofist! 👊👊")
         return
-    if any(phrase in message.content.lower() for phrase in ["dream", "george", "sapnap", "karl", "quackity"]):
+    if any(phrase in message.content.lower() for phrase in ["dream ", "george ", "sapnap ", "karl ", "quackity "]):
         await message.channel.send("Dream SMP? Dream Team? Dream is sus! 😳")
         return
     if any(phrase in message.content.lower() for phrase in ["ratio", "rati0"]):
@@ -395,15 +436,17 @@ async def on_message(message):
     if any(phrase in message.content.lower() for phrase in ["simp", "simping"]):
         await message.channel.send("Simping is a way of life. 🥺")
         return
-    if any(phrase in message.content.lower() for phrase in ["sus", "amogus", "among us"]):
+    if any(phrase in message.content.lower() for phrase in ["sus", "amogus", "among us", "impostor", "crewmate", "vent", "amongus"]):
+
         await message.channel.send("Amogus! 😳")
         return
-    if any(phrase in message.content.lower() for phrase in ["bruh", "bruh moment"]):
+    if any(phrase in message.content.lower() for phrase in ["bruh", "bruh moment"]) and random.random() < 0.2:
         await message.channel.send("Bruh moment! 😂")
         return
-    if any(phrase in message.content.lower() for phrase in ["lmao", "lmfao", "lol", "rofl"]):
+    if any(phrase in message.content.lower() for phrase in ["lmao", "lmfao", "lol", "rofl"]) and random.random() < 0.1:
         await message.channel.send("😆")
-    if any(phrase in message.content.lower() for phrase in ["rip", "rest in peace", "rip in peace"]):
+        return
+    if any(phrase in message.content.lower() for phrase in ["rip", "rest in peace", "rip in peace"]) and random.random() < 0.5:
         await message.channel.send("Rest in peace! 😢")
         return
     if any(phrase in message.content.lower() for phrase in ["f in the chat", "press f", "fs in the chat"]):
@@ -435,7 +478,7 @@ async def on_message(message):
         await message.channel.send("I'm sorry to hear that. I'll try to do better. 😢")
         return
     # If the message does not contain any brain rot terms, proceed with the rest of the code
-    if any(phrase in message.content.lower() for phrase in ["ded", "dead chat", "deadchat"]):
+    if any(phrase in message.content.lower() for phrase in ["ded chat", "dead chat", "deadchat", "dedchat"]):
         await message.channel.send("Ded chat? I'm here to revive it! 😎")
         return
     if any(phrase in message.content.lower() for phrase in ["yamete", "kudasai", "moan", "horny"]):
@@ -482,13 +525,26 @@ async def on_message(message):
     
         # Check for mentioned users
         mentioned_users = [user for user in message.mentions if user != bot.user]
-    
-        # Get or create the guild entry
-        guild_entry = session.query(Guild).filter_by(guild_id=message.guild.id).first()
-        if not guild_entry:
-            guild_entry = Guild(guild_id=message.guild.id, guild_name=message.guild.name)
-            session.add(guild_entry)
-            session.commit()
+
+        # Check if the guild entry exists
+        guild_entry = supabase.table('guilds').select('*').eq('guild_id', str(message.guild.id)).execute()
+
+        # Insert or update the guild entry based on existence
+        if not guild_entry.data:  # If no existing entry, insert
+            try:
+                supabase.table('guilds').insert({
+                    'guild_id': str(message.guild.id),
+                    'guild_name': message.guild.name
+                }).execute()
+            except Exception as e:
+                print(f"Error inserting guild: {e}")
+        else:  # If entry exists, update
+            try:
+                supabase.table('guilds').update({
+                    'guild_name': message.guild.name
+                }).eq('guild_id', str(message.guild.id)).execute()
+            except Exception as e:
+                print(f"Error updating guild: {e}")
     
         # If there are more than three words, treat as an AI query
         if len(words) > 3:
@@ -500,7 +556,7 @@ async def on_message(message):
             response = await get_ai_response(ai_prompt)
             await message.channel.send(response)
             # Save the user message and bot response
-            save_message_to_db(guild_entry.guild_id, message.author, ai_prompt, response)
+            save_message_to_db(str(message.guild.id), message.author, ai_prompt, response)
             return  # Exit early to avoid command processing
     
         # Proceed with command processing if message has three or fewer words
@@ -589,10 +645,10 @@ async def on_message(message):
                     bot_response = response  # If the command returns a string directly
                 else:
                     # Ensure response is handled appropriately
-                    bot_response = "response generated by bot for /{command_name}"  # Adjust as necessary
+                    bot_response = f"Response generated by bot for /{command_name}"  # Adjust as necessary
 
                 # Save the user message and bot response
-                save_message_to_db(guild_entry.guild_id, message.author, command_content, bot_response)
+                save_message_to_db(str(message.guild.id), message.author, command_content, bot_response)
                 break
 
         if not command_found:
@@ -606,26 +662,35 @@ async def on_message(message):
             await message.channel.send(response)
 
             # Save the user message and bot response
-            save_message_to_db(guild_entry.guild_id, message.author, ai_prompt, response)
+            save_message_to_db(str(message.guild.id), message.author, ai_prompt, response)
 
     await bot.process_commands(message)
     
 def save_message_to_db(guild_id, author, user_message, bot_response):
-    # Get or create the user entry
-    user_entry = session.query(User).filter_by(user_id=author.id).first()
-    if not user_entry:
-        user_entry = User(user_id=author.id, username=author.name, discriminator=author.discriminator, guild_id=guild_id)
-        session.add(user_entry)
-        session.commit()
+    # Upsert user entry
+    user_entry_response = supabase.table('users').select('*').eq('user_id', str(author.id)).execute()
 
-    new_message = Message(
-        content=user_message,
-        user_id=user_entry.user_id,
-        guild_id=guild_id,
-        response=bot_response
-    )
-    session.add(new_message)
-    session.commit()
+    if not user_entry_response.data:
+        try:
+            supabase.table('users').insert({
+                'user_id': str(author.id),
+                'username': author.name,
+                'discriminator': author.discriminator,
+                'guild_id': guild_id
+            }).execute()
+        except Exception as e:
+            print(f"Error inserting user: {e}")
+
+    # Insert new message without specifying the id
+    try:
+        supabase.table('messages').insert({
+            'content': user_message,
+            'user_id': str(author.id),
+            'guild_id': guild_id,
+            'response': bot_response
+        }).execute()
+    except Exception as e:
+        print(f"Error inserting message: {e}")
 
 # Run the bot
 bot.run(DISCORD_TOKEN)
