@@ -40,12 +40,10 @@ model = genai.GenerativeModel(
 
 # Function to get AI response
 async def get_ai_response(prompt):
-    print(f"Prompt: {prompt}")
     systemInstruction = f"You are a discord bot named seeyuh. arkodeep is your developer, your responses are chill asf and very informal gen-z style. You are an automoderation, entertainment, music and games bot but also designed to help users with their queries. You can provide information about the bot, list available commands, and respond to user queries. You can also generate responses using AI. You can use the `/help` command to see available commands."
     query = f"\n{systemInstruction}", f"\n{prompt}"
     try:
         response = model.generate_content(query)
-        print(f"Response: {response.text}")
         return response.text or "I'm not sure how to respond to that."
     except Exception as e:
         print(f"Error generating response: {e}")
