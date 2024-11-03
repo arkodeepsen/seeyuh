@@ -581,11 +581,11 @@ async def on_message(message):
     
         # If there are more than three words, treat as an AI query
         if len(words) > 3:
-            author_name = message.author.display_name
+            author_name = message.author.name
             current_query = f"from user {author_name} : {command_content}."
             ai_prompt = context_message + "Current query: " + current_query
             if mentioned_users:
-                user_name = mentioned_users[0].display_name
+                user_name = mentioned_users[0].name
                 current_query = f"from user {author_name} about user {user_name} : {command_content}."
                 ai_prompt = context_message + "Current query: " + current_query
     
@@ -689,11 +689,11 @@ async def on_message(message):
 
         if not command_found:
             # Treat as an AI query, include any mentioned user's name
-            author_name = message.author.display_name
+            author_name = message.author.name
             current_query = f"from user {author_name} : {command_content}."
             ai_prompt = context_message + "Current query: " + current_query
             if mentioned_users:
-                user_name = mentioned_users[0].display_name
+                user_name = mentioned_users[0].name
                 current_query = f"from user {author_name} about user {user_name} : {command_content}."
                 ai_prompt = context_message + "Current query:" + current_query
             
@@ -823,11 +823,11 @@ async def on_message(message):
         # 10% chance to respond to the message
     if random.random() < 0.1:
         command_content = message.content.strip()
-        author_name = message.author.display_name
+        author_name = message.author.name
         ai_prompt = f"{author_name} says: {command_content}. Query: make a funny but interesting response to the user's message."
         mentioned_users = [user for user in message.mentions if user != bot.user]
         if mentioned_users:
-            user_name = mentioned_users[0].display_name
+            user_name = mentioned_users[0].name
             ai_prompt = f"{author_name} says about {user_name}: {command_content}. Query: make fun of both users in a playful but interesting manner."
         
         response = await get_ai_response(ai_prompt)
