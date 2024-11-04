@@ -303,27 +303,27 @@ async def wordle_command(interaction: discord.Interaction):
 @app_commands.command(name="meme", description="Get a random meme from r/memes.")
 async def meme_command(interaction: discord.Interaction):
     await interaction.response.defer()  # Defer response in case it takes a few seconds
-
-    try:
+    await interaction.followup.send("Big oof, somethin' broke. Try again.")
+    #try:
         # Fetch 25 hot posts from r/memes
-        subreddit = await reddit.subreddit("memes")
-        memes = [meme async for meme in subreddit.hot(limit=25)]
+        #subreddit = await reddit.subreddit("memes")
+        #memes = [meme async for meme in subreddit.hot(limit=25)]
         
         # Select a random meme from the fetched posts
-        random_meme = random.choice(memes)
+        #random_meme = random.choice(memes)
 
         # Create and send the embed with the meme
-        embed = discord.Embed(title=random_meme.title, color=discord.Color.random())
-        embed.set_image(url=random_meme.url)
-        embed.set_footer(text=f"👍 {random_meme.score} | 💬 {random_meme.num_comments} comments")
+        #embed = discord.Embed(title=random_meme.title, color=discord.Color.random())
+        #embed.set_image(url=random_meme.url)
+        #embed.set_footer(text=f"👍 {random_meme.score} | 💬 {random_meme.num_comments} comments")
 
-        await interaction.followup.send(embed=embed)
-    except asyncprawcore.exceptions.RequestException as e:
-        await interaction.followup.send("There was an error fetching memes from Reddit. Please try again later.")
-        print(f"Error fetching memes: {e}")
-    except Exception as e:
-        await interaction.followup.send("An unexpected error occurred. Please try again later.")
-        print(f"Unexpected error: {e}")
+        #await interaction.followup.send(embed=embed)
+    #except asyncprawcore.exceptions.RequestException as e:
+        #await interaction.followup.send("There was an error fetching memes from Reddit. Please try again later.")
+        #print(f"Error fetching memes: {e}")
+    #except Exception as e:
+        #await interaction.followup.send("An unexpected error occurred. Please try again later.")
+        #print(f"Unexpected error: {e}")
     
 # Define the /gif slash command
 @app_commands.command(name="gif", description="Search for a GIF on Giphy.")
