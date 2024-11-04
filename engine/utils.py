@@ -12,6 +12,18 @@ def load_env():
     key = os.getenv("SUPABASE_KEY")
     return DISCORD_TOKEN, OWNER, url, key
 
+def reddit_env():
+    load_dotenv()  # Load environment variables from a .env file
+    client_id = os.getenv('REDDIT_CLIENT_ID')
+    client_secret = os.getenv('REDDIT_CLIENT_SECRET')
+    user_agent = os.getenv('REDDIT_USER_AGENT')
+    return client_id, client_secret, user_agent
+
+def giphy_env():
+    load_dotenv()  # Load environment variables from a .env file
+    GIPHY_API_KEY = os.getenv('GIPHY_API_KEY')
+    return GIPHY_API_KEY
+
 def intents():
     # Define the bot with intents
     intents = discord.Intents.default()
@@ -36,6 +48,7 @@ async def update_presence(bot):
     while True:
         unique_users = len(bot.users)  # Get the current number of unique users and guilds
         guild_count = len(bot.guilds)
+        status = discord.CustomActivity(name="/help")  # Define the CustomActivity with the updated user count
         # Set the bot's activity with updated user count
         activity = discord.Activity(
             type=discord.ActivityType.listening,

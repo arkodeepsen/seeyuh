@@ -1,8 +1,8 @@
-import time, httpx, random, engine.commands.general as general, engine.commands.utility as utility, engine.commands.fun as fun
+import time, httpx, logging, random, engine.commands.general as general, engine.commands.utility as utility, engine.commands.fun as fun
 from discord.ext import commands
 from engine.utils import load_env, intents, update_presence
 from engine.db import fetch_recent_message, save_message_to_db
-from engine.ai.gemini import get_ai_response
+from engine.ai.gemini import get_ai_response, code_ai_response
 from supabase import create_client, Client
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import Column, Integer, String, ForeignKey
@@ -59,15 +59,101 @@ bot.tree.add_command(general.serverinfo_command)
 # Register the commands from utility.py
 bot.tree.add_command(utility.say_command)
 bot.tree.add_command(utility.emoji_command)
+bot.tree.add_command(utility.avatar_command)
+bot.tree.add_command(utility.code_command)
+bot.tree.add_command(utility.explain_command)
+bot.tree.add_command(utility.ask_command)
+bot.tree.add_command(utility.poll_command)
 
 # Register the commands from fun.py
 bot.tree.add_command(fun.roast_command)
+bot.tree.add_command(fun.compliment_command)
+bot.tree.add_command(fun.joke_command)
+bot.tree.add_command(fun.fact_command)
+bot.tree.add_command(fun.advice_command)
+bot.tree.add_command(fun.quote_command)
+bot.tree.add_command(fun.riddle_command)
+bot.tree.add_command(fun.meme_command)
+bot.tree.add_command(fun.gif_command)
+bot.tree.add_command(fun.rps_command)
+bot.tree.add_command(fun.tictactoe_command)
+bot.tree.add_command(fun.coinflip_command)
+bot.tree.add_command(fun.horoscope_command)
+bot.tree.add_command(fun.magic8ball_command)
+bot.tree.add_command(fun.dice_command)
+bot.tree.add_command(fun.choose_command)
+bot.tree.add_command(fun.wordle_command)
+bot.tree.add_command(fun.trivia_command)
+bot.tree.add_command(fun.rpsls_command)
   
 @bot.event
 async def on_message(message):
     if message.author == bot.user:
         return
 
+    if message.content.lower().startswith("say") or (("seeyuh" in message.content.lower() or bot.user.mentioned_in(message)) and "say" in message.content.lower()):
+        content = message.content.strip()
+        command_content = content.replace(f"<@{bot.user.id}>", "").strip()
+        command_content = command_content.replace("seeyuh", "").strip()
+        words = command_content.split()
+        if words and words[0].lower() == "say":
+            response_message = " ".join(words[1:])
+            await message.reply(response_message)
+            return  # Stop further processing if this condition is met
+    
+    if message.content.lower().startswith("code") or (("seeyuh" in message.content.lower() or bot.user.mentioned_in(message)) and "code" in message.content.lower()):
+            content = message.content.strip()
+            command_content = content.replace(f"<@{bot.user.id}>", "").strip()
+            command_content = command_content.replace("seeyuh", "").strip()
+            words = command_content.split()
+            
+            try:
+                # Check if the guild entry exists
+                guild_entry = supabase.table('guilds').select('*').eq('guild_id', str(message.guild.id)).execute()
+
+                # Insert or update the guild entry based on existence
+                if not guild_entry.data:  # If no existing entry, insert
+                    try:
+                        supabase.table('guilds').insert({
+                            'guild_id': str(message.guild.id),
+                            'guild_name': message.guild.name
+                        }).execute()
+                    except Exception as e:
+                        logging.error(f"Error inserting guild: {e}")
+                else:  # If entry exists, update
+                    try:
+                        supabase.table('guilds').update({
+                            'guild_name': message.guild.name
+                        }).eq('guild_id', str(message.guild.id)).execute()
+                    except Exception as e:
+                        logging.error(f"Error updating guild: {e}")
+            except httpx.ConnectError as e:
+                logging.error(f"Connection error while accessing Supabase: {e}")
+                await message.reply("There was a connection error while accessing the database. Please try again later.")
+                return  # Stop further processing if this condition is met
+            
+            if words and words[0].lower() == "code":
+                prompt = " ".join(words[1:])
+                async with message.channel.typing():  # Show typing indicator
+                    response_message = await code_ai_response(prompt)  # Await the coroutine directly
+                # Split the response into multiple messages if it exceeds 2000 characters
+                max_length = 2000 - 6  # Deduct 6 characters for the code block delimiters (``` at the end and ``` at the beginning)
+                response_parts = [response_message[i:i + max_length] for i in range(0, len(response_message), max_length)]
+
+                for i, part in enumerate(response_parts):
+                    if i == 0:
+                        await message.reply(f"```{part}")
+                    elif i == len(response_parts) - 1:
+                        await message.reply(f"{part}```")
+                    else:
+                        await message.reply(f"{part}```\n```")
+            
+                # Save the user message and bot response
+                save_message_to_db(str(message.guild.id), message.author, prompt, response_message)
+                return  # Stop further processing if this condition is met
+
+
+    
     if bot.user.mentioned_in(message) or "seeyuh" in message.content.lower():
         content = message.content.strip()
         command_content = content.replace(f"<@{bot.user.id}>", "").strip()
@@ -86,26 +172,31 @@ async def on_message(message):
         # Check for mentioned users
         mentioned_users = [user for user in message.mentions if user != bot.user]
 
-        # Check if the guild entry exists
-        guild_entry = supabase.table('guilds').select('*').eq('guild_id', str(message.guild.id)).execute()
+        try:
+            # Check if the guild entry exists
+            guild_entry = supabase.table('guilds').select('*').eq('guild_id', str(message.guild.id)).execute()
 
-        # Insert or update the guild entry based on existence
-        if not guild_entry.data:  # If no existing entry, insert
-            try:
-                supabase.table('guilds').insert({
-                    'guild_id': str(message.guild.id),
-                    'guild_name': message.guild.name
-                }).execute()
-            except Exception as e:
-                print(f"Error inserting guild: {e}")
-        else:  # If entry exists, update
-            try:
-                supabase.table('guilds').update({
-                    'guild_name': message.guild.name
-                }).eq('guild_id', str(message.guild.id)).execute()
-            except Exception as e:
-                print(f"Error updating guild: {e}")
-    
+            # Insert or update the guild entry based on existence
+            if not guild_entry.data:  # If no existing entry, insert
+                try:
+                    supabase.table('guilds').insert({
+                        'guild_id': str(message.guild.id),
+                        'guild_name': message.guild.name
+                    }).execute()
+                except Exception as e:
+                    logging.error(f"Error inserting guild: {e}")
+            else:  # If entry exists, update
+                try:
+                    supabase.table('guilds').update({
+                        'guild_name': message.guild.name
+                    }).eq('guild_id', str(message.guild.id)).execute()
+                except Exception as e:
+                    logging.error(f"Error updating guild: {e}")
+        except httpx.ConnectError as e:
+            logging.error(f"Connection error while accessing Supabase: {e}")
+            await message.reply("There was a connection error while accessing the database. Please try again later.")
+            return  # Stop further processing if this condition is met
+        
         # If there are more than three words, treat as an AI query
         if len(words) > 3:
             author_name = message.author.name
@@ -115,8 +206,8 @@ async def on_message(message):
                 user_name = mentioned_users[0].name
                 current_query = f"from user {author_name} about user {user_name} : {command_content}."
                 ai_prompt = context_message + "Current query: " + current_query
-    
-            response = await get_ai_response(ai_prompt)
+            async with message.channel.typing():  # Show typing indicator
+                response = await get_ai_response(ai_prompt)
             # Split the response into multiple messages if it exceeds 2000 characters
             max_length = 2000
             response_parts = [response[i:i + max_length] for i in range(0, len(response), max_length)]
@@ -165,36 +256,37 @@ async def on_message(message):
                         pass  # Placeholder for deferring a response if needed
                 
                     class Response:
-                        def __init__(self, channel):
-                            self.channel = channel
+                        def __init__(self, interaction):
+                            self.interaction = interaction
                 
                         async def send_message(self, content=None, embed=None):
                             # Ensure we send either content or embed properly
                             if embed:
-                                return await self.channel.send(embed=embed)
+                                self.interaction._original_response = await self.interaction.channel.send(embed=embed)
                             else:
-                                return await self.channel.send(content)
+                                self.interaction._original_response = await self.interaction.channel.send(content)
+                            return self.interaction._original_response
                 
                         async def defer(self):
                             pass  # Placeholder defer
                 
                     class Followup:
-                        def __init__(self, channel):
-                            self.channel = channel
+                        def __init__(self, interaction):
+                            self.interaction = interaction
                 
                         async def send(self, content=None, embed=None):
                             if embed:
-                                await self.channel.send(embed=embed)
+                                await self.interaction.channel.send(embed=embed)
                             else:
-                                await self.channel.send(content)
+                                await self.interaction.channel.send(content)
                 
                     @property
                     def response(self):
-                        return self.Response(self.channel)
+                        return self.Response(self)
                 
                     @property
                     def followup(self):
-                        return self.Followup(self.channel)
+                        return self.Followup(self)
                 
                 # If a specific user was mentioned, pass them into the command
                 target_user = mentioned_users[0] if mentioned_users else None
@@ -202,10 +294,12 @@ async def on_message(message):
                 
                 # Inside the command execution section
                 if target_user:
-                    response = await command.callback(mock_interaction, target_user)  # Include the user argument
+                    async with message.channel.typing():  # Show typing indicator
+                        response = await command.callback(mock_interaction, target_user)  # Include the user argument
                 else:
                     try:
-                        response = await command.callback(mock_interaction)
+                        async with message.channel.typing():  # Show typing indicator
+                            response = await command.callback(mock_interaction)
                     except TypeError as e:
                         if "missing 1 required positional argument: 'user'" in str(e):
                             response = f"User not mentioned, unreadable or you mentioned me. Please mention a user or try `/{word}` if issue persists."
@@ -239,8 +333,8 @@ async def on_message(message):
                 user_name = mentioned_users[0].name
                 current_query = f"from user {author_name} about user {user_name} : {command_content}."
                 ai_prompt = context_message + "Current query:" + current_query
-            
-            response = await get_ai_response(ai_prompt)
+            async with message.channel.typing():  # Show typing indicator
+                response = await get_ai_response(ai_prompt)
             # Split the response into multiple messages if it exceeds 2000 characters
             max_length = 2000
             response_parts = [response[i:i + max_length] for i in range(0, len(response), max_length)]
@@ -314,36 +408,37 @@ async def on_message(message):
                         pass  # Placeholder for deferring a response if needed
                 
                     class Response:
-                        def __init__(self, channel):
-                            self.channel = channel
+                        def __init__(self, interaction):
+                            self.interaction = interaction
                 
                         async def send_message(self, content=None, embed=None):
                             # Ensure we send either content or embed properly
                             if embed:
-                                return await self.channel.send(embed=embed)
+                                self.interaction._original_response = await self.interaction.channel.send(embed=embed)
                             else:
-                                return await self.channel.send(content)
+                                self.interaction._original_response = await self.interaction.channel.send(content)
+                            return self.interaction._original_response
                 
                         async def defer(self):
                             pass  # Placeholder defer
                 
                     class Followup:
-                        def __init__(self, channel):
-                            self.channel = channel
+                        def __init__(self, interaction):
+                            self.interaction = interaction
                 
                         async def send(self, content=None, embed=None):
                             if embed:
-                                await self.channel.send(embed=embed)
+                                await self.interaction.channel.send(embed=embed)
                             else:
-                                await self.channel.send(content)
+                                await self.interaction.channel.send(content)
                 
                     @property
                     def response(self):
-                        return self.Response(self.channel)
+                        return self.Response(self)
                 
                     @property
                     def followup(self):
-                        return self.Followup(self.channel)
+                        return self.Followup(self)
                 
                 # If a specific user was mentioned, pass them into the command
                 target_user = mentioned_users[0] if mentioned_users else None
@@ -351,10 +446,12 @@ async def on_message(message):
                 
                 # Inside the command execution section
                 if target_user:
-                    response = await command.callback(mock_interaction, target_user)  # Include the user argument
+                    async with message.channel.typing():  # Show typing indicator
+                        response = await command.callback(mock_interaction, target_user)  # Include the user argument
                 else:
                     try:
-                        response = await command.callback(mock_interaction)
+                        async with message.channel.typing():  # Show typing indicator
+                            response = await command.callback(mock_interaction)
                     except TypeError as e:
                         if "missing 1 required positional argument: 'user'" in str(e):
                             response = f"User not mentioned, unreadable or you mentioned me. Please mention a user or try `/{word}` if issue persists."
@@ -367,7 +464,7 @@ async def on_message(message):
                             await message.reply(response)  # Send the error message to the channel
                         else:
                             raise e
-
+                
                 # After the command execution, capture the response
                 if isinstance(response, str):
                     bot_response = response  # If the command returns a string directly
@@ -388,8 +485,8 @@ async def on_message(message):
         if mentioned_users:
             user_name = mentioned_users[0].name
             ai_prompt = f"{author_name} says about {user_name}: {command_content}. Query: make fun of both users in a playful but interesting manner or drop some information related to the topic."
-        
-        response = await get_ai_response(ai_prompt)
+        async with message.channel.typing():  # Show typing indicator
+            response = await get_ai_response(ai_prompt)
         await message.reply(response)
         return
 

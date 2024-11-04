@@ -26,7 +26,7 @@ async def ping_command(interaction: discord.Interaction):
     await interaction.response.send_message(embed=discord.Embed(
         title="Ping Command",
         description="Pong! Calculating ping...",
-        color=discord.Color.green()
+        color=discord.Color.yellow()
     ))
 
     # Calculate the ping
@@ -42,7 +42,8 @@ async def ping_command(interaction: discord.Interaction):
     embed.set_footer(text=f"{interaction.client.user.name}", icon_url=interaction.client.user.avatar.url)
 
     # Instead of trying to edit, use followup to send the updated message
-    await interaction.followup.send(embed=embed)
+    message = await interaction.original_response()
+    await message.edit(embed=embed)
 
 # Define the info command
 @app_commands.command(name='info', description='Get information about the bot or a user.')
