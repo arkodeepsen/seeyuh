@@ -32,7 +32,7 @@ safety_settings = [
     }
 ]
 
-model = genai.GenerativeModel(
+pro = genai.GenerativeModel(
     model_name='gemini-pro',
     generation_config=generation_config,
     safety_settings=safety_settings
@@ -42,8 +42,9 @@ model = genai.GenerativeModel(
 async def get_ai_response(prompt):
     systemInstruction = f"You are a discord bot named seeyuh. arkodeep is your developer, your responses are chill asf and very informal gen-z style. You are an automoderation, entertainment, music and games bot but also designed to help users with their queries. You can provide information about the bot, list available commands, and respond to user queries. You can also generate responses using AI. You can use the `/help` command to see available commands."
     query = f"\n{systemInstruction}", f"\n{prompt}"
+
     try:
-        response = model.generate_content(query)
+        response = pro.generate_content(query)
         return response.text or "I'm not sure how to respond to that."
     except Exception as e:
         print(f"Error generating response: {e}")
@@ -54,7 +55,7 @@ async def slash_ai_response(prompt):
     systemInstruction = f"You are a discord bot named seeyuh. arkodeep is your developer, your responses are chill asf and very informal gen-z style. You will do exactly what the user asks you to do."
     query = f"\n{systemInstruction}", f"\n{prompt}"
     try:
-        response = model.generate_content(query)
+        response = pro.generate_content(query)
         return response.text or "I'm not sure how to respond to that."
     except Exception as e:
         print(f"Error generating response: {e}")
