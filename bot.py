@@ -95,55 +95,16 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
-    # Check if the message has attachments
+    # Check if the message has attachments and bot is mentioned
     if message.attachments and (bot.user.mentioned_in(message) or "seeyuh" in message.content.lower()):
-        supported_file_types = [
-            "application/pdf",
-            "application/msword",  # .doc
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",  # .docx
-            "text/plain",  # .txt
-            "text/x-python",  # .py
-            "text/javascript",  # .js
-            "text/html",  # .html
-            "text/css",  # .css
-            "text/markdown",  # .md
-            "application/json",  # .json
-            "application/xml",  # .xml
-            "text/csv",  # .csv
-            "text/tsv",  # .tsv
-            "text/x-java-source",  # .java
-            "text/x-c",  # .c
-            "text/x-c++src",  # .cpp
-            "text/x-csharp",  # .cs
-            "application/x-yaml",  # .yaml, .yml
-            "text/rtf",  # .rtf
-            "text/x-log",  # .log
-            "application/x-shellscript",  # .sh
-            "text/x-perl",  # .pl
-            "text/x-ruby",  # .rb
-            "application/x-sh",  # .sh
-            "text/x-php",  # .php
-            "text/x-go",  # .go
-            "text/x-lua",  # .lua
-            "text/x-matlab",  # .m (MATLAB)
-            "text/x-kotlin",  # .kt
-            "text/x-r",  # .r
-            "text/x-sql"  # .sql
-        ]
         async with message.channel.typing():  # Show typing indicator
             for attachment in message.attachments:
-                if attachment.content_type.startswith("image/") or attachment.content_type in supported_file_types:
-                    # Supported image formats
-                    if attachment.content_type in ["image/jpeg", "image/png", "image/gif", "image/bmp", "image/tiff", "image/webp"]:
-                        await handle_attachment(message, attachment)
-                    # Supported document formats
-                    elif attachment.content_type in supported_file_types:
-                        await handle_attachment(message, attachment)
-                    else:
-                        await message.reply("Unsupported file type. Please upload an image, PDF, document, code, or text file.")
+                if attachment.content_type.startswith("image/"):
+                    await handle_attachment(message, attachment)
                 else:
-                    await message.reply("Unsupported file type. Please upload an image, PDF, document, code, or text file.")
+                    await message.reply("Unsupported file type. Please upload an image.")
         return  # Stop further processing if this condition is met
+
 
     if message.content.lower().startswith("say") or (("seeyuh" in message.content.lower() or bot.user.mentioned_in(message)) and "say" in message.content.lower()):
         content = message.content.strip()
@@ -495,11 +456,13 @@ async def on_message(message):
     if random.random() < 0.01:
         command_content = message.content.strip()
         author_name = message.author.name
-        ai_prompt = f"{author_name} says: {command_content}. Query: make a funny but interesting response to the user's message or drop a serious response according to the topic."
+        ai_prompt = f"{author_name} says: {command_content}. Query: make a funny but interesting response related to the user, you can spin the user's message into a story or a joke."
+
         mentioned_users = [user for user in message.mentions if user != bot.user]
         if mentioned_users:
             user_name = mentioned_users[0].name
-            ai_prompt = f"{author_name} says about {user_name}: {command_content}. Query: make fun of both users in a playful but interesting manner or drop some information related to the topic."
+            ai_prompt = f"{author_name} says about {user_name}: {command_content}. Query: make fun of both users in a playful but interesting manner, you can spin the user's message into a story or a joke."
+
         async with message.channel.typing():  # Show typing indicator
             response = await get_ai_response(ai_prompt)
         await message.reply(response)
