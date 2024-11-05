@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from typing import List
 from engine.utils import load_env
-from engine.ai.gemini import code_ai_response, explain_ai_response, ask_ai_response
+from engine.ai.gemini import code_ai_response, explain_ai_response, ask_ai_response, translate
 # Load environment variables
 DISCORD_TOKEN, OWNER, url, key = load_env()
 
@@ -96,3 +96,11 @@ async def poll_command(interaction: discord.Interaction, question: str, options:
     # Add reactions for options (up to 10)
     for i in range(len(options_list)):
         await message.add_reaction(f"{i + 1}\u20e3")
+
+@app_commands.command(name='translate', description='Translate text to a specified language.')
+async def translate_command(interaction: discord.Interaction, text: str, source_language: str, target_language: str):
+    await interaction.response.defer()
+    prompt = f"Translate '{text}' from {source_language} to {target_language}"
+    # Get translated text
+    translated_text = await translate(prompt)
+    await interaction.followup.send(translated_text)

@@ -2,7 +2,7 @@ from datetime import datetime, timezone as dt_timezone
 from supabase import create_client, Client
 from dotenv import load_dotenv
 from datetime import datetime, timedelta, timezone as dt_timezone
-import logging, os, httpx
+import logging, os, httpx, asyncio
 
 # Load environment variables
 load_dotenv()
@@ -16,8 +16,49 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler("bot.log"),
+        logging.StreamHandler()
     ]
 )
+
+def check_and_update_guild_entry(supabase, guild_id, guild_name):
+    try:
+        # Check if the guild entry exists
+        guild_entry = supabase.table('guilds').select('*').eq('guild_id', guild_id).execute()
+
+        # Insert or update the guild entry based on existence
+        if not guild_entry.data:  # If no existing entry, insert
+            try:
+                supabase.table('guilds').insert({
+                    'guild_id': guild_id,
+                    'guild_name': guild_name
+                }).execute()
+            except Exception as e:
+                logging.error(f"Error inserting guild: {e}")
+        else:  # If entry exists, update
+            try:
+                supabase.table('guilds').update({
+                    'guild_name': guild_name
+                }).eq('guild_id', guild_id).execute()
+            except Exception as e:
+                logging.error(f"Error updating guild: {e}")
+    except httpx.ConnectError as e:
+        logging.error(f"Connection error while accessing Supabase: {e}")
+        return False
+    except Exception as e:
+        logging.error(f"Unexpected error: {e}")
+        return False
+    return True
+
+async def retry_check_and_update_guild_entry(supabase, guild_id, guild_name, retries=5, delay=5):
+    for attempt in range(retries):
+        if check_and_update_guild_entry(supabase, guild_id, guild_name):
+            logging.info(f"Successfully updated guild entry on attempt {attempt + 1}")
+            return True
+        else:
+            logging.warning(f"Retrying guild entry update (attempt {attempt + 1}/{retries})")
+            await asyncio.sleep(delay)
+    logging.error(f"Failed to update guild entry after {retries} attempts")
+    return False
 
 # Define the function outside of on_message
 def fetch_recent_message(supabase, guild_id, user_id):
@@ -52,39 +93,48 @@ def fetch_recent_message(supabase, guild_id, user_id):
             return guild_message_response.data[0]  # Return the last guild message
 
     except httpx.ConnectError as e:
-        print(f"Connection error while fetching messages: {e}")
+        logging.error(f"Connection error while fetching messages: {e}")
         return None  # Return None if there is a connection error
 
     return None  # No recent messages found
 
-def save_message_to_db(guild_id, author, user_message, bot_response):
-    try:
-        # Upsert user entry
-        user_entry_response = supabase.table('users').select('*').eq('user_id', str(author.id)).execute()
+async def save_message_to_db(guild_id, author, user_message, bot_response, retries=5, delay=5):
+    for attempt in range(retries):
+        try:
+            # Upsert user entry
+            user_entry_response = supabase.table('users').select('*').eq('user_id', str(author.id)).execute()
 
-        if not user_entry_response.data:
+            if not user_entry_response.data:
+                try:
+                    supabase.table('users').insert({
+                        'user_id': str(author.id),
+                        'username': author.name,
+                        'discriminator': author.discriminator,
+                        'guild_id': guild_id
+                    }).execute()
+                except Exception as e:
+                    logging.error(f"Error inserting user: {e}")
+
+            created_at = datetime.now(dt_timezone.utc).isoformat()  # Get the current timestamp in UTC and convert to ISO format
+            # Insert new message without specifying the id
             try:
-                supabase.table('users').insert({
+                supabase.table('messages').insert({
+                    'content': user_message,
                     'user_id': str(author.id),
-                    'username': author.name,
-                    'discriminator': author.discriminator,
-                    'guild_id': guild_id
+                    'guild_id': guild_id,
+                    'response': bot_response,
+                    'created_at': created_at  # Add timestamp in ISO format
                 }).execute()
             except Exception as e:
-                logging.error(f"Error inserting user: {e}")
+                logging.error(f"Error inserting message: {e}")
 
-        created_at = datetime.now(dt_timezone.utc).isoformat()  # Get the current timestamp in UTC and convert to ISO format
-        # Insert new message without specifying the id
-        try:
-            supabase.table('messages').insert({
-                'content': user_message,
-                'user_id': str(author.id),
-                'guild_id': guild_id,
-                'response': bot_response,
-                'created_at': created_at  # Add timestamp in ISO format
-            }).execute()
-        except Exception as e:
-            logging.error(f"Error inserting message: {e}")
+            logging.info(f"Successfully saved message to DB on attempt {attempt + 1}")
+            return True  # Exit the loop if successful
 
-    except httpx.ConnectError as e:
-        logging.error(f"Connection error while saving message to DB: {e}")
+        except httpx.ConnectError as e:
+            logging.error(f"Connection error while saving message to DB: {e}")
+            logging.warning(f"Retrying save message to DB (attempt {attempt + 1}/{retries})")
+            await asyncio.sleep(delay)  # Wait before retrying
+
+    logging.error(f"Failed to save message to DB after {retries} attempts")
+    return False

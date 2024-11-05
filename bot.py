@@ -1,10 +1,11 @@
-import time, httpx, logging, random, engine.commands.general as general, engine.commands.utility as utility, engine.commands.fun as fun
+import discord, time, asyncio, logging, random, engine.commands.general as general, engine.commands.utility as utility, engine.commands.fun as fun
 from discord.ext import commands
 from engine.utils import load_env, intents, update_presence
-from engine.db import fetch_recent_message, save_message_to_db
+from engine.db import fetch_recent_message, save_message_to_db, retry_check_and_update_guild_entry
 from engine.ai.gemini import get_ai_response, code_ai_response
+from engine.ai.gemini_multimodal import handle_attachment
 from supabase import create_client, Client
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
 from sqlalchemy import Column, Integer, String, ForeignKey
 
 # Load environment variables
@@ -38,6 +39,7 @@ class Message(Base):
     user_id = Column(String, ForeignKey('users.user_id'))
     guild_id = Column(String, ForeignKey('guilds.guild_id'))
     response = Column(String)
+    created_at = Column(String)  # Assuming you want to save the timestamp as a string
 
 # Create the bot instance with the specified intents
 bot = commands.Bot(command_prefix='/', intents=intents())
@@ -64,6 +66,7 @@ bot.tree.add_command(utility.code_command)
 bot.tree.add_command(utility.explain_command)
 bot.tree.add_command(utility.ask_command)
 bot.tree.add_command(utility.poll_command)
+bot.tree.add_command(utility.translate_command)
 
 # Register the commands from fun.py
 bot.tree.add_command(fun.roast_command)
@@ -85,11 +88,62 @@ bot.tree.add_command(fun.choose_command)
 bot.tree.add_command(fun.wordle_command)
 bot.tree.add_command(fun.trivia_command)
 bot.tree.add_command(fun.rpsls_command)
+bot.tree.add_command(fun.mystery_command)
   
 @bot.event
 async def on_message(message):
     if message.author == bot.user:
         return
+
+    # Check if the message has attachments
+    if message.attachments and (bot.user.mentioned_in(message) or "seeyuh" in message.content.lower()):
+        supported_file_types = [
+            "application/pdf",
+            "application/msword",  # .doc
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",  # .docx
+            "text/plain",  # .txt
+            "text/x-python",  # .py
+            "text/javascript",  # .js
+            "text/html",  # .html
+            "text/css",  # .css
+            "text/markdown",  # .md
+            "application/json",  # .json
+            "application/xml",  # .xml
+            "text/csv",  # .csv
+            "text/tsv",  # .tsv
+            "text/x-java-source",  # .java
+            "text/x-c",  # .c
+            "text/x-c++src",  # .cpp
+            "text/x-csharp",  # .cs
+            "application/x-yaml",  # .yaml, .yml
+            "text/rtf",  # .rtf
+            "text/x-log",  # .log
+            "application/x-shellscript",  # .sh
+            "text/x-perl",  # .pl
+            "text/x-ruby",  # .rb
+            "application/x-sh",  # .sh
+            "text/x-php",  # .php
+            "text/x-go",  # .go
+            "text/x-lua",  # .lua
+            "text/x-matlab",  # .m (MATLAB)
+            "text/x-kotlin",  # .kt
+            "text/x-r",  # .r
+            "text/x-sql"  # .sql
+        ]
+        async with message.channel.typing():  # Show typing indicator
+            for attachment in message.attachments:
+                if attachment.content_type.startswith("image/") or attachment.content_type in supported_file_types:
+                    # Supported image formats
+                    if attachment.content_type in ["image/jpeg", "image/png", "image/gif", "image/bmp", "image/tiff", "image/webp"]:
+                        await handle_attachment(message, attachment)
+                    # Supported document formats
+                    elif attachment.content_type in supported_file_types:
+                        await handle_attachment(message, attachment)
+                    else:
+                        await message.reply("Unsupported file type. Please upload an image, PDF, document, code, or text file.")
+                else:
+                    await message.reply("Unsupported file type. Please upload an image, PDF, document, code, or text file.")
+        return  # Stop further processing if this condition is met
 
     if message.content.lower().startswith("say") or (("seeyuh" in message.content.lower() or bot.user.mentioned_in(message)) and "say" in message.content.lower()):
         content = message.content.strip()
@@ -107,30 +161,8 @@ async def on_message(message):
             command_content = command_content.replace("seeyuh", "").strip()
             words = command_content.split()
             
-            try:
-                # Check if the guild entry exists
-                guild_entry = supabase.table('guilds').select('*').eq('guild_id', str(message.guild.id)).execute()
-
-                # Insert or update the guild entry based on existence
-                if not guild_entry.data:  # If no existing entry, insert
-                    try:
-                        supabase.table('guilds').insert({
-                            'guild_id': str(message.guild.id),
-                            'guild_name': message.guild.name
-                        }).execute()
-                    except Exception as e:
-                        logging.error(f"Error inserting guild: {e}")
-                else:  # If entry exists, update
-                    try:
-                        supabase.table('guilds').update({
-                            'guild_name': message.guild.name
-                        }).eq('guild_id', str(message.guild.id)).execute()
-                    except Exception as e:
-                        logging.error(f"Error updating guild: {e}")
-            except httpx.ConnectError as e:
-                logging.error(f"Connection error while accessing Supabase: {e}")
-                await message.reply("There was a connection error while accessing the database. Please try again later.")
-                return  # Stop further processing if this condition is met
+            # Start the background task to retry the entry update
+            bot.loop.create_task(retry_check_and_update_guild_entry(supabase, str(message.guild.id), message.guild.name))
             
             if words and words[0].lower() == "code":
                 prompt = " ".join(words[1:])
@@ -149,10 +181,8 @@ async def on_message(message):
                         await message.reply(f"{part}```\n```")
             
                 # Save the user message and bot response
-                save_message_to_db(str(message.guild.id), message.author, prompt, response_message)
+                bot.loop.create_task(save_message_to_db(str(message.guild.id), message.author, prompt, response_message))
                 return  # Stop further processing if this condition is met
-
-
     
     if bot.user.mentioned_in(message) or "seeyuh" in message.content.lower():
         content = message.content.strip()
@@ -160,63 +190,55 @@ async def on_message(message):
         command_content = command_content.replace("seeyuh", "").strip()
         words = command_content.split()
 
-        # Retrieve the last relevant message, prioritizing the user’s recent message
-        last_message = fetch_recent_message(supabase, guild_id=str(message.guild.id), user_id=str(message.author.id))
+        # Check if the message is a reply to another message
+        if message.reference:
+            try:
+                original_message = await message.channel.fetch_message(message.reference.message_id)
+                original_author = original_message.author.name
+                original_content = original_message.content
+                context_message = f"\nLast relevant message in the guild: {original_author} said: {original_content}"
 
-        if last_message:
-            context_message = f"Last relevant message in the guild: {last_message['content']}\n"
-            context_message += f"Bot response to that message: {last_message['response']}\n"
-        else:
-            context_message = ""
+            except discord.NotFound:
+                print("Original message not found.")
+                context_message = ""
+        else:    
+            # Retrieve the last relevant message, prioritizing the user’s recent message
+            last_message = fetch_recent_message(supabase, guild_id=str(message.guild.id), user_id=str(message.author.id))
+
+            if last_message:
+                context_message = f"Last relevant message in the guild: {last_message['content']}\n"
+                context_message += f"Bot response to that message: {last_message['response']}\n"
+            else:
+                context_message = ""
 
         # Check for mentioned users
         mentioned_users = [user for user in message.mentions if user != bot.user]
 
-        try:
-            # Check if the guild entry exists
-            guild_entry = supabase.table('guilds').select('*').eq('guild_id', str(message.guild.id)).execute()
-
-            # Insert or update the guild entry based on existence
-            if not guild_entry.data:  # If no existing entry, insert
-                try:
-                    supabase.table('guilds').insert({
-                        'guild_id': str(message.guild.id),
-                        'guild_name': message.guild.name
-                    }).execute()
-                except Exception as e:
-                    logging.error(f"Error inserting guild: {e}")
-            else:  # If entry exists, update
-                try:
-                    supabase.table('guilds').update({
-                        'guild_name': message.guild.name
-                    }).eq('guild_id', str(message.guild.id)).execute()
-                except Exception as e:
-                    logging.error(f"Error updating guild: {e}")
-        except httpx.ConnectError as e:
-            logging.error(f"Connection error while accessing Supabase: {e}")
-            await message.reply("There was a connection error while accessing the database. Please try again later.")
-            return  # Stop further processing if this condition is met
+        # Start the background task to retry the entry update
+        bot.loop.create_task(retry_check_and_update_guild_entry(supabase, str(message.guild.id), message.guild.name))
         
         # If there are more than three words, treat as an AI query
         if len(words) > 3:
             author_name = message.author.name
             current_query = f"from user {author_name} : {command_content}."
             ai_prompt = context_message + "Current query: " + current_query
+        
             if mentioned_users:
                 user_name = mentioned_users[0].name
                 current_query = f"from user {author_name} about user {user_name} : {command_content}."
-                ai_prompt = context_message + "Current query: " + current_query
+                ai_prompt = context_message + "\nCurrent query: " + current_query
+        
             async with message.channel.typing():  # Show typing indicator
                 response = await get_ai_response(ai_prompt)
             # Split the response into multiple messages if it exceeds 2000 characters
             max_length = 2000
             response_parts = [response[i:i + max_length] for i in range(0, len(response), max_length)]
-
+        
             for part in response_parts:
                 await message.reply(part)
                 
             # Save the user message and bot response
-            save_message_to_db(str(message.guild.id), message.author, current_query, response)
+            bot.loop.create_task(save_message_to_db(str(message.guild.id), message.author, current_query, response))
             return  # Exit early to avoid command processing
     
         # Proceed with command processing if message has three or fewer words
@@ -316,12 +338,17 @@ async def on_message(message):
                 # After the command execution, capture the response
                 if isinstance(response, str):
                     bot_response = response  # If the command returns a string directly
+                elif isinstance(response, discord.Message):
+                    bot_response = response.content  # Capture the content of the message
+                elif isinstance(response, discord.Embed):
+                    bot_response = response.description  # Capture the description of the embed
                 else:
                     # Ensure response is handled appropriately
                     bot_response = f"Response generated by bot for /{command_name}"  # Adjust as necessary
-
+                
                 # Save the user message and bot response
-                save_message_to_db(str(message.guild.id), message.author, command_content, bot_response)
+                bot.loop.create_task(save_message_to_db(str(message.guild.id), message.author, command_content, bot_response))
+                
                 break
 
         if not command_found:
@@ -343,7 +370,7 @@ async def on_message(message):
                 await message.reply(part)
                 
             # Save the user message and bot response
-            save_message_to_db(str(message.guild.id), message.author, current_query, response)
+            bot.loop.create_task(save_message_to_db(str(message.guild.id), message.author, current_query, response))
             return  # Exit early to avoid command processing
     
     command_content = message.content.strip()
@@ -360,25 +387,8 @@ async def on_message(message):
                 command_found = True
                 command_name = word
 
-                # Check if the guild entry exists
-                guild_entry = supabase.table('guilds').select('*').eq('guild_id', str(message.guild.id)).execute()
-
-                # Insert or update the guild entry based on existence
-                if not guild_entry.data:  # If no existing entry, insert
-                    try:
-                        supabase.table('guilds').insert({
-                            'guild_id': str(message.guild.id),
-                            'guild_name': message.guild.name
-                        }).execute()
-                    except Exception as e:
-                        print(f"Error inserting guild: {e}")
-                else:  # If entry exists, update
-                    try:
-                        supabase.table('guilds').update({
-                            'guild_name': message.guild.name
-                        }).eq('guild_id', str(message.guild.id)).execute()
-                    except Exception as e:
-                        print(f"Error updating guild: {e}")
+                # Start the background task to retry the entry update
+                bot.loop.create_task(retry_check_and_update_guild_entry(supabase, str(message.guild.id), message.guild.name))
                 
                 class MockInteraction:
                     def __init__(self, message, bot, mentioned_user=None, content=None, embed=None):
@@ -468,11 +478,16 @@ async def on_message(message):
                 # After the command execution, capture the response
                 if isinstance(response, str):
                     bot_response = response  # If the command returns a string directly
-                     # Save the user message and bot response
-                    save_message_to_db(str(message.guild.id), message.author, command_content, bot_response)
+                elif isinstance(response, discord.Message):
+                    bot_response = response.content  # Capture the content of the message
+                elif isinstance(response, discord.Embed):
+                    bot_response = response.description  # Capture the description of the embed
                 else:
                     # Ensure response is handled appropriately
                     bot_response = f"Response generated by bot for /{command_name}"  # Adjust as necessary
+                
+                # Save the user message and bot response
+                bot.loop.create_task(save_message_to_db(str(message.guild.id), message.author, command_content, bot_response))
 
                 break
     
@@ -641,7 +656,7 @@ async def on_message(message):
         ]
         await message.reply(random.choice(responses))
         return
-    if any(phrase in message.content.lower() for phrase in ["gta 6", "gta vi"]):
+    if any(phrase in message.content.lower() for phrase in ["gta 6", "gta vi ", "grand theft auto 6", "grand theft auto vi "]):
         responses = [
             "GTA 6? That's never dropping lil bro. 😂",
             "GTA 6? Keep dreaming, lil bro! 😅",
@@ -651,19 +666,31 @@ async def on_message(message):
         ]
         await message.channel.send(random.choice(responses))
         return
+    if any(phrase in message.content.lower() for phrase in ["fortnite", "fortnite battle royale"]):
+        await message.channel.send("Fortnite? That's so 2018! 😂")
+        return
+    if any(phrase in message.content.lower() for phrase in ["minecraft", "creeper", "enderman", "steve", "herobrine"]):
+        await message.channel.send("Minecraft? Classic! 🌲🔨")
+        return
+    if any(phrase in message.content.lower() for phrase in ["roblox", "robux", "bloxberg", "blox fruit"]):
+        await message.channel.send("Roblox? Bloxberg? Blox Fruit? 🎮🔥")
+        return
+    if any(phrase in message.content.lower() for phrase in [" ligma", "sugma ", "sugondese", "sugoma"]):
+        await message.reply("Balls! 😂")
+        return
     if any(phrase in message.content.lower() for phrase in ["lil uzi", "uzi vert"]):
         await message.channel.send("Lil Uzi Vert? That's the vibes! 🚀 Eternal Atake and LUV vs. The World 2 are classics. 🌌")
         return
     if any(phrase in message.content.lower() for phrase in ["travis scott", "cactus jack"]):
         await message.channel.send("Travis Scott? Astroworld is a masterpiece. 🎢🎡🎠")
         return
-    if any(phrase in message.content.lower() for phrase in ["playboi carti", "carti", "slatt", "vamp", "whole lotta red", "wlr", "homixide", "0pium"]):
+    if any(phrase in message.content.lower() for phrase in ["playboi carti", "carti", "slatt", "vamp ", "whole lotta red", "wlr", "homixide", "0pium"]):
         await message.channel.send("Playboi Carti? Whole Lotta Red is a vibe. 🩸🔴")
         return
     if any(phrase in message.content.lower() for phrase in ["kanye west", "yeezy"]):
         await message.channel.send("Kanye West? Yeezus is a classic. 🐻🔥")
         return
-    if any(phrase in message.content.lower() for phrase in ["drake", "champagne papi"]):
+    if any(phrase in message.content.lower() for phrase in ["drake ", "champagne papi", " ovo ", " drake"]):
         await message.channel.send("Drake? Certified Lover Boy? Certified Pedophile! 😂")
         return
     if any(phrase in message.content.lower() for phrase in ["the weeknd", "abel tesfaye"]):
@@ -672,23 +699,20 @@ async def on_message(message):
     if any(phrase in message.content.lower() for phrase in ["eminem", "slim shady"]):
         await message.channel.send("Eminem? Rap God! 🎤🔥")
         return
-    if any(phrase in message.content.lower() for phrase in ["mr beast", "mrbeast", "chris ", "kris ", "tyson", "jimmy"]):
+    if any(phrase in message.content.lower() for phrase in ["mr beast", "mrbeast", "chris tyson", "kris tyson"]):
         await message.channel.send("I just helped 1000 blind people see for the first time... 😳 1001th person ☠💀")
         return
-    if any(phrase in message.content.lower() for phrase in ["pewdiepie", "felix"]):
+    if any(phrase in message.content.lower() for phrase in ["pewdiepie", "felix kjellberg"]):
         await message.channel.send("PewDiePie? Brofist! 👊👊")
         return
-    if any(phrase in message.content.lower() for phrase in ["dream ", "george ", "sapnap ", "karl ", "quackity "]):
-        await message.channel.send("Dream SMP? Dream Team? Dream is sus! 😳")
-        return
-    if any(phrase in message.content.lower() for phrase in ["ratio", "rati0"]):
+    if any(phrase in message.content.lower() for phrase in ["ratio ", "rati0", " ratio"]):
         reply_message = await message.reply("Ratioed! 😂")
         await reply_message.add_reaction("⬆")
         return
-    if any(phrase in message.content.lower() for phrase in ["simp", "simping"]):
+    if any(phrase in message.content.lower() for phrase in ["simp ", "simping"]):
         await message.channel.send("Simping is a way of life. 🥺")
         return
-    if any(phrase in message.content.lower() for phrase in ["sus", "amogus", "among us", "impostor", "crewmate", "vent", "amongus"]):
+    if any(phrase in message.content.lower() for phrase in [" sus", "sus ", "amogus", "among us", "impostor", "crewmate", " vent ", "amongus"]):
 
         await message.channel.send("Amogus! 😳")
         return
@@ -698,7 +722,7 @@ async def on_message(message):
     if any(phrase in message.content.lower() for phrase in ["lmao", "lmfao", "lol", "rofl"]) and random.random() < 0.1:
         await message.channel.send("😆")
         return
-    if any(phrase in message.content.lower() for phrase in ["rip", "rest in peace", "rip in peace"]) and random.random() < 0.5:
+    if any(phrase in message.content.lower() for phrase in [" rip ", "rest in peace", "rip in peace"]) and random.random() < 0.5:
         await message.channel.send("Rest in peace! 😢")
         return
     if any(phrase in message.content.lower() for phrase in ["f in the chat", "press f", "fs in the chat"]):

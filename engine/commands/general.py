@@ -23,11 +23,13 @@ async def ping_command(interaction: discord.Interaction):
     start_time = time.time()
 
     # Send the initial response and capture the message
-    await interaction.response.send_message(embed=discord.Embed(
+    embed = discord.Embed(
         title="Ping Command",
         description="Pong! Calculating ping...",
-        color=discord.Color.yellow()
-    ))
+        color=discord.Color.orange()
+    )
+    embed.set_footer(text=f"{interaction.client.user.name}", icon_url=interaction.client.user.avatar.url)
+    await interaction.response.send_message(embed=embed)
 
     # Calculate the ping
     latency = round(interaction.client.latency * 1000)  # Convert to milliseconds

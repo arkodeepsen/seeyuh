@@ -1,18 +1,13 @@
 import discord
 from discord import app_commands
-import random, asyncpraw, aiohttp, asyncprawcore, asyncio
-from engine.ai.gemini import slash_ai_response, mystery
-from engine.utils import load_env, reddit_env, giphy_env
+import random, httpx, aiohttp
+from engine.ai.gemini import slash_ai_response, slash_ai8b_response, mystery
+from engine.utils import load_env, giphy_env
 # Load environment variables
 DISCORD_TOKEN, OWNER, url, key = load_env()
 # Your bot's token and Giphy API key
 GIPHY_API_KEY = giphy_env()
-# Set up Reddit API credentials
-reddit = asyncpraw.Reddit(
-    client_id='FuqQfEb11y38pSDqsPIBsg',
-    client_secret='HqR47izhIwb2KAWBK3LKVcbPfDjXZQTb',
-    user_agent='seeyuh/1.0 by u/drgamerarko'
-)
+
 
 # Define the roast command
 @app_commands.command(name="roast", description="Roast a user in a light-hearted way!")
@@ -132,7 +127,7 @@ async def horoscope_command(interaction: discord.Interaction, sign: str):
     horoscope_prompt = f"Share a horoscope prediction for the {sign} zodiac sign."
     
     # Get the AI response for the horoscope
-    response = await slash_ai_response(horoscope_prompt)
+    response = await slash_ai8b_response(horoscope_prompt)
     
     # Send the horoscope prediction as a reply after deferring
     await interaction.followup.send(f"{response}")
@@ -302,29 +297,35 @@ async def wordle_command(interaction: discord.Interaction):
 # Meme command
 @app_commands.command(name="meme", description="Get a random meme from r/memes.")
 async def meme_command(interaction: discord.Interaction):
-    await interaction.response.defer()  # Defer response in case it takes a few seconds
-    await interaction.followup.send("Big oof, somethin' broke. Try again.")
-    #try:
-        # Fetch 25 hot posts from r/memes
-        #subreddit = await reddit.subreddit("memes")
-        #memes = [meme async for meme in subreddit.hot(limit=25)]
-        
-        # Select a random meme from the fetched posts
-        #random_meme = random.choice(memes)
+    await interaction.response.defer()
+
+    url = "https://www.reddit.com/r/memes/hot.json?limit=50"  # Get the hot 50 posts
+    headers = {"User-Agent": "seeyuh/1.0 by u/drgamerarko"}
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+
+        # Extract memes from the response
+        memes = data["data"]["children"]
+        random_meme = random.choice(memes)["data"]
 
         # Create and send the embed with the meme
-        #embed = discord.Embed(title=random_meme.title, color=discord.Color.random())
-        #embed.set_image(url=random_meme.url)
-        #embed.set_footer(text=f"👍 {random_meme.score} | 💬 {random_meme.num_comments} comments")
+        embed = discord.Embed(title=random_meme["title"], color=discord.Color.random())
+        embed.set_image(url=random_meme["url"])
+        embed.set_footer(text=f"👍 {random_meme['score']} | 💬 {random_meme['num_comments']} comments", icon_url=interaction.client.user.avatar.url)
 
-        #await interaction.followup.send(embed=embed)
-    #except asyncprawcore.exceptions.RequestException as e:
-        #await interaction.followup.send("There was an error fetching memes from Reddit. Please try again later.")
-        #print(f"Error fetching memes: {e}")
-    #except Exception as e:
-        #await interaction.followup.send("An unexpected error occurred. Please try again later.")
-        #print(f"Unexpected error: {e}")
-    
+        await interaction.followup.send(embed=embed)
+
+    except httpx.HTTPStatusError as e:
+        await interaction.followup.send("There was an error fetching memes from Reddit. Please try again later.")
+        print(f"HTTP error: {e}")
+    except Exception as e:
+        await interaction.followup.send("An unexpected error occurred. Please try again later.")
+        print(f"Unexpected error: {e}")
+               
 # Define the /gif slash command
 @app_commands.command(name="gif", description="Search for a GIF on Giphy.")
 async def gif_command(interaction: discord.Interaction, query: str):
@@ -343,9 +344,9 @@ async def gif_command(interaction: discord.Interaction, query: str):
                     await interaction.response.send_message("No GIFs found for your query.")
             else:
                 await interaction.response.send_message("Error fetching GIF. Try again later.")
-                
-@app_commands.command(name="temp2p1k100", description="Get a mysterious response from the bot!")
+
+@app_commands.command(name="seeyuh", description="Learn what seeyuh truly feels. 😔")
 async def mystery_command(interaction: discord.Interaction):
-    await interaction.response.defer()
+    await interaction.response.defer()  # Defer the interaction response
     response = await mystery("Give a mysterious, cryptic response that will intrigue the user.")
-    await interaction.response.send_message(response)
+    await interaction.followup.send(response)  # Use followup.send instead of response.send_message
