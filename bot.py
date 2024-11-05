@@ -100,11 +100,10 @@ async def on_message(message):
         async with message.channel.typing():  # Show typing indicator
             for attachment in message.attachments:
                 if attachment.content_type.startswith("image/"):
-                    await handle_attachment(message, attachment)
+                    await handle_attachment(bot, message, attachment)
                 else:
                     await message.reply("Unsupported file type. Please upload an image.")
         return  # Stop further processing if this condition is met
-
 
     if message.content.lower().startswith("say") or (("seeyuh" in message.content.lower() or bot.user.mentioned_in(message)) and "say" in message.content.lower()):
         content = message.content.strip()

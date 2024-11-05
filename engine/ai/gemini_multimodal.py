@@ -1,9 +1,7 @@
 import google.generativeai as genai
-import os
-import sys
+import os, discord
 from dotenv import load_dotenv
 import aiohttp
-import asyncio
 
 load_dotenv()
 GOOGLE_API_KEY = os.getenv('GEMINI_PRO_API_KEY')
@@ -27,7 +25,7 @@ def extract_text_from_image(sample_file, prompt):
         return None
 
 # Download and process an image from a URL
-async def handle_attachment(message, attachment):
+async def handle_attachment(bot, message, attachment):
     try:
         # Download the image file
         async with aiohttp.ClientSession() as session:
@@ -43,15 +41,25 @@ async def handle_attachment(message, attachment):
 
         # Upload the downloaded image and prepare it for analysis
         sample_file = prep_image(image_path)  # Get the sample file object
-        prompt = "Explain the content of the image."  # Prompt for the model
+        # Determine the prompt
+        prompt = message.content.strip().replace(f"<@{message.guild.me.id}>", "").replace("seeyuh", "").strip() or "Explain the content of the image."
         extracted_content = extract_text_from_image(sample_file, prompt)
 
         # Reply with extracted content
         if extracted_content:
-            await message.reply(f"Extracted Text:\n{extracted_content}")
+            embed = discord.Embed(title="Image Analysis", description=extracted_content, color=0x00ff00)
+            embed.set_thumbnail(url=attachment.url)
+            embed.set_footer(text=bot.user.name, icon_url=str(bot.user.avatar.url))
+            await message.reply(embed=embed)
         else:
             await message.reply("Failed to extract text from the image.")
 
     except Exception as e:
         print(f"An error occurred: {e}")
         await message.reply("An error occurred while processing the image.")
+    finally:
+        # Clean up by deleting the downloaded image file if it exists
+        if os.path.exists(image_path):
+            os.remove(image_path)
+            print("Deleted temporary image file.")
+

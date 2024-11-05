@@ -3,3 +3,4 @@ venv/
 .venv/
 __pycache__/
 bot.log
+downloaded_image.png
