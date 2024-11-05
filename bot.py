@@ -96,14 +96,31 @@ async def on_message(message):
         return
 
     # Check if the message has attachments and bot is mentioned
-    if message.attachments and (bot.user.mentioned_in(message) or "seeyuh" in message.content.lower()):
-        async with message.channel.typing():  # Show typing indicator
-            for attachment in message.attachments:
-                if attachment.content_type.startswith("image/"):
-                    await handle_attachment(bot, message, attachment)
-                else:
-                    await message.reply("Unsupported file type. Please upload an image.")
-        return  # Stop further processing if this condition is met
+    if (bot.user.mentioned_in(message) or "seeyuh" in message.content.lower()):
+        if message.attachments:
+            async with message.channel.typing():  # Show typing indicator
+                for attachment in message.attachments:
+                    if attachment.content_type.startswith("image/"):
+                        await handle_attachment(bot, message, attachment)
+                    else:
+                        await message.reply("Unsupported file type. Please upload an image.")
+            return  # Stop further processing if this condition is met
+
+        # Check if the message is a reply to another message that has attachments
+        if message.reference:
+            try:
+                original_message = await message.channel.fetch_message(message.reference.message_id)
+                if original_message.attachments:
+                    async with message.channel.typing():  # Show typing indicator
+                        for attachment in original_message.attachments:
+                            if attachment.content_type.startswith("image/"):
+                                await handle_attachment(bot, message, attachment)
+                            else:
+                                await message.reply("Unsupported file type. Please upload an image.")
+                    return  # Stop further processing if this condition is met
+            except discord.NotFound:
+                await message.reply("The original message could not be found.")
+                return  # Stop further processing if this condition is met
 
     if message.content.lower().startswith("say") or (("seeyuh" in message.content.lower() or bot.user.mentioned_in(message)) and "say" in message.content.lower()):
         content = message.content.strip()
