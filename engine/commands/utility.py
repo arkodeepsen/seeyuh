@@ -482,7 +482,7 @@ async def meaning_command(interaction: discord.Interaction, word: str):
                     html = await resp.text()
                     meaning, example = parse_meaning(html)
                     if meaning and example:
-                        embed = create_embed(word, meaning, example)
+                        embed = create_embed(interaction, word, meaning, example)
                         await interaction.followup.send(embed=embed)
                     else:
                         await interaction.followup.send("Could not find the meaning of the word.")
@@ -497,9 +497,9 @@ def parse_meaning(html: str) -> tuple[str, str]:
     example = soup.find('div', class_='example')
     return (meaning.text.strip() if meaning else None, example.text.strip() if example else None)
 
-def create_embed(word: str, meaning: str, example: str) -> discord.Embed:
+def create_embed(interaction: discord.Interaction, word: str, meaning: str, example: str) -> discord.Embed:
     embed = discord.Embed(title=f"Meaning of '{word}'", description=meaning, color=discord.Color.green())
     embed.add_field(name="Example", value=example, inline=False)
     embed.set_thumbnail(url="https://media.discordapp.net/attachments/533926025747234838/1303814912858128518/Urban_Dictionary_logo.svg.png")
-    embed.set_footer(text="interaction.client.user.name", icon_url="interaction.client.user.display_avatar.url")
+    embed.set_footer(text=interaction.client.user.name, icon_url=interaction.client.user.display_avatar.url)
     return embed
