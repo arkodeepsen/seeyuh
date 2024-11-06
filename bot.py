@@ -695,10 +695,10 @@ async def on_message(message):
 
         await message.channel.send("Amogus! 😳")
         return
-    if any(phrase in message.content.lower() for phrase in ["bruh", "bruh moment"]) and random.random() < 0.2:
+    if any(phrase in message.content.lower() for phrase in ["bruh", "bruh moment"]) and random.random() < 0.05:
         await message.channel.send("Bruh moment! 😂")
         return
-    if any(phrase in message.content.lower() for phrase in ["lmao", "lmfao", "lol", "rofl"]) and random.random() < 0.1:
+    if any(phrase in message.content.lower() for phrase in ["lmao", "lmfao", "lol", "rofl"]) and random.random() < 0.025:
         await message.channel.send("😆")
         return
     if any(phrase in message.content.lower() for phrase in [" rip ", "rest in peace", "rip in peace"]) and random.random() < 0.5:
