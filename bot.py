@@ -67,6 +67,9 @@ bot.tree.add_command(utility.explain_command)
 bot.tree.add_command(utility.ask_command)
 bot.tree.add_command(utility.poll_command)
 bot.tree.add_command(utility.translate_command)
+bot.tree.add_command(utility.prompt_command)
+bot.tree.add_command(utility.reddit_command)
+bot.tree.add_command(utility.weather_command)
 
 # Register the commands from fun.py
 bot.tree.add_command(fun.roast_command)
@@ -469,15 +472,15 @@ async def on_message(message):
                 break
     
         # 10% chance to respond to the message
-    if random.random() < 0.01:
+    if random.random() < 0.005:
         command_content = message.content.strip()
         author_name = message.author.name
-        ai_prompt = f"{author_name} says: {command_content}. Query: make a funny but interesting response related to the user, you can spin the user's message into a story or a joke."
+        ai_prompt = f"Context: {author_name} says '{command_content}'. \nInstruction: Make a funny but interesting response related to the user, you can spin the user's message into a story or a joke."
 
         mentioned_users = [user for user in message.mentions if user != bot.user]
         if mentioned_users:
             user_name = mentioned_users[0].name
-            ai_prompt = f"{author_name} says about {user_name}: {command_content}. Query: make fun of both users in a playful but interesting manner, you can spin the user's message into a story or a joke."
+            ai_prompt = f"Context: {author_name} says about {user_name} '{command_content}'. \nInstruction: make fun of both users in a playful but interesting manner, you can spin the user's message into a story or a joke."
 
         async with message.channel.typing():  # Show typing indicator
             response = await get_ai_response(ai_prompt)
@@ -599,7 +602,7 @@ async def on_message(message):
 
     brain_rot_terms = social_media_terms + popular_phrases + gaming_meme_references + cultural_references + absurd_terms + reactions + miscellaneous_terms
     # Check for brain rot terms
-    if any(term in message.content.lower() for term in brain_rot_terms):
+    if any(term in message.content.lower() for term in brain_rot_terms) and random.random() < 0.0125:
         # Reply to the original message without directly mentioning the user
         responses = [
             "Bro, that's so brainrot! 🧠💀", 
@@ -635,7 +638,7 @@ async def on_message(message):
         ]
         await message.reply(random.choice(responses))
         return
-    if any(phrase in message.content.lower() for phrase in ["gta 6", "gta vi ", "grand theft auto 6", "grand theft auto vi "]):
+    if any(phrase in message.content.lower() for phrase in ["gta 6", "gta vi ", "grand theft auto 6", "grand theft auto vi "]) and random.random() < 0.0125:
         responses = [
             "GTA 6? That's never dropping lil bro. 😂",
             "GTA 6? Keep dreaming, lil bro! 😅",
@@ -645,60 +648,60 @@ async def on_message(message):
         ]
         await message.channel.send(random.choice(responses))
         return
-    if any(phrase in message.content.lower() for phrase in ["fortnite", "fortnite battle royale"]):
+    if any(phrase in message.content.lower() for phrase in ["fortnite", "fortnite battle royale"]) and random.random() < 0.0125:
         await message.channel.send("Fortnite? That's so 2018! 😂")
         return
-    if any(phrase in message.content.lower() for phrase in ["minecraft", "creeper", "enderman", "steve", "herobrine"]):
+    if any(phrase in message.content.lower() for phrase in ["minecraft", "creeper", "enderman", "steve", "herobrine"]) and random.random() < 0.0125:
         await message.channel.send("Minecraft? Classic! 🌲🔨")
         return
-    if any(phrase in message.content.lower() for phrase in ["roblox", "robux", "bloxberg", "blox fruit"]):
+    if any(phrase in message.content.lower() for phrase in ["roblox", "robux", "bloxberg", "blox fruit"]) and random.random() < 0.0125:
         await message.channel.send("Roblox? Bloxberg? Blox Fruit? 🎮🔥")
         return
-    if any(phrase in message.content.lower() for phrase in [" ligma", "sugma ", "sugondese", "sugoma"]):
+    if any(phrase in message.content.lower() for phrase in [" ligma", "sugma ", "sugondese", "sugoma"]) and random.random() < 0.0125:
         await message.reply("Balls! 😂")
         return
-    if any(phrase in message.content.lower() for phrase in ["lil uzi", "uzi vert"]):
+    if any(phrase in message.content.lower() for phrase in ["lil uzi", "uzi vert"]) and random.random() < 0.0125:
         await message.channel.send("Lil Uzi Vert? That's the vibes! 🚀 Eternal Atake and LUV vs. The World 2 are classics. 🌌")
         return
-    if any(phrase in message.content.lower() for phrase in ["travis scott", "cactus jack"]):
+    if any(phrase in message.content.lower() for phrase in ["travis scott", "cactus jack"]) and random.random() < 0.0125:
         await message.channel.send("Travis Scott? Astroworld is a masterpiece. 🎢🎡🎠")
         return
-    if any(phrase in message.content.lower() for phrase in ["playboi carti", "carti", "slatt", "vamp ", "whole lotta red", "wlr", "homixide", "0pium"]):
+    if any(phrase in message.content.lower() for phrase in ["playboi carti", "carti", "slatt", "vamp ", "whole lotta red", "wlr", "homixide", "0pium"]) and random.random() < 0.0125:
         await message.channel.send("Playboi Carti? Whole Lotta Red is a vibe. 🩸🔴")
         return
-    if any(phrase in message.content.lower() for phrase in ["kanye west", "yeezy"]):
+    if any(phrase in message.content.lower() for phrase in ["kanye west", "yeezy"]) and random.random() < 0.0125:
         await message.channel.send("Kanye West? Yeezus is a classic. 🐻🔥")
         return
-    if any(phrase in message.content.lower() for phrase in ["drake ", "champagne papi", " ovo ", " drake"]):
+    if any(phrase in message.content.lower() for phrase in ["drake ", "champagne papi", " ovo ", " drake"]) and random.random() < 0.0125:
         await message.channel.send("Drake? Certified Lover Boy? Certified Pedophile! 😂")
         return
-    if any(phrase in message.content.lower() for phrase in ["the weeknd", "abel tesfaye"]):
+    if any(phrase in message.content.lower() for phrase in ["the weeknd", "abel tesfaye"]) and random.random() < 0.0125:
         await message.channel.send("The Weeknd? Blinding Lights is iconic. 🌟🎤")
         return
-    if any(phrase in message.content.lower() for phrase in ["eminem", "slim shady"]):
+    if any(phrase in message.content.lower() for phrase in ["eminem", "slim shady"]) and random.random() < 0.0125:
         await message.channel.send("Eminem? Rap God! 🎤🔥")
         return
-    if any(phrase in message.content.lower() for phrase in ["mr beast", "mrbeast", "chris tyson", "kris tyson"]):
+    if any(phrase in message.content.lower() for phrase in ["mr beast", "mrbeast"]):
         await message.channel.send("I just helped 1000 blind people see for the first time... 😳 1001th person ☠💀")
         return
-    if any(phrase in message.content.lower() for phrase in ["pewdiepie", "felix kjellberg"]):
+    if any(phrase in message.content.lower() for phrase in ["pewdiepie", "felix kjellberg"]) and random.random() < 0.0125:
         await message.channel.send("PewDiePie? Brofist! 👊👊")
         return
     if any(phrase in message.content.lower() for phrase in ["ratio ", "rati0", " ratio"]):
         reply_message = await message.reply("Ratioed! 😂")
         await reply_message.add_reaction("⬆")
         return
-    if any(phrase in message.content.lower() for phrase in ["simp ", "simping"]):
+    if any(phrase in message.content.lower() for phrase in ["simp ", "simping"]) and random.random() < 0.5:
         await message.channel.send("Simping is a way of life. 🥺")
         return
-    if any(phrase in message.content.lower() for phrase in [" sus", "sus ", "amogus", "among us", "impostor", "crewmate", " vent ", "amongus"]):
+    if any(phrase in message.content.lower() for phrase in [" sus", "sus ", "amogus", "among us", "impostor", "crewmate", " vent ", "amongus"]) and random.random() < 0.01:
 
         await message.channel.send("Amogus! 😳")
         return
-    if any(phrase in message.content.lower() for phrase in ["bruh", "bruh moment"]) and random.random() < 0.05:
+    if any(phrase in message.content.lower() for phrase in ["bruh", "bruh moment"]) and random.random() < 0.001:
         await message.channel.send("Bruh moment! 😂")
         return
-    if any(phrase in message.content.lower() for phrase in ["lmao", "lmfao", "lol", "rofl"]) and random.random() < 0.025:
+    if any(phrase in message.content.lower() for phrase in ["lmao", "lmfao", "lol", "rofl"]) and random.random() < 0.0005:
         await message.channel.send("😆")
         return
     if any(phrase in message.content.lower() for phrase in [" rip ", "rest in peace", "rip in peace"]) and random.random() < 0.5:
@@ -707,7 +710,7 @@ async def on_message(message):
     if any(phrase in message.content.lower() for phrase in ["f in the chat", "press f", "fs in the chat"]):
         await message.channel.send("F")
         return
-    if any(phrase in message.content.lower() for phrase in ["elon musk", "tesla", "spacex", "dogecoin"]):
+    if any(phrase in message.content.lower() for phrase in ["elon musk", "tesla", "spacex", "dogecoin"]) and random.random() < 0.5:
         await message.channel.send("https://tenor.com/view/this-is-elon-musk-gif-24487310")
         return
     if any(phrase in message.content.lower() for phrase in ["good bot", "great bot", "best bot"]):
@@ -721,7 +724,7 @@ async def on_message(message):
     if any(phrase in message.content.lower() for phrase in ["ded chat", "dead chat", "deadchat", "dedchat"]):
         await message.channel.send("Ded chat? I'm here to revive it! 😎")
         return
-    if any(phrase in message.content.lower() for phrase in ["yamete", "kudasai", "moan", "horny"]):
+    if any(phrase in message.content.lower() for phrase in ["yamete", "kudasai"]):
         await message.channel.send("⣿⣿⣷⡁⢆⠈⠕⢕⢂⢕⢂⢕⢂⢔⢂⢕⢄⠂⣂⠂⠆⢂⢕⢂⢕⢂⢕⢂⢕⢂\n"
                                 "⣿⣿⣿⡷⠊⡢⡹⣦⡑⢂⢕⢂⢕⢂⢕⢂⠕⠔⠌⠝⠛⠶⠶⢶⣦⣄⢂⢕⢂⢕\n"
                                 "⣿⣿⠏⣠⣾⣦⡐⢌⢿⣷⣦⣅⡑⠕⠡⠐⢿⠿⣛⠟⠛⠛⠛⠛⠡⢷⡈⢂⢕⢂\n"

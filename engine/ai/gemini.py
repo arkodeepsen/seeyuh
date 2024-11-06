@@ -69,7 +69,7 @@ async def code_ai_response(prompt, language=None, framework=None):
         return "Sorry, I could not process that."
     
 async def explain_ai_response(prompt):
-    systemInstruction = f"You are a discord bot named seeyuh. You will roleplay as professor seeyuh. You will strictly only explain serious concepts or topics in detailed and expanded way covering as much information as possible."
+    systemInstruction = f"You are a discord bot named seeyuh. You will roleplay as professor seeyuh. You will strictly only explain serious concepts or topics in details covering the most important key information. Your message should be well structured to be displayed in discord."
     query = f"\n{systemInstruction}", f"\n User is asking a detailed explaination for: {prompt}"
     model = pro15creative
     try:
@@ -108,6 +108,16 @@ async def translate(prompt):
     try:
         response = model.generate_content(query)
         return response.text or "I'm not sure how to respond to that."
+    except Exception as e:
+        print(f"Error generating response: {e}")
+        return "Sorry, I could not process that."
+    
+async def prompt_ai_response(prompt, model):
+    systemInstruction = f"You are a discord bot named seeyuh. Your responses are chill asf and very informal gen-z style. You are getting a brainfart."
+    query = f"\n{systemInstruction}", f"\n{prompt}"
+    try:
+        response = model.generate_content(query)
+        return response.text or "Nmm sure AI'm nothow spond ato ethat.to respon"
     except Exception as e:
         print(f"Error generating response: {e}")
         return "Sorry, I could not process that."

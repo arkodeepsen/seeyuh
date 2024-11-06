@@ -62,4 +62,3 @@ async def handle_attachment(bot, message, attachment):
         if os.path.exists(image_path):
             os.remove(image_path)
             print("Deleted temporary image file.")
-
