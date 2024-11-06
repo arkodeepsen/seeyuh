@@ -2,12 +2,11 @@ import discord
 from discord import app_commands
 import random, httpx, aiohttp
 from engine.ai.gemini import slash_ai_response, slash_ai8b_response, mystery
-from engine.utils import load_env, giphy_env
+from engine.utils import load_env, giphy_env, get_reddit_access_token
 # Load environment variables
 DISCORD_TOKEN, OWNER, url, key = load_env()
 # Your bot's token and Giphy API key
 GIPHY_API_KEY = giphy_env()
-
 
 # Define the roast command
 @app_commands.command(name="roast", description="Roast a user in a light-hearted way!")
@@ -299,9 +298,12 @@ async def wordle_command(interaction: discord.Interaction):
 async def meme_command(interaction: discord.Interaction):
     await interaction.response.defer()
 
-    url = "https://www.reddit.com/r/memes/hot.json?limit=50"  # Get the hot 50 posts
-    headers = {"User-Agent": "seeyuh/0.1.0 (by u/drgamerarko)"}
-
+    access_token = await get_reddit_access_token()
+    url = "https://oauth.reddit.com/r/memes/hot.json?limit=50"  # Note the OAuth URL
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "User-Agent": "seeyuh/0.1.0 (by u/drgamerarko)"
+    }
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(url, headers=headers)

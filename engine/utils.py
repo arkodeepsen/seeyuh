@@ -1,8 +1,5 @@
-import os
+import os, base64, httpx, discord, asyncio
 from dotenv import load_dotenv
-import discord
-import time
-import asyncio
 
 def load_env():
     load_dotenv()  # Load environment variables from a .env file
@@ -12,12 +9,22 @@ def load_env():
     key = os.getenv("SUPABASE_KEY")
     return DISCORD_TOKEN, OWNER, url, key
 
-def reddit_env():
-    load_dotenv()  # Load environment variables from a .env file
-    client_id = os.getenv('REDDIT_CLIENT_ID')
-    client_secret = os.getenv('REDDIT_CLIENT_SECRET')
-    user_agent = os.getenv('REDDIT_USER_AGENT')
-    return client_id, client_secret, user_agent
+async def get_reddit_access_token():
+    client_id = os.getenv("REDDIT_CLIENT_ID")
+    client_secret = os.getenv("REDDIT_CLIENT_SECRET")
+    
+    # Encode client_id and client_secret for Basic Auth
+    auth = f"{client_id}:{client_secret}".encode("ascii")
+    headers = {
+        "Authorization": f"Basic {base64.b64encode(auth).decode('ascii')}",
+        "User-Agent": "seeyuh/0.1.0 (by u/drgamerarko)"
+    }
+    data = {"grant_type": "client_credentials"}
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post("https://www.reddit.com/api/v1/access_token", headers=headers, data=data)
+        response.raise_for_status()
+        return response.json().get("access_token")
 
 def giphy_env():
     load_dotenv()  # Load environment variables from a .env file
