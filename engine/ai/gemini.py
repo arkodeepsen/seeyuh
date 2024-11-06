@@ -113,11 +113,11 @@ async def translate(prompt):
         return "Sorry, I could not process that."
     
 async def prompt_ai_response(prompt, model):
-    systemInstruction = f"You are a discord bot named seeyuh. Your responses are chill asf and very informal gen-z style. You are getting a brainfart."
+    systemInstruction = f"You are a discord bot named seeyuh. Prompt:"
     query = f"\n{systemInstruction}", f"\n{prompt}"
     try:
         response = model.generate_content(query)
-        return response.text or "Nmm sure AI'm nothow spond ato ethat.to respon"
+        return response.text or "I'm not sure how to respond to that."
     except Exception as e:
         print(f"Error generating response: {e}")
         return "Sorry, I could not process that."

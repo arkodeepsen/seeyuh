@@ -1,6 +1,6 @@
 import discord, asyncio, aiohttp, random, httpx
 from discord import app_commands
-from typing import List
+from bs4 import BeautifulSoup
 from engine.utils import load_env, get_reddit_access_token
 from engine.ai.gemini import code_ai_response, explain_ai_response, ask_ai_response, translate, prompt_ai_response
 from engine.ai.gemini_models import (
@@ -239,13 +239,18 @@ sort_choices = [
     app_commands.Choice(name="Rising", value="rising")
 ]
 
-@app_commands.command(name="reddit", description="Get a random post from subreddit of your choice.")
+@app_commands.command(name="reddit", description="Get a random post from a subreddit of your choice.")
 @app_commands.choices(sort=sort_choices)
-async def reddit_command(interaction: discord.Interaction, subreddit: str, sort: app_commands.Choice[str] = "hot"):
+async def reddit_command(interaction: discord.Interaction, subreddit: str, sort: app_commands.Choice[str] = "hot", nsfw: bool = False):
     await interaction.response.defer()
 
+    # Enforce NSFW block if the channel is not NSFW
+    if not interaction.channel.is_nsfw() and nsfw:
+        nsfw = False
+        await interaction.followup.send("🔒 NSFW content is blocked in this channel as it does not allow NSFW content.")
+
     access_token = await get_reddit_access_token()
-    url = f"https://oauth.reddit.com/r/{subreddit}/{sort.value}.json?limit=50"  # Note the OAuth URL
+    url = f"https://oauth.reddit.com/r/{subreddit}/{sort.value}.json?limit=50"
     headers = {
         "Authorization": f"Bearer {access_token}",
         "User-Agent": "seeyuh/0.1.0 (by u/drgamerarko)"
@@ -258,6 +263,15 @@ async def reddit_command(interaction: discord.Interaction, subreddit: str, sort:
 
         # Extract posts from the response
         posts = data["data"]["children"]
+        # Filter out NSFW posts if NSFW is set to False
+        if not nsfw:
+            posts = [post for post in posts if not post["data"]["over_18"]]
+
+        if not posts:
+            await interaction.followup.send("No posts found or all posts are NSFW. Try a different subreddit or allow NSFW.")
+            return
+
+        # Choose a random post from the filtered list
         random_post = random.choice(posts)["data"]
 
         # Create and send the embed with the meme
@@ -268,8 +282,111 @@ async def reddit_command(interaction: discord.Interaction, subreddit: str, sort:
         await interaction.followup.send(embed=embed)
 
     except httpx.HTTPStatusError as e:
-        await interaction.followup.send("There was an error fetching posts from Reddit. Please try again later.")
+        if e.response.status_code == 404:
+            await interaction.followup.send(f"The subreddit '{subreddit}' does not exist. Please try a different subreddit.")
+        else:
+            await interaction.followup.send("There was an error fetching posts from Reddit. Please try again later.")
         print(f"HTTP error: {e}")
     except Exception as e:
         await interaction.followup.send("An unexpected error occurred. Please try again later.")
         print(f"Unexpected error: {e}")
+        
+# Define the choices for search engines
+search_engine_choices = [
+    app_commands.Choice(name="Google", value="google"),
+    app_commands.Choice(name="Bing", value="bing"),
+    app_commands.Choice(name="DuckDuckGo", value="duckduckgo"),
+    app_commands.Choice(name="Yahoo", value="yahoo"),
+    app_commands.Choice(name="Ask.com", value="ask")
+]
+
+# Define the icons for each search engine
+search_engine_icons = {
+    "google": "https://media.discordapp.net/attachments/533926025747234838/1303799821592694916/google.gif",
+    "bing": "https://media.discordapp.net/attachments/533926025747234838/1303799821043503185/bing.gif",
+    "duckduckgo": "https://duckduckgo.com/assets/icons/meta/DDG-icon_256x256.png",
+    "yahoo": "https://media.discordapp.net/attachments/533926025747234838/1303799820292460554/yahoo.gif",
+    "ask": "https://media.discordapp.net/attachments/533926025747234838/1303799822431817800/Ask.com.png"
+}
+
+@app_commands.command(name='search', description='Search for a query on the web.')
+@app_commands.choices(engine=search_engine_choices)
+async def search_command(interaction: discord.Interaction, query: str, engine: app_commands.Choice[str], safesearch: bool = True):
+    await interaction.response.defer()
+
+    # Check if the channel allows NSFW, otherwise enforce safesearch
+    if not interaction.channel.is_nsfw() and not safesearch:
+        safesearch = True  # Force SafeSearch in non-NSFW channels
+        await interaction.followup.send("🔒 SafeSearch is enabled because this channel doesn’t allow NSFW content.")
+
+    # Determine the search URL based on the selected search engine
+    if engine.value == "google":
+        search_url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
+        if safesearch:
+            search_url += "&safe=active"
+    elif engine.value == "bing":
+        search_url = f"https://www.bing.com/search?q={query.replace(' ', '+')}"
+        if safesearch:
+            search_url += "&adlt=strict"
+    elif engine.value == "duckduckgo":
+        search_url = f"https://duckduckgo.com/?q={query.replace(' ', '+')}"
+        if safesearch:
+            search_url += "&kp=1"
+    elif engine.value == "yahoo":
+        search_url = f"https://search.yahoo.com/search?p={query.replace(' ', '+')}"
+    elif engine.value == "ask":
+        search_url = f"https://www.ask.com/web?q={query.replace(' ', '+')}"
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(search_url, headers=headers) as resp:
+            if resp.status == 200:
+                html = await resp.text()
+                soup = BeautifulSoup(html, 'html.parser')
+
+                # Extract search results
+                results = []
+                if engine.value == "google":
+                    for g in soup.find_all('div', class_='tF2Cxc'):
+                        title = g.find('h3').text if g.find('h3') else "No title"
+                        link = g.find('a')['href'] if g.find('a') else "No link"
+                        description = g.find('div', class_='IsZvec').text if g.find('div', class_='IsZvec') else "No description"
+                        results.append((title, link, description))
+                elif engine.value == "bing":
+                    for b in soup.find_all('li', class_='b_algo'):
+                        title = b.find('h2').text if b.find('h2') else "No title"
+                        link = b.find('a')['href'] if b.find('a') else "No link"
+                        description = b.find('p').text if b.find('p') else "No description"
+                        results.append((title, link, description))
+                elif engine.value == "duckduckgo":
+                    for d in soup.find_all('div', class_='result__body'):
+                        title = d.find('h2').text if d.find('h2') else "No title"
+                        link = d.find('a')['href'] if d.find('a') else "No link"
+                        description = d.find('a', class_='result__snippet').text if d.find('a', class_='result__snippet') else "No description"
+                        results.append((title, link, description))
+                elif engine.value == "yahoo":
+                    for y in soup.find_all('div', class_='dd algo algo-sr Sr'):
+                        title = y.find('h3').text if y.find('h3') else "No title"
+                        link = y.find('a')['href'] if y.find('a') else "No link"
+                        description = y.find('p').text if y.find('p') else "No description"
+                        results.append((title, link, description))
+                elif engine.value == "ask":
+                    for a in soup.find_all('div', class_='PartialSearchResults-item'):
+                        title = a.find('h2').text if a.find('h2') else "No title"
+                        link = a.find('a')['href'] if a.find('a') else "No link"
+                        description = a.find('p').text if a.find('p') else "No description"
+                        results.append((title, link, description))
+
+                # Create an embed for the search results
+                embed = discord.Embed(title=f"Search results for '{query}'", color=discord.Color.blue())
+                embed.set_thumbnail(url=search_engine_icons[engine.value])
+                for title, link, description in results[:5]:  # Limit to top 5 results
+                    embed.add_field(name=title, value=f"{description}\n[Link]({link})", inline=False)
+                embed.set_footer(text=interaction.client.user.name, icon_url=interaction.client.user.avatar.url)
+
+                await interaction.followup.send(embed=embed)
+            else:
+                await interaction.followup.send(f"Could not fetch search results for '{query}'. Please try again later.")

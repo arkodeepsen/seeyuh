@@ -70,6 +70,7 @@ bot.tree.add_command(utility.translate_command)
 bot.tree.add_command(utility.prompt_command)
 bot.tree.add_command(utility.reddit_command)
 bot.tree.add_command(utility.weather_command)
+bot.tree.add_command(utility.search_command)
 
 # Register the commands from fun.py
 bot.tree.add_command(fun.roast_command)
