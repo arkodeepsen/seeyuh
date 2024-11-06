@@ -50,7 +50,7 @@ async def explain_command(interaction: discord.Interaction, prompt: str):
     current_part = ""
 
     for sentence in response.split('. '):
-        if len(current_part) + len(sentence) + 1 <= max_length:
+        if len(current_part) + len(sentence) + 2 <= max_length:  # +2 for the '. ' or '\n'
             current_part += sentence + '. '
         else:
             response_parts.append(current_part.strip())
@@ -70,7 +70,18 @@ async def ask_command(interaction: discord.Interaction, prompt: str):
     
     # Split the response into multiple messages if it exceeds 2000 characters
     max_length = 2000
-    response_parts = [response[i:i + max_length] for i in range(0, len(response), max_length)]
+    response_parts = []
+    current_part = ""
+
+    for sentence in response.split('. '):
+        if len(current_part) + len(sentence) + 2 <= max_length:  # +2 for the '. ' or '\n'
+            current_part += sentence + '. '
+        else:
+            response_parts.append(current_part.strip())
+            current_part = sentence + '. '
+
+    if current_part:
+        response_parts.append(current_part.strip())
 
     for part in response_parts:
         await interaction.followup.send(part)
@@ -139,14 +150,44 @@ async def poll_command(interaction: discord.Interaction, question: str, options:
     # Start the background task to end the poll
     interaction.client.loop.create_task(end_poll(message))
 
+# Define the choices for languages
+language_choices = [
+    app_commands.Choice(name="English", value="English"),
+    app_commands.Choice(name="Spanish", value="Spanish"),
+    app_commands.Choice(name="French", value="French"),
+    app_commands.Choice(name="German", value="German"),
+    app_commands.Choice(name="Chinese (Simplified)", value="Chinese (Simplified)"),
+    app_commands.Choice(name="Chinese (Traditional)", value="Chinese (Traditional)"),
+    app_commands.Choice(name="Japanese", value="Japanese"),
+    app_commands.Choice(name="Korean", value="Korean"),
+    app_commands.Choice(name="Russian", value="Russian"),
+    app_commands.Choice(name="Portuguese", value="Portuguese"),
+    app_commands.Choice(name="Italian", value="Italian"),
+    app_commands.Choice(name="Arabic", value="Arabic"),
+    app_commands.Choice(name="Hindi", value="Hindi"),
+    app_commands.Choice(name="Vietnamese", value="Vietnamese"),
+    app_commands.Choice(name="Turkish", value="Turkish"),
+    app_commands.Choice(name="Polish", value="Polish"),
+    app_commands.Choice(name="Dutch", value="Dutch"),
+    app_commands.Choice(name="Thai", value="Thai"),
+    app_commands.Choice(name="Indonesian", value="Indonesian"),
+    app_commands.Choice(name="Persian", value="Persian"),
+    app_commands.Choice(name="Swedish", value="Swedish"),
+    app_commands.Choice(name="Ukrainian", value="Ukrainian"),
+    app_commands.Choice(name="Czech", value="Czech"),
+    app_commands.Choice(name="Romanian", value="Romanian"),
+    app_commands.Choice(name="Greek", value="Greek")
+]
+
 @app_commands.command(name='translate', description='Translate text to a specified language.')
-async def translate_command(interaction: discord.Interaction, text: str, source_language: str, target_language: str):
+@app_commands.choices(source_language=language_choices, target_language=language_choices)
+async def translate_command(interaction: discord.Interaction, text: str, target_language: app_commands.Choice[str], source_language: app_commands.Choice[str] = None):
     await interaction.response.defer()
-    prompt = f"Translate '{text}' from {source_language} to {target_language}"
+    prompt = f"Translate '{text}' from {source_language.name} to {target_language.name}" if source_language != None else f"Translate '{text}' to {target_language.name}"
     # Get translated text
     translated_text = await translate(prompt)
     await interaction.followup.send(translated_text)
-    
+
 # Define the choices for AI models
 model_choices = [
     app_commands.Choice(name="gemini-pro (default)", value="pro10creative"),
@@ -171,11 +212,41 @@ model_map = {
 
 @app_commands.command(name='prompt', description='Prompt for a specific AI model to generate a response.')
 @app_commands.choices(model=model_choices)
-async def prompt_command(interaction: discord.Interaction, model: app_commands.Choice[str], prompt: str):
+async def prompt_command(interaction: discord.Interaction, prompt: str, model: app_commands.Choice[str] = None):
     await interaction.response.defer()
-    selected_model = model_map[model.value]
-    response = await prompt_ai_response(prompt, selected_model)  # Await the coroutine
-    await interaction.followup.send(response)
+    selected_model = model_map[model.value] if model else pro10creative
+
+    # Retry logic with timeout
+    retries = 3
+    for attempt in range(retries):
+        try:
+            response = await asyncio.wait_for(prompt_ai_response(prompt, selected_model), timeout=30)  # Await the coroutine with a timeout
+            break
+        except asyncio.TimeoutError:
+            if attempt < retries - 1:
+                await interaction.followup.send(f"Attempt {attempt + 1} failed. Retrying...")
+            else:
+                await interaction.followup.send("The request timed out. Please try again later.")
+                return
+
+    # Split the response into multiple messages if it exceeds 2000 characters
+    max_length = 2000
+    response_parts = []
+    current_part = ""
+
+    for sentence in response.split('. '):
+        if len(current_part) + len(sentence) + 2 <= max_length:  # +2 for the '. ' or '\n'
+            current_part += sentence + '. '
+        else:
+            response_parts.append(current_part.strip())
+            current_part = sentence + '. '
+
+    if current_part:
+        response_parts.append(current_part.strip())
+
+    for part in response_parts:
+        await interaction.followup.send(part)
+
 
 @app_commands.command(name='weather', description='Get the weather information for a specific location.')
 async def weather_command(interaction: discord.Interaction, location: str):
@@ -309,84 +380,126 @@ search_engine_icons = {
     "ask": "https://media.discordapp.net/attachments/533926025747234838/1303799822431817800/Ask.com.png"
 }
 
-@app_commands.command(name='search', description='Search for a query on the web.')
+@app_commands.command(name="search", description="Search for a query on the web.")
 @app_commands.choices(engine=search_engine_choices)
 async def search_command(interaction: discord.Interaction, query: str, engine: app_commands.Choice[str], safesearch: bool = True):
     await interaction.response.defer()
 
-    # Check if the channel allows NSFW, otherwise enforce safesearch
+    # Force SafeSearch if the channel is not NSFW
     if not interaction.channel.is_nsfw() and not safesearch:
-        safesearch = True  # Force SafeSearch in non-NSFW channels
+        safesearch = True
         await interaction.followup.send("🔒 SafeSearch is enabled because this channel doesn’t allow NSFW content.")
 
-    # Determine the search URL based on the selected search engine
-    if engine.value == "google":
-        search_url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
-        if safesearch:
-            search_url += "&safe=active"
-    elif engine.value == "bing":
-        search_url = f"https://www.bing.com/search?q={query.replace(' ', '+')}"
-        if safesearch:
-            search_url += "&adlt=strict"
-    elif engine.value == "duckduckgo":
-        search_url = f"https://duckduckgo.com/?q={query.replace(' ', '+')}"
-        if safesearch:
-            search_url += "&kp=1"
-    elif engine.value == "yahoo":
-        search_url = f"https://search.yahoo.com/search?p={query.replace(' ', '+')}"
-    elif engine.value == "ask":
-        search_url = f"https://www.ask.com/web?q={query.replace(' ', '+')}"
-
+    # Map engine names to URLs and SafeSearch options
+    search_urls = {
+        "google": f"https://www.google.com/search?q={query.replace(' ', '+')}" + ("&safe=active" if safesearch else ""),
+        "bing": f"https://www.bing.com/search?q={query.replace(' ', '+')}" + ("&adlt=strict" if safesearch else ""),
+        "duckduckgo": f"https://duckduckgo.com/?q={query.replace(' ', '+')}" + ("&kp=1" if safesearch else ""),
+        "yahoo": f"https://search.yahoo.com/search?p={query.replace(' ', '+')}",
+        "ask": f"https://www.ask.com/web?q={query.replace(' ', '+')}"
+    }
+    search_url = search_urls.get(engine.value)
+    
+    # Custom headers
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
     }
 
     async with aiohttp.ClientSession() as session:
         async with session.get(search_url, headers=headers) as resp:
-            if resp.status == 200:
-                html = await resp.text()
-                soup = BeautifulSoup(html, 'html.parser')
+            if resp.status != 200:
+                await interaction.followup.send("❌ Could not fetch search results. Please try again later.")
+                return
 
-                # Extract search results
-                results = []
-                if engine.value == "google":
-                    for g in soup.find_all('div', class_='tF2Cxc'):
-                        title = g.find('h3').text if g.find('h3') else "No title"
-                        link = g.find('a')['href'] if g.find('a') else "No link"
-                        description = g.find('div', class_='IsZvec').text if g.find('div', class_='IsZvec') else "No description"
-                        results.append((title, link, description))
-                elif engine.value == "bing":
-                    for b in soup.find_all('li', class_='b_algo'):
-                        title = b.find('h2').text if b.find('h2') else "No title"
-                        link = b.find('a')['href'] if b.find('a') else "No link"
-                        description = b.find('p').text if b.find('p') else "No description"
-                        results.append((title, link, description))
-                elif engine.value == "duckduckgo":
-                    for d in soup.find_all('div', class_='result__body'):
-                        title = d.find('h2').text if d.find('h2') else "No title"
-                        link = d.find('a')['href'] if d.find('a') else "No link"
-                        description = d.find('a', class_='result__snippet').text if d.find('a', class_='result__snippet') else "No description"
-                        results.append((title, link, description))
-                elif engine.value == "yahoo":
-                    for y in soup.find_all('div', class_='dd algo algo-sr Sr'):
-                        title = y.find('h3').text if y.find('h3') else "No title"
-                        link = y.find('a')['href'] if y.find('a') else "No link"
-                        description = y.find('p').text if y.find('p') else "No description"
-                        results.append((title, link, description))
-                elif engine.value == "ask":
-                    for a in soup.find_all('div', class_='PartialSearchResults-item'):
-                        title = a.find('h2').text if a.find('h2') else "No title"
-                        link = a.find('a')['href'] if a.find('a') else "No link"
-                        description = a.find('p').text if a.find('p') else "No description"
-                        results.append((title, link, description))
+            html = await resp.text()
+            soup = BeautifulSoup(html, 'html.parser')
 
-                # Create an embed for the search results
-                embed = discord.Embed(title=f"Search results for '{query}'", color=discord.Color.blue())
-                embed.set_thumbnail(url=search_engine_icons[engine.value])
+            # Parse search results based on the selected engine
+            results = extract_search_results(soup, engine.value)
+
+            # Build and send the embed
+            embed = discord.Embed(title=f"Search results for '{query}'", color=discord.Color.blue())
+            embed.set_thumbnail(url=search_engine_icons[engine.value])
+            if results:
                 for title, link, description in results[:5]:  # Limit to top 5 results
-                    embed.add_field(name=title, value=f"{description}\n[Link]({link})", inline=False)
-                embed.set_footer(text=interaction.client.user.name, icon_url=interaction.client.user.avatar.url)
-
-                await interaction.followup.send(embed=embed)
+                    embed.add_field(name=title or "No title", value=f"{description or 'No description'}\n[Link]({link})", inline=False)
             else:
-                await interaction.followup.send(f"Could not fetch search results for '{query}'. Please try again later.")
+                embed.description = "No results found."
+
+            embed.set_footer(text=interaction.client.user.name, icon_url=interaction.client.user.avatar.url)
+            await interaction.followup.send(embed=embed)
+
+def extract_search_results(soup, engine):
+    results = []
+    if engine == "google":
+        for g in soup.find_all('div', class_='tF2Cxc'):
+            title = g.find('h3').text if g.find('h3') else "No title"
+            link = g.find('a')['href'] if g.find('a') else "No link"
+            description = g.find('span', class_='aCOpRe').text if g.find('span', class_='aCOpRe') else "No description"
+            results.append((title, link, description))
+    elif engine == "bing":
+        for b in soup.find_all('li', class_='b_algo'):
+            title = b.find('h2').text if b.find('h2') else "No title"
+            link = b.find('a')['href'] if b.find('a') else "No link"
+            description = b.find('p').text if b.find('p') else "No description"
+            results.append((title, link, description))
+    elif engine == "duckduckgo":
+        for d in soup.find_all('div', class_='result__body'):
+            title = d.find('h2').text if d.find('h2') else "No title"
+            link = d.find('a')['href'] if d.find('a') else "No link"
+            description = d.find('a', class_='result__snippet').text if d.find('a', class_='result__snippet') else "No description"
+            results.append((title, link, description))
+    elif engine == "yahoo":
+        for y in soup.find_all('div', class_='dd algo algo-sr Sr'):
+            title = y.find('h3').text if y.find('h3') else "No title"
+            link = y.find('a')['href'] if y.find('a') else "No link"
+            description = y.find('p').text if y.find('p') else "No description"
+            results.append((title, link, description))
+    elif engine == "ask":
+        for a in soup.find_all('div', class_='PartialSearchResults-item'):
+            title = a.find('h2').text if a.find('h2') else "No title"
+            link = a.find('a')['href'] if a.find('a') else "No link"
+            description = a.find('p').text if a.find('p') else "No description"
+            results.append((title, link, description))
+
+    return results
+
+@app_commands.command(name='meaning', description='Get the meaning of a word.')
+async def meaning_command(interaction: discord.Interaction, word: str):
+    await interaction.response.defer()
+    
+    # Validate the input word
+    if not word.isalnum():
+        await interaction.followup.send("Invalid word. Please enter a valid word.")
+        return
+
+    url = f"https://urbandictionary.com/define.php?term={word}"
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=10) as resp:
+                if resp.status == 200:
+                    html = await resp.text()
+                    meaning, example = parse_meaning(html)
+                    if meaning and example:
+                        embed = create_embed(word, meaning, example)
+                        await interaction.followup.send(embed=embed)
+                    else:
+                        await interaction.followup.send("Could not find the meaning of the word.")
+                else:
+                    await interaction.followup.send("Could not fetch the meaning of the word. Please try again later.")
+    except aiohttp.ClientError as e:
+        await interaction.followup.send(f"An error occurred: {str(e)}")
+
+def parse_meaning(html: str) -> tuple[str, str]:
+    soup = BeautifulSoup(html, 'html.parser')
+    meaning = soup.find('div', class_='meaning')
+    example = soup.find('div', class_='example')
+    return (meaning.text.strip() if meaning else None, example.text.strip() if example else None)
+
+def create_embed(word: str, meaning: str, example: str) -> discord.Embed:
+    embed = discord.Embed(title=f"Meaning of '{word}'", description=meaning, color=discord.Color.green())
+    embed.add_field(name="Example", value=example, inline=False)
+    embed.set_thumbnail(url="https://media.discordapp.net/attachments/533926025747234838/1303814912858128518/Urban_Dictionary_logo.svg.png")
+    embed.set_footer(text="interaction.client.user.name", icon_url="interaction.client.user.avatar.url")
+    return embed
