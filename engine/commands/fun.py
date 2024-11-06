@@ -300,7 +300,7 @@ async def meme_command(interaction: discord.Interaction):
     await interaction.response.defer()
 
     url = "https://www.reddit.com/r/memes/hot.json?limit=50"  # Get the hot 50 posts
-    headers = {"User-Agent": "seeyuh/1.0 by u/drgamerarko"}
+    headers = {"User-Agent": "seeyuh/0.1.0 by u/drgamerarko"}
 
     try:
         async with httpx.AsyncClient() as client:
