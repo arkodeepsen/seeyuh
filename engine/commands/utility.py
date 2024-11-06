@@ -501,5 +501,5 @@ def create_embed(word: str, meaning: str, example: str) -> discord.Embed:
     embed = discord.Embed(title=f"Meaning of '{word}'", description=meaning, color=discord.Color.green())
     embed.add_field(name="Example", value=example, inline=False)
     embed.set_thumbnail(url="https://media.discordapp.net/attachments/533926025747234838/1303814912858128518/Urban_Dictionary_logo.svg.png")
-    embed.set_footer(text="interaction.client.user.name", icon_url="interaction.client.user.avatar.url")
+    embed.set_footer(text="interaction.client.user.name", icon_url="interaction.client.user.display_avatar.url")
     return embed
