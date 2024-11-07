@@ -1,0 +1,9 @@
+.git
+__pycache__
+*.pyc
+.env
+node_modules
+venv
+.venv
+bot.log
+downloaded_image.png
