@@ -45,7 +45,7 @@ class HelpView(discord.ui.View):
 async def help_command(interaction: discord.Interaction):
     embed = discord.Embed(
         title="Help Command",
-        description=f"Hello {interaction.user.mention}! \nI'm seeyuh, a discord.py AI application developed by arkodeep. \nYou can use slash `\` commands or mention me to interact. \nTo know more about how to interact with me select a category to view the commands.",
+        description=f"Hello {interaction.user.mention}! \nI'm seeyuh, a discord.py AI application developed by arkodeep. \nYou can use slash `/` commands or mention me to interact. \nTo know more about how to interact with me select a category to view the commands.",
         color=discord.Color.blue()
     )
     embed.set_thumbnail(url=interaction.user.display_avatar.url)  # Replace with your thumbnail URL

@@ -349,9 +349,12 @@ async def reddit_command(interaction: discord.Interaction, subreddit: str, sort:
         # Choose a random post from the filtered list
         random_post = random.choice(posts)["data"]
 
-        # Create and send the embed with the meme
+        # Create and send the embed with the post
         embed = discord.Embed(title=random_post["title"], color=discord.Color.random())
-        embed.set_image(url=random_post["url"])
+        if "url" in random_post and random_post["url"].endswith((".jpg", ".jpeg", ".png", ".gif")):
+            embed.set_image(url=random_post["url"])
+        else:
+            embed.description = random_post.get("selftext", "No description available.")
         embed.set_footer(text=f"👍 {random_post['score']} | 💬 {random_post['num_comments']} comments", icon_url=interaction.client.user.avatar.url)
 
         await interaction.followup.send(embed=embed)

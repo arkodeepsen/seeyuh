@@ -211,7 +211,7 @@ async def rps_command(interaction: discord.Interaction, choice: app_commands.Cho
 
     embed.color = color
     embed.add_field(name="Result", value=result, inline=False)
-    embed.set_thumbnail(url=f"https://twemoji.maxcdn.com/v/latest/72x72/{ord(thumbnail_emoji):x}.png")
+    embed.set_thumbnail(url=f"https://twemoji.maxcdn.com/v/latest/72x72/{ord(thumbnail_emoji[0]):x}.png")
     embed.set_footer(text=interaction.client.user.name, icon_url=interaction.client.user.avatar.url)
 
     # Send the final response
