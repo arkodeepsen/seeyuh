@@ -2,20 +2,57 @@ import discord
 from discord import app_commands
 import time
 from engine.utils import load_env
+
 # Load environment variables
 DISCORD_TOKEN, OWNER, url, key = load_env()
+
+class HelpView(discord.ui.View):
+    def __init__(self, interaction: discord.Interaction):
+        super().__init__(timeout=None)
+        self.interaction = interaction
+
+    @discord.ui.button(label="General", style=discord.ButtonStyle.primary, emoji="ℹ️")
+    async def general_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.show_category(interaction, "General")
+
+    @discord.ui.button(label="Music", style=discord.ButtonStyle.primary, emoji="🎵")
+    async def music_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.show_category(interaction, "Music")
+
+    @discord.ui.button(label="Fun", style=discord.ButtonStyle.primary, emoji="🎉")
+    async def fun_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.show_category(interaction, "Fun")
+
+    @discord.ui.button(label="Utility", style=discord.ButtonStyle.primary, emoji="🔧")
+    async def utility_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.show_category(interaction, "Utility")
+
+    async def show_category(self, interaction: discord.Interaction, category: str):
+        commands = [cmd for cmd in interaction.client.tree.get_commands() if getattr(cmd, 'category', None) == category]
+        description = "\n".join([f"`/{command.name}` - {command.description}" for command in commands])
+        embed = discord.Embed(
+            title=f"{category} Commands",
+            description=description,
+            color=discord.Color.blue()
+        )
+        embed.set_thumbnail(url=interaction.user.display_avatar.url)  # Replace with your thumbnail URL
+        embed.set_image(url="https://media.discordapp.net/attachments/533926025747234838/1304110671469875260/banner1.gif")  # Replace with your image URL
+        embed.set_footer(text=f"{interaction.client.user.name}", icon_url=interaction.client.user.display_avatar.url)
+        await interaction.response.edit_message(embed=embed, view=self)
 
 # Define the help command
 @app_commands.command(name='help', description='List of available commands.')
 async def help_command(interaction: discord.Interaction):
-    description = "\n".join([f"`/{command.name}` - {command.description}" for command in interaction.client.tree.get_commands()])
     embed = discord.Embed(
         title="Help Command",
-        description=description,
+        description=f"Hello {interaction.user.mention}! \nI'm seeyuh, a discord.py AI application developed by arkodeep. \nYou can use slash `\` commands or mention me to interact. \nTo know more about how to interact with me select a category to view the commands.",
         color=discord.Color.blue()
     )
-    embed.set_footer(text=f"{interaction.client.user.name}", icon_url=interaction.client.user.avatar.url)
-    await interaction.response.send_message(embed=embed)
+    embed.set_thumbnail(url=interaction.user.display_avatar.url)  # Replace with your thumbnail URL
+    embed.set_image(url="https://media.discordapp.net/attachments/533926025747234838/1304110671469875260/banner1.gif")  # Replace with your image URL
+    embed.set_footer(text=f"{interaction.client.user.name}", icon_url=interaction.client.user.display_avatar.url)
+    view = HelpView(interaction)
+    await interaction.response.send_message(embed=embed, view=view)
 
 # Define the ping command
 @app_commands.command(name='ping', description='Check if the bot is responsive.')

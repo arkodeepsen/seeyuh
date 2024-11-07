@@ -1,5 +1,6 @@
 import discord, asyncio, aiohttp, random, httpx
 from discord import app_commands
+from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from engine.utils import load_env, get_reddit_access_token
 from engine.ai.gemini import code_ai_response, explain_ai_response, ask_ai_response, translate, prompt_ai_response
@@ -312,13 +313,16 @@ sort_choices = [
 
 @app_commands.command(name="reddit", description="Get a random post from a subreddit of your choice.")
 @app_commands.choices(sort=sort_choices)
-async def reddit_command(interaction: discord.Interaction, subreddit: str, sort: app_commands.Choice[str] = "hot", nsfw: bool = False):
+async def reddit_command(interaction: discord.Interaction, subreddit: str, sort: app_commands.Choice[str] = None, nsfw: bool = False):
     await interaction.response.defer()
 
     # Enforce NSFW block if the channel is not NSFW
     if not interaction.channel.is_nsfw() and nsfw:
         nsfw = False
         await interaction.followup.send("🔒 NSFW content is blocked in this channel as it does not allow NSFW content.")
+        
+    if sort is None:
+        sort = app_commands.Choice(name="Hot", value="hot")
 
     access_token = await get_reddit_access_token()
     url = f"https://oauth.reddit.com/r/{subreddit}/{sort.value}.json?limit=50"
@@ -366,9 +370,9 @@ async def reddit_command(interaction: discord.Interaction, subreddit: str, sort:
 search_engine_choices = [
     app_commands.Choice(name="Google", value="google"),
     app_commands.Choice(name="Bing", value="bing"),
-    app_commands.Choice(name="DuckDuckGo", value="duckduckgo"),
-    app_commands.Choice(name="Yahoo", value="yahoo"),
-    app_commands.Choice(name="Ask.com", value="ask")
+    app_commands.Choice(name="DuckDuckGo (DEPRECATED)", value="duckduckgo"),
+    app_commands.Choice(name="Yahoo (DEPRECATED)", value="yahoo"),
+    app_commands.Choice(name="Ask.com (DEPRECATED)", value="ask")
 ]
 
 # Define the icons for each search engine
@@ -382,13 +386,16 @@ search_engine_icons = {
 
 @app_commands.command(name="search", description="Search for a query on the web.")
 @app_commands.choices(engine=search_engine_choices)
-async def search_command(interaction: discord.Interaction, query: str, engine: app_commands.Choice[str], safesearch: bool = True):
+async def search_command(interaction: discord.Interaction, query: str, engine: app_commands.Choice[str] = None, safesearch: bool = True):
     await interaction.response.defer()
 
     # Force SafeSearch if the channel is not NSFW
     if not interaction.channel.is_nsfw() and not safesearch:
         safesearch = True
         await interaction.followup.send("🔒 SafeSearch is enabled because this channel doesn’t allow NSFW content.")
+        
+    if engine is None:
+        engine = app_commands.Choice(name="Google", value="google")
 
     # Map engine names to URLs and SafeSearch options
     search_urls = {
@@ -421,8 +428,10 @@ async def search_command(interaction: discord.Interaction, query: str, engine: a
             embed = discord.Embed(title=f"Search results for '{query}'", color=discord.Color.blue())
             embed.set_thumbnail(url=search_engine_icons[engine.value])
             if results:
-                for title, link, description in results[:5]:  # Limit to top 5 results
-                    embed.add_field(name=title or "No title", value=f"{description or 'No description'}\n[Link]({link})", inline=False)
+                for title, description, source, image in results[:5]:  # Limit to top 5 results
+                    embed.add_field(name=title or "No title", value=f"{description or 'No description'}\n*{source}*", inline=False)
+                    if image != "No image" and is_valid_url(image):
+                        embed.set_image(url=image)
             else:
                 embed.description = "No results found."
 
@@ -431,38 +440,76 @@ async def search_command(interaction: discord.Interaction, query: str, engine: a
 
 def extract_search_results(soup, engine):
     results = []
+
     if engine == "google":
         for g in soup.find_all('div', class_='tF2Cxc'):
             title = g.find('h3').text if g.find('h3') else "No title"
             link = g.find('a')['href'] if g.find('a') else "No link"
-            description = g.find('span', class_='aCOpRe').text if g.find('span', class_='aCOpRe') else "No description"
-            results.append((title, link, description))
+            description = g.find('div', class_='VwiC3b').text if g.find('div', class_='VwiC3b') else "No description"
+            image = g.find('img')['src'] if g.find('img') else "No image"
+            
+            # Get the source domain name
+            domain = urlparse(link).netloc.replace("www.", "")
+            source = f"Source: [{domain}]({link})"
+            
+            results.append((title, description, source, image))
+
     elif engine == "bing":
         for b in soup.find_all('li', class_='b_algo'):
             title = b.find('h2').text if b.find('h2') else "No title"
             link = b.find('a')['href'] if b.find('a') else "No link"
             description = b.find('p').text if b.find('p') else "No description"
-            results.append((title, link, description))
+            image = b.find('img')['src'] if b.find('img') else "No image"
+            
+            domain = urlparse(link).netloc.replace("www.", "")
+            source = f"Source: [{domain}]({link})"
+            
+            results.append((title, description, source, image))
+
     elif engine == "duckduckgo":
-        for d in soup.find_all('div', class_='result__body'):
-            title = d.find('h2').text if d.find('h2') else "No title"
-            link = d.find('a')['href'] if d.find('a') else "No link"
-            description = d.find('a', class_='result__snippet').text if d.find('a', class_='result__snippet') else "No description"
-            results.append((title, link, description))
+        for d in soup.find_all('div', class_='result'):
+            title = d.find('a', class_='result__a').text if d.find('a', class_='result__a') else "No title"
+            link = d.find('a', class_='result__a')['href'] if d.find('a', class_='result__a') else "No link"
+            description = d.find('div', class_='result__snippet').text if d.find('div', class_='result__snippet') else "No description"
+            image = d.find('img')['src'] if d.find('img') else "No image"
+            
+            domain = urlparse(link).netloc.replace("www.", "")
+            source = f"Source: [{domain}]({link})"
+            
+            results.append((title, description, source, image))
+
     elif engine == "yahoo":
-        for y in soup.find_all('div', class_='dd algo algo-sr Sr'):
+        for y in soup.find_all('div', class_='dd algo'):
             title = y.find('h3').text if y.find('h3') else "No title"
             link = y.find('a')['href'] if y.find('a') else "No link"
             description = y.find('p').text if y.find('p') else "No description"
-            results.append((title, link, description))
+            image = y.find('img')['src'] if y.find('img') else "No image"
+            
+            domain = urlparse(link).netloc.replace("www.", "")
+            source = f"Source: [{domain}]({link})"
+            
+            results.append((title, description, source, image))
+
     elif engine == "ask":
         for a in soup.find_all('div', class_='PartialSearchResults-item'):
             title = a.find('h2').text if a.find('h2') else "No title"
             link = a.find('a')['href'] if a.find('a') else "No link"
             description = a.find('p').text if a.find('p') else "No description"
-            results.append((title, link, description))
-
+            image = a.find('img')['src'] if a.find('img') else "No image"
+            
+            domain = urlparse(link).netloc.replace("www.", "")
+            source = f"Source: [{domain}]({link})"
+            
+            results.append((title, description, source, image))
+            
     return results
+
+def is_valid_url(url: str) -> bool:
+    try:
+        result = urlparse(url)
+        return all([result.scheme, result.netloc])
+    except ValueError:
+        return False
 
 @app_commands.command(name='meaning', description='Get the meaning of a word.')
 async def meaning_command(interaction: discord.Interaction, word: str):
