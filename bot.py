@@ -1,5 +1,5 @@
-import discord, time, asyncio, logging, random, engine.commands.general as general, engine.commands.utility as utility, engine.commands.fun as fun
-from discord.ext import commands
+import discord, time, asyncio, logging, random, engine.commands.general as general, engine.commands.utility as utility, engine.commands.fun as fun, engine.commands.music as music
+from discord.ext import commands, tasks
 from engine.utils import load_env, intents, update_presence
 from engine.db import fetch_recent_message, save_message_to_db, retry_check_and_update_guild_entry
 from engine.ai.gemini import get_ai_response, code_ai_response
@@ -44,21 +44,50 @@ class Message(Base):
 # Create the bot instance with the specified intents
 bot = commands.Bot(command_prefix='/', intents=intents())
 
+# Task to leave the voice channel after 10 minutes of inactivity
+@tasks.loop(minutes=10)
+async def check_inactivity():
+    for vc in bot.voice_clients:
+        if not vc.is_playing() and not vc.is_paused():
+            await vc.disconnect()
+            channel = vc.channel
+            embed = discord.Embed(title="Voice Channel", description="Left the voice channel due to inactivity.", color=discord.Color.orange())
+            await channel.send(embed=embed)
+            
 # Load slash commands
 @bot.event
 async def on_ready():
     bot.uptime = time.time()
     print(f'Logged in as {bot.user}')
     bot.loop.create_task(update_presence(bot)) # Start the presence update loop
-    await bot.tree.sync() # Sync commands with Discord
-
+    await bot.tree.sync() # Sync commands with Discord   
+    # Start the inactivity check task
+    check_inactivity.start()
+            
 # Register the commands from general.py
+general.help_command.category = "General"
+general.ping_command.category = "General"
+general.info_command.category = "General"
+general.serverinfo_command.category = "General"
 bot.tree.add_command(general.help_command)
 bot.tree.add_command(general.ping_command)
 bot.tree.add_command(general.info_command)
 bot.tree.add_command(general.serverinfo_command)
 
 # Register the commands from utility.py
+utility.say_command.category = "Utility"
+utility.emoji_command.category = "Utility"
+utility.avatar_command.category = "Utility"
+utility.code_command.category = "Utility"
+utility.explain_command.category = "Utility"
+utility.ask_command.category = "Utility"
+utility.poll_command.category = "Utility"
+utility.translate_command.category = "Utility"
+utility.prompt_command.category = "Utility"
+utility.reddit_command.category = "Utility"
+utility.weather_command.category = "Utility"
+utility.search_command.category = "Utility"
+utility.meaning_command.category = "Utility"
 bot.tree.add_command(utility.say_command)
 bot.tree.add_command(utility.emoji_command)
 bot.tree.add_command(utility.avatar_command)
@@ -74,6 +103,26 @@ bot.tree.add_command(utility.search_command)
 bot.tree.add_command(utility.meaning_command)
 
 # Register the commands from fun.py
+fun.roast_command.category = "Fun"
+fun.compliment_command.category = "Fun"
+fun.joke_command.category = "Fun"
+fun.fact_command.category = "Fun"
+fun.advice_command.category = "Fun"
+fun.quote_command.category = "Fun"
+fun.riddle_command.category = "Fun"
+fun.meme_command.category = "Fun"
+fun.gif_command.category = "Fun"
+fun.rps_command.category = "Fun"
+fun.tictactoe_command.category = "Fun"
+fun.coinflip_command.category = "Fun"
+fun.horoscope_command.category = "Fun"
+fun.magic8ball_command.category = "Fun"
+fun.dice_command.category = "Fun"
+fun.choose_command.category = "Fun"
+fun.wordle_command.category = "Fun"
+fun.trivia_command.category = "Fun"
+fun.rpsls_command.category = "Fun"
+fun.mystery_command.category = "Fun"
 bot.tree.add_command(fun.roast_command)
 bot.tree.add_command(fun.compliment_command)
 bot.tree.add_command(fun.joke_command)
@@ -94,7 +143,25 @@ bot.tree.add_command(fun.wordle_command)
 bot.tree.add_command(fun.trivia_command)
 bot.tree.add_command(fun.rpsls_command)
 bot.tree.add_command(fun.mystery_command)
-  
+
+# Register the commands from music.py
+music.join.category = "Music"
+music.leave.category = "Music"
+music.play.category = "Music"
+music.pause.category = "Music"
+music.resume.category = "Music"
+music.stop.category = "Music"
+music.now_playing.category = "Music"
+music.queue.category = "Music"
+bot.tree.add_command(music.join)
+bot.tree.add_command(music.leave)
+bot.tree.add_command(music.play)
+bot.tree.add_command(music.pause)
+bot.tree.add_command(music.resume)
+bot.tree.add_command(music.stop)
+bot.tree.add_command(music.now_playing)
+bot.tree.add_command(music.queue)
+
 @bot.event
 async def on_message(message):
     if message.author == bot.user:
