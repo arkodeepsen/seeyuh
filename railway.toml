@@ -1,8 +1,17 @@
 [build]
-commands = [
+builder = "nixpacks"
+buildCommand = [
   "bash install_ffmpeg.sh",
   "pip install -r requirements.txt"
 ]
 
-[start]
-command = "python start.py"
+[deploy]
+startCommand = "python start.py"
+healthcheckPath = "/"
+healthcheckTimeout = 100
+restartPolicyType = "never"
+
+
+
+
+--
