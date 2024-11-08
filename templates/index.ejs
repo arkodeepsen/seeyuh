@@ -4,52 +4,202 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SEEYUH - A Discord App by Arkodeep</title>
-    <link rel="icon" href="assets/favicon.ico">
+    <link rel="icon" href="assets/favicon.ico" type="image/x-icon">
     <style>
         body {
-            font-family: Arial, sans-serif;
-            background-color: #36393f;
+            font-family: "Whitney", Arial, sans-serif;
+            background-color: #282b30;
             margin: 0;
             padding: 0;
             display: flex;
             justify-content: center;
             align-items: center;
             height: 100vh;
+            color: #dcddde;
         }
         .container {
-            background-color: #2f3136;
-            padding: 20px;
+            width: 360px;
+            background-color:rgb(17, 18, 19);
             border-radius: 8px;
-            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.9);
             text-align: center;
-            color: #fff;
-        }
-        h1 {
-            color: #7289da;
-        }
-        p {
-            color: #b9bbbe;
-        }
-        .avatar {
-            border-radius: 50%;
-            width: 100px;
-            height: 100px;
+            overflow: hidden;
+            font-size: 16px;
+            position: relative;
         }
         .banner {
             width: 100%;
-            border-radius: 8px;
-            margin-bottom: 20px;
+            height: 100px;
+            object-fit: cover;
+            background-color: #7289da;
+        }
+        .avatar-container {
+            position: relative;
+            top: -40px; /* Reduced to bring closer to the name */
+            display: flex;
+            justify-content: left;
+            margin-left: 10px; /* Adjusted margin for spacing */
+        }
+        .avatar {
+            border-radius: 50%;
+            border: 6px solid rgb(17, 18, 19);
+            width: 90px;
+            height: 90px;
+            background-color: #7289da;
+        }
+        .info {
+            padding: 5px 20px; /* Adjusted padding for spacing */
+        }
+        .name-container {
+            display: flex;
+            align-items: center;
+            justify-content: left;
+            gap: 8px;
+            margin-top: -40px; /* Slightly closer to avatar */
+        }
+        .app-tag {
+            font-size: 0.7rem;
+            color: #ffffff;
+            background-color: #5865F2;
+            padding: 1px 4px;
+            border-radius: 3px;
+            font-weight: bold;
+        }
+        .name-container h1 {
+            font-size: 1.6rem;
+            color: #ffffff;
+            margin: 0;
+        }
+        .tag-container {
+            display: flex;
+            align-items: center;
+            justify-content: left;
+            gap: 5px;
+            font-size: 0.9rem;
+            color: #b9bbbe;
+        }
+        .tag {
+            color: #b9bbbe;
+        }
+        .code-tag {
+            color: #3ba55d;
+            font-size: 1rem;
+            font-weight: bold;
+        }
+        .add-app-button {
+            display: inline-block;
+            margin: 10px 0 5px;
+            padding: 8px 18px;
+            background-color: #424549;
+            color: #fff;
+            border-radius: 3px;
+            text-decoration: none;
+            width: 90%;
+            font-size: 0.9rem;
+            transition: background-color 0.2s;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+        }
+        .add-app-button:hover {
+            background-color: #b9bbbe;
+        }
+        .info strong a {
+            color: #7289da;
+            text-decoration: none;
+            cursor: pointer;
+        }
+        .info p {
+            margin: 6px 0;
+        }
+        .back-arrow {
+            font-size: 1.5rem;
+            color: #36393f;
+            text-decoration: none;
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            cursor: pointer;
+        }
+        .back-arrow:hover {
+            color: #2f3136;
+        }
+        /* Listening To section */
+        .listening-to {
+            background-color: #1e2124;
+            padding: 5px;
+            border-radius: 5px;
+            color: #b9bbbe;
+            font-size: 0.9rem;
+            margin-top: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .listening-to span {
+            margin-left: 5px;
+        }
+        .details {
+            background-color: #1e2124;
+            padding: 5px;
+            border-radius: 5px;
+            color: #b9bbbe;
+            font-size: 0.9rem;
+            margin-top: 10px;
+            margin-bottom: 10px;
+            align-items: center;
+            justify-content: center;
         }
     </style>
 </head>
 <body>
-    <div class="container">
+    <div class="container" id="botProfile">
         <img src="assets/banner.gif" alt="Banner" class="banner">
-        <img src="assets/avatar.jpg" alt="Avatar" class="avatar">
-        <h1>Bot Health Check</h1>
-        <p>Status: {{ status }}</p>
-        <p>Bot Name: {{ bot_name }}</p>
-        <p>Bot Uptime: {{ bot_uptime }}</p>
+        
+        <div class="avatar-container">
+            <img src="assets/avatar.jpg" alt="Avatar" class="avatar">
+        </div>
+        <div class="info">
+            <div class="name-container">
+                <h1>seeyuh</h1>
+                <span class="app-tag">APP</span>
+            </div>
+            <div class="tag-container">
+                <span class="tag">seeyuh#9283</span>
+                <span class="code-tag">{/}</span>
+            </div>
+            <a href="https://discord.com/oauth2/authorize?client_id=690530760540553276" class="add-app-button">+ Add App</a>
+            <p>Multipurpose bot developed by 
+                <a id="developerLink" onclick="showLanyard()">arkodeep</a>.
+            </p>
+            <!-- New Listening to Section -->
+            <div class="listening-to">
+                <span>Listening to <strong>{{unique_users}} users across {{guild_count}} servers! 😉</strong></span>
+            </div>
+            <div class="details">
+            <p>Status: {{ status }}</p>
+            <p>Bot Name: {{ bot_name }}</p>
+            <p>Bot Uptime: {{ bot_uptime }}</p>
+            <p>Bot Version: Alpha 1.0</p>
+            </div>
+        </div>
     </div>
+
+    <div class="container" id="lanyardView" style="display:none;">
+        <span class="back-arrow" onclick="showBotProfile()">←</span>
+        <a href="https://discord.com/users/523183373603045436" target="_blank">
+            <img src="https://lanyard.cnrad.dev/api/523183373603045436" alt="Discord Presence" id="lanyardImage">
+        </a>
+    </div>
+
+    <script>
+        function showLanyard() {
+            document.getElementById('botProfile').style.display = 'none';
+            document.getElementById('lanyardView').style.display = 'block';
+        }
+
+        function showBotProfile() {
+            document.getElementById('lanyardView').style.display = 'none';
+            document.getElementById('botProfile').style.display = 'block';
+        }
+    </script>
 </body>
 </html>

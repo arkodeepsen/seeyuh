@@ -66,7 +66,7 @@ def health_check():
     with open("templates/index.ejs") as file:
         template = Template(file.read())
     bot_uptime = time.strftime("%H:%M:%S", time.gmtime(time.time() - bot.uptime))
-    html_content = template.render(status="ok", bot_name=bot.user.name, bot_uptime=bot_uptime)
+    html_content = template.render(status="ok", bot_name=bot.user.name, bot_uptime=bot_uptime, unique_users = len(bot.users), guild_count = len(bot.guilds))
     return HTMLResponse(content=html_content)
 
 def run_http_server():
