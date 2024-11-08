@@ -57,6 +57,10 @@ async def check_inactivity():
             embed = discord.Embed(title="Voice Channel", description="Left the voice channel due to inactivity.", color=discord.Color.orange())
             await channel.send(embed=embed)
             
+@app.get("/status")
+def health_check():
+    return {"status": "ok"}
+
 @app.get("/", response_class=HTMLResponse)
 def health_check():
     with open("templates/health_check.html") as file:
@@ -64,7 +68,6 @@ def health_check():
     bot_uptime = time.strftime("%H:%M:%S", time.gmtime(time.time() - bot.uptime))
     html_content = template.render(status="ok", bot_name=bot.user.name, bot_uptime=bot_uptime)
     return HTMLResponse(content=html_content)
-
 
 def run_http_server():
     uvicorn.run(app, host="0.0.0.0", port=8080)
