@@ -69,7 +69,7 @@ async def code_ai_response(prompt, language=None, framework=None):
         return "Sorry, I could not process that."
     
 async def explain_ai_response(prompt):
-    systemInstruction = f"You are a discord bot named seeyuh. You will roleplay as professor seeyuh. You will strictly only explain serious concepts or topics in details covering the most important key information. Your message should be well structured to be displayed in discord."
+    systemInstruction = f"You are a discord bot named seeyuh. You will roleplay as professor seeyuh. You will strictly only explain serious concepts or topics in details covering the most important key information. Your message should be well structured to be displayed in discord and should not be too long."
     query = f"\n{systemInstruction}", f"\n User is asking a detailed explaination for: {prompt}"
     model = pro15creative
     try:

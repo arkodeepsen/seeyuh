@@ -1,4 +1,4 @@
-import discord, asyncio, aiohttp, random, httpx
+import discord, asyncio, aiohttp, random, httpx, re
 from discord import app_commands
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
@@ -49,17 +49,20 @@ async def explain_command(interaction: discord.Interaction, prompt: str):
     max_length = 2000
     response_parts = []
     current_part = ""
-
+    
     for sentence in response.split('. '):
-        if len(current_part) + len(sentence) + 2 <= max_length:  # +2 for the '. ' or '\n'
-            current_part += sentence + '. '
+        if len(current_part) + len(sentence) + 1 <= max_length:  # +1 for the '.'
+            if current_part:
+                current_part += '. ' + sentence
+            else:
+                current_part = sentence
         else:
             response_parts.append(current_part.strip())
-            current_part = sentence + '. '
-
+            current_part = sentence
+    
     if current_part:
         response_parts.append(current_part.strip())
-
+    
     for part in response_parts:
         await interaction.followup.send(part)
 
@@ -68,25 +71,34 @@ async def ask_command(interaction: discord.Interaction, prompt: str):
     await interaction.response.defer()
     # Get AI-generated response
     response = await ask_ai_response(prompt)
+
+    # Function to intelligently split the response
+    def split_response(response, max_length=2000):
+        response_parts = []
+        current_part = ""
     
-    # Split the response into multiple messages if it exceeds 2000 characters
-    max_length = 2000
-    response_parts = []
-    current_part = ""
-
-    for sentence in response.split('. '):
-        if len(current_part) + len(sentence) + 2 <= max_length:  # +2 for the '. ' or '\n'
-            current_part += sentence + '. '
-        else:
+        # Split the response into sentences
+        sentences = re.split(r'(?<=[.!?]) +', response)
+    
+        for sentence in sentences:
+            if len(current_part) + len(sentence) + 1 <= max_length:  # +1 for the space
+                if current_part:
+                    current_part += ' ' + sentence
+                else:
+                    current_part = sentence
+            else:
+                response_parts.append(current_part.strip())
+                current_part = sentence
+    
+        if current_part:
             response_parts.append(current_part.strip())
-            current_part = sentence + '. '
-
-    if current_part:
-        response_parts.append(current_part.strip())
-
+    
+        return response_parts
+    
+    response_parts = split_response(response)
+    
     for part in response_parts:
         await interaction.followup.send(part)
-
 # Define the emoji command
 @app_commands.command(name='emoji', description='Get seeyuh avatar as a custom emoji.')
 async def emoji_command(interaction: discord.Interaction):
@@ -230,24 +242,34 @@ async def prompt_command(interaction: discord.Interaction, prompt: str, model: a
                 await interaction.followup.send("The request timed out. Please try again later.")
                 return
 
-    # Split the response into multiple messages if it exceeds 2000 characters
-    max_length = 2000
-    response_parts = []
-    current_part = ""
-
-    for sentence in response.split('. '):
-        if len(current_part) + len(sentence) + 2 <= max_length:  # +2 for the '. ' or '\n'
-            current_part += sentence + '. '
-        else:
+    # Function to intelligently split the response
+    def split_response(response, max_length=2000):
+        response_parts = []
+        current_part = ""
+    
+        # Split the response into sentences
+        sentences = re.split(r'(?<=[.!?]) +', response)
+    
+        for sentence in sentences:
+            if len(current_part) + len(sentence) + 1 <= max_length:  # +1 for the space
+                if current_part:
+                    current_part += ' ' + sentence
+                else:
+                    current_part = sentence
+            else:
+                response_parts.append(current_part.strip())
+                current_part = sentence
+    
+        if current_part:
             response_parts.append(current_part.strip())
-            current_part = sentence + '. '
+    
+        return response_parts
+    
 
-    if current_part:
-        response_parts.append(current_part.strip())
-
+    response_parts = split_response(response)
+    
     for part in response_parts:
         await interaction.followup.send(part)
-
 
 @app_commands.command(name='weather', description='Get the weather information for a specific location.')
 async def weather_command(interaction: discord.Interaction, location: str):
