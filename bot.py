@@ -1,6 +1,8 @@
 import discord, time, uvicorn, asyncio, logging, random, engine.commands.general as general, engine.commands.utility as utility, engine.commands.fun as fun, engine.commands.music as music
 from discord.ext import commands, tasks
 from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
+from jinja2 import Template
 from engine.utils import load_env, intents, update_presence
 from engine.db import fetch_recent_message, save_message_to_db, retry_check_and_update_guild_entry
 from engine.ai.gemini import get_ai_response, code_ai_response
@@ -55,9 +57,14 @@ async def check_inactivity():
             embed = discord.Embed(title="Voice Channel", description="Left the voice channel due to inactivity.", color=discord.Color.orange())
             await channel.send(embed=embed)
             
-@app.get("/")
+@app.get("/", response_class=HTMLResponse)
 def health_check():
-    return {"status": "ok"}
+    with open("templates/health_check.html") as file:
+        template = Template(file.read())
+    bot_uptime = time.strftime("%H:%M:%S", time.gmtime(time.time() - bot.uptime))
+    html_content = template.render(status="ok", bot_name=bot.user.name, bot_uptime=bot_uptime)
+    return HTMLResponse(content=html_content)
+
 
 def run_http_server():
     uvicorn.run(app, host="0.0.0.0", port=8080)
