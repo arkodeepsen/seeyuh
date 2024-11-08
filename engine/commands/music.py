@@ -13,7 +13,9 @@ ytdl_options = {
     'quiet': True,  # Suppress output
     'no_warnings': True,  # Suppress warnings
     'default_search': 'auto',  # Automatically search for the query
-    'source_address': '0.0.0.0'  # Bind to IPv4 address to avoid IPv6 issues
+    'source_address': '0.0.0.0',  # Bind to IPv4 address to avoid IPv6 issues
+    "cachedir": False,
+    'options': '-vn -bufsize 64k'
 }
 
 ffmpeg_options = {
