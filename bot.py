@@ -1,5 +1,6 @@
-import discord, time, asyncio, logging, random, engine.commands.general as general, engine.commands.utility as utility, engine.commands.fun as fun, engine.commands.music as music
+import discord, time, uvicorn, asyncio, logging, random, engine.commands.general as general, engine.commands.utility as utility, engine.commands.fun as fun, engine.commands.music as music
 from discord.ext import commands, tasks
+from fastapi import FastAPI
 from engine.utils import load_env, intents, update_presence
 from engine.db import fetch_recent_message, save_message_to_db, retry_check_and_update_guild_entry
 from engine.ai.gemini import get_ai_response, code_ai_response
@@ -11,7 +12,7 @@ from sqlalchemy import Column, Integer, String, ForeignKey
 # Load environment variables
 DISCORD_TOKEN, OWNER, url, key = load_env()
 supabase: Client = create_client(url, key)
-
+app = FastAPI()
 # SQLAlchemy base
 Base = declarative_base()
 
@@ -54,6 +55,13 @@ async def check_inactivity():
             embed = discord.Embed(title="Voice Channel", description="Left the voice channel due to inactivity.", color=discord.Color.orange())
             await channel.send(embed=embed)
             
+@app.get("/")
+def health_check():
+    return {"status": "ok"}
+
+def run_http_server():
+    uvicorn.run(app, host="0.0.0.0", port=8080)
+
 # Load slash commands
 @bot.event
 async def on_ready():
@@ -63,6 +71,15 @@ async def on_ready():
     await bot.tree.sync() # Sync commands with Discord   
     # Start the inactivity check task
     check_inactivity.start()
+
+
+# Define the main function to run both the bot and HTTP server concurrently
+async def main():
+    # Run the HTTP server in the background
+    asyncio.get_running_loop().run_in_executor(None, run_http_server)
+    
+    # Run the Discord bot
+    await bot.start(DISCORD_TOKEN)
             
 # Register the commands from general.py
 general.help_command.category = "General"
@@ -832,5 +849,5 @@ async def on_message(message):
                 
     await bot.process_commands(message)
 
-# Run the bot
-bot.run(DISCORD_TOKEN)
+# Run main
+asyncio.run(main())
