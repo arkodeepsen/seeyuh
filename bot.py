@@ -63,7 +63,7 @@ def health_check():
 
 @app.get("/", response_class=HTMLResponse)
 def health_check():
-    with open("templates/health_check.html") as file:
+    with open("templates/index.ejs") as file:
         template = Template(file.read())
     bot_uptime = time.strftime("%H:%M:%S", time.gmtime(time.time() - bot.uptime))
     html_content = template.render(status="ok", bot_name=bot.user.name, bot_uptime=bot_uptime)

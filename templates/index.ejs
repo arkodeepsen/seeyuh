@@ -3,11 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bot Health Check</title>
+    <title>SEEYUH - A Discord App by Arkodeep</title>
+    <link rel="icon" href="assets/favicon.ico">
     <style>
         body {
             font-family: Arial, sans-serif;
-            background-color: #f4f4f4;
+            background-color: #36393f;
             margin: 0;
             padding: 0;
             display: flex;
@@ -16,22 +17,35 @@
             height: 100vh;
         }
         .container {
-            background-color: #fff;
+            background-color: #2f3136;
             padding: 20px;
             border-radius: 8px;
             box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
             text-align: center;
+            color: #fff;
         }
         h1 {
-            color: #333;
+            color: #7289da;
         }
         p {
-            color: #666;
+            color: #b9bbbe;
+        }
+        .avatar {
+            border-radius: 50%;
+            width: 100px;
+            height: 100px;
+        }
+        .banner {
+            width: 100%;
+            border-radius: 8px;
+            margin-bottom: 20px;
         }
     </style>
 </head>
 <body>
     <div class="container">
+        <img src="assets/banner.gif" alt="Banner" class="banner">
+        <img src="assets/avatar.jpg" alt="Avatar" class="avatar">
         <h1>Bot Health Check</h1>
         <p>Status: {{ status }}</p>
         <p>Bot Name: {{ bot_name }}</p>
