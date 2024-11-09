@@ -74,6 +74,23 @@ def health_check():
     html_content = template.render(status="ok", bot_name=bot.user.name, bot_uptime=bot_uptime, unique_users = len(bot.users), guild_count = len(bot.guilds))
     return HTMLResponse(content=html_content)
 
+@app.get("/policy", response_class=HTMLResponse)
+@app.get("/privacy-policy", response_class=HTMLResponse)
+def privacy_policy():
+    with open("templates/privacy-policy.ejs") as file:
+        template = Template(file.read())
+    html_content = template.render(botName=bot.user.name, contactEmail="contact@arkodeep.me")
+    return HTMLResponse(content=html_content)
+
+@app.get("/terms", response_class=HTMLResponse)
+@app.get("/tos", response_class=HTMLResponse)
+@app.get("/terms-of-service", response_class=HTMLResponse)
+def terms_of_service():
+    with open("templates/tos.ejs") as file:
+        template = Template(file.read())
+    html_content = template.render(botName=bot.user.name, contactEmail="contact@arkodeep.me")
+    return HTMLResponse(content=html_content)
+
 def run_http_server():
     uvicorn.run(app, host="0.0.0.0", port=8080)
 

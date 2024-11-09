@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SEEYUH - Terms of Service</title>
+    <link rel="icon" href="/assets/favicon.ico" type="image/x-icon">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #282b30;
+            color: #dcddde;
+            padding: 20px;
+            max-width: 800px;
+            margin: auto;
+        }
+        h1, h2 {
+            color: #7289da;
+        }
+        a {
+            color: #5865F2;
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>Terms of Service</h1>
+    <p>Effective Date: <%= new Date().toLocaleDateString() %></p>
+
+    <p>Welcome to <%= botName %>! By using this bot, you agree to the following terms and conditions:</p>
+
+    <h2>1. Usage</h2>
+    <p><%= botName %> is intended for entertainment and utility purposes on Discord. By using this bot, you agree to use it responsibly and in compliance with all Discord community guidelines.</p>
+
+    <h2>2. Prohibited Actions</h2>
+    <ul>
+        <li>Do not use <%= botName %> to spam or harass other users.</li>
+        <li>Do not attempt to exploit or misuse the bot's features in any way.</li>
+        <li>Do not use the bot to share or promote inappropriate or illegal content.</li>
+    </ul>
+
+    <h2>3. Disclaimer</h2>
+    <p>We make no guarantees regarding the functionality or availability of <%= botName %>. The bot is provided "as-is" without warranties of any kind. We are not responsible for any issues arising from its use.</p>
+
+    <h2>4. Changes to the Terms</h2>
+    <p>We may update these Terms of Service from time to time. The most recent version will always be available here. By continuing to use <%= botName %>, you agree to any changes made to these terms.</p>
+
+    <h2>5. Contact</h2>
+    <p>If you have questions or concerns about these Terms, please contact us at <a href="mailto:<%= contactEmail %>"><%= contactEmail %></a>.</p>
+</body>
+</html>

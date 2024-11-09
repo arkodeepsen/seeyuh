@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SEEYUH - Privacy Policy</title>
+    <link rel="icon" href="/assets/favicon.ico" type="image/x-icon">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #282b30;
+            color: #dcddde;
+            padding: 20px;
+            max-width: 800px;
+            margin: auto;
+        }
+        h1, h2 {
+            color: #7289da;
+        }
+        a {
+            color: #5865F2;
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>Privacy Policy</h1>
+    <p>Effective Date: <%= new Date().toLocaleDateString() %></p>
+
+    <p>This Privacy Policy explains how <%= botName %> ("we", "our", "us") collects, uses, and shares information when you use our Discord bot.</p>
+
+    <h2>1. Information We Collect</h2>
+    <p>We may collect and store the following information when you use <%= botName %>:</p>
+    <ul>
+        <li><strong>User Data:</strong> Usernames, user IDs, and interactions with the bot.</li>
+        <li><strong>Server Data:</strong> Server names, IDs, and any settings configured for the bot within the server.</li>
+        <li><strong>Messages:</strong> Messages sent to the bot (commands or direct interactions).</li>
+    </ul>
+
+    <h2>2. How We Use Your Information</h2>
+    <p>We use the information collected to provide and improve the bot's features, as well as to ensure a smooth and functional user experience. This includes responding to commands, providing interactive services, and processing user feedback.</p>
+
+    <h2>3. Data Storage and Retention</h2>
+    <p>Your data is stored securely and is only retained as long as necessary to provide the bot's functionality. If you request data deletion or discontinue using the bot, your data will be removed.</p>
+
+    <h2>4. Data Sharing</h2>
+    <p>We do not share your data with any third parties. Your information is used exclusively within the functionality of the bot.</p>
+
+    <h2>5. Your Rights</h2>
+    <p>You have the right to request access to or deletion of your data. To make a request, please contact us at <a href="mailto:<%= contactEmail %>"><%= contactEmail %></a>.</p>
+
+    <h2>6. Changes to This Policy</h2>
+    <p>We may update this Privacy Policy periodically. The latest version will always be available here.</p>
+
+    <p>If you have any questions about this Privacy Policy, please contact us at <a href="mailto:<%= contactEmail %>"><%= contactEmail %></a>.</p>
+</body>
+</html>
