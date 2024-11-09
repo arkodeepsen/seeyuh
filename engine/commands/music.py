@@ -24,7 +24,7 @@ active_filters = {}  # Key: guild.id, Value: set of active filters
 # Setup for yt-dlp to extract audio
 ytdl_options = {
     'format': 'bestaudio/best',
-    'noplaylist': 'False',  # Allow playlists
+    'noplaylist': False,  # Allow playlists
     'quiet': True,  # Suppress output
     'no_warnings': True,  # Suppress warnings
     'default_search': 'auto',  # Automatically search for the query
@@ -137,7 +137,10 @@ async def leave(interaction: discord.Interaction):
         await interaction.response.send_message(embed=embed)
 
 # Play a YouTube URL or search query
+# music.py (continued)
+
 @app_commands.command(name="play", description="Play a song or playlist.")
+@app_commands.describe(query="The song name or URL to play.")
 async def play(interaction: discord.Interaction, query: str):
     try:
         await interaction.response.defer()
@@ -155,33 +158,13 @@ async def play(interaction: discord.Interaction, query: str):
                 await interaction.followup.send(embed=embed)
                 return
 
-        # Check if the query is a YouTube URL
-        youtube_url_pattern = re.compile(
-            r'(https?://)?(www\.)?(youtube|youtu|youtube-nocookie)\.(com|be)/.+'
-        )
-        if not youtube_url_pattern.match(query):
-            # If not a URL, search for the query on YouTube
-            search_url = f"https://www.youtube.com/results?search_query={query.replace(' ', '+')}"
-            async with aiohttp.ClientSession() as session:
-                async with session.get(search_url) as resp:
-                    if resp.status == 200:
-                        html = await resp.text()
-                        video_id = re.search(r"watch\?v=(\S{11})", html)
-                        if video_id:
-                            query = f"https://www.youtube.com/watch?v={video_id.group(1)}"
-                        else:
-                            embed = discord.Embed(
-                                title="Error",
-                                description="No results found on YouTube.",
-                                color=discord.Color.red()
-                            )
-                            await interaction.followup.send(embed=embed)
-                            return
-
-        # Fetch the song info once here
+        # Resolve the query to get song info
         info = ytdl.extract_info(query, download=False)
+        if 'entries' in info:
+            # If it's a playlist, take the first entry
+            info = info['entries'][0]
 
-        # Add the song to the queue with its info
+        # Add the song to the queue
         song_queue.append((interaction, query, info))
 
         await interaction.followup.send(
@@ -193,6 +176,7 @@ async def play(interaction: discord.Interaction, query: str):
         voice_client = interaction.guild.voice_client
         if not voice_client.is_playing():
             await play_next_song()
+
     except Exception as e:
         embed = discord.Embed(
             title="Error",
@@ -200,42 +184,60 @@ async def play(interaction: discord.Interaction, query: str):
             color=discord.Color.red()
         )
         await interaction.followup.send(embed=embed)
-
 async def play_next_song():
     global current_song, previous_message
 
     if loop_song and current_song:
-        query = current_song['webpage_url']
-        info = current_song
+        interaction, query, info = current_song
     elif song_queue:
         interaction, query, info = song_queue.pop(0)
-        current_song = info  # Store the info of the current song
+        current_song = (interaction, query, info)
     else:
         current_song = None
         return
 
+    guild_id = interaction.guild.id
+    filters = active_filters.get(guild_id, set())
+
+    # Determine the FFmpeg options based on active filters
+    if filters:
+        # Combine all active filters with commas
+        ffmpeg_filter = ','.join([AUDIO_EFFECTS[filter_name] for filter_name in filters])
+        current_ffmpeg_options = {
+            'options': f"-vn -af {ffmpeg_filter}"
+        }
+    else:
+        # Use the default FFmpeg options
+        current_ffmpeg_options = ffmpeg_options  # Refer to the global ffmpeg_options
+
     try:
         # Get the direct URL to the audio
         url2 = info['url']
-        source = await discord.FFmpegOpusAudio.from_probe(url2, **ffmpeg_options)
+        source = await discord.FFmpegOpusAudio.from_probe(url2, **current_ffmpeg_options)
 
         # Play the audio and handle the after callback
         voice_client = interaction.guild.voice_client
 
         def after_playing(error):
-            # Use the event loop from eventloop module
-            coro = play_next_song()
-            fut = asyncio.run_coroutine_threadsafe(coro, eventloop.event_loop)
+            if error:
+                print(f"Error during playback: {error}")
             try:
-                fut.result()
+                # Schedule the next song without blocking
+                eventloop.event_loop.call_soon_threadsafe(
+                    asyncio.create_task, play_next_song()
+                )
             except Exception as e:
-                print(f"Error in after_playing: {e}")
+                print(f"Error scheduling next song: {e}")
 
         voice_client.play(source, after=after_playing)
 
         # Edit the previous message to indicate the song has been played
         if previous_message:
-            await previous_message.edit(content="Played", embed=None, view=None)
+            async def edit_message():
+                await previous_message.edit(content="Played", embed=None, view=None)
+            eventloop.event_loop.call_soon_threadsafe(
+                asyncio.create_task, edit_message()
+            )
 
         embed = discord.Embed(
             title="Now Playing",
@@ -267,7 +269,7 @@ async def play_next_song():
 async def now_playing(interaction: discord.Interaction):
     try:
         if current_song:
-            info = current_song  # Use the current_song info directly
+            _, _, info = current_song  # Unpack the tuple correctly
             embed = discord.Embed(
                 title="Now Playing",
                 description=f"[{info['title']}]({info['webpage_url']})",
@@ -370,3 +372,53 @@ async def resume(interaction: discord.Interaction):
     else:
         embed = discord.Embed(title="Error", description="The music is not paused.", color=discord.Color.red())
         await interaction.response.send_message(embed=embed)
+
+@app_commands.command(name="filter", description="Toggle audio filters.")
+@app_commands.describe(effect="The audio effect to toggle.")
+@app_commands.choices(
+    effect=[
+        app_commands.Choice(name="Bass Boost", value="bassboost"),
+        app_commands.Choice(name="Nightcore", value="nightcore"),
+        app_commands.Choice(name="8D", value="8d"),
+        app_commands.Choice(name="Vibrato", value="vibrato"),
+        app_commands.Choice(name="Echo", value="echo"),
+        app_commands.Choice(name="Chipmunk", value="chipmunk"),
+        app_commands.Choice(name="Slowed", value="slowed"),
+        # Add more choices as defined in AUDIO_EFFECTS
+    ]
+)
+async def filter_command(interaction: discord.Interaction, effect: app_commands.Choice[str]):
+    guild_id = interaction.guild.id
+
+    # Initialize the set if not present
+    if guild_id not in active_filters:
+        active_filters[guild_id] = set()
+
+    effect_name = effect.value
+
+    if effect_name in active_filters[guild_id]:
+        active_filters[guild_id].remove(effect_name)
+        await interaction.response.send_message(f"**{effect.name}** has been disabled.", ephemeral=True)
+    else:
+        active_filters[guild_id].add(effect_name)
+        await interaction.response.send_message(f"**{effect.name}** has been enabled.", ephemeral=True)
+        
+@app_commands.command(name="filters", description="List active audio filters.")
+async def list_filters(interaction: discord.Interaction):
+    guild_id = interaction.guild.id
+    filters = active_filters.get(guild_id, set())
+    if filters:
+        filter_names = [f.capitalize() for f in filters]
+        filter_list = ', '.join(filter_names)
+        await interaction.response.send_message(f"**Active Filters:** {filter_list}", ephemeral=True)
+    else:
+        await interaction.response.send_message("No active filters.", ephemeral=True)
+        
+@app_commands.command(name="filters_clear", description="Clear all active audio filters.")
+async def clear_filters(interaction: discord.Interaction):
+    guild_id = interaction.guild.id
+    if guild_id in active_filters and active_filters[guild_id]:
+        active_filters[guild_id].clear()
+        await interaction.response.send_message("All audio filters have been cleared.", ephemeral=True)
+    else:
+        await interaction.response.send_message("No active filters to clear.", ephemeral=True)
