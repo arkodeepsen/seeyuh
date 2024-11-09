@@ -148,6 +148,23 @@
             align-items: center;
             justify-content: center;
         }
+        ::-webkit-scrollbar {
+            width: 10px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: rgba(31, 31, 31, 0.5);
+            border-radius: 10px;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.5);
+            border-radius: 10px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.7);
+        }
     </style>
 </head>
 <body>
@@ -201,5 +218,13 @@
             document.getElementById('botProfile').style.display = 'block';
         }
     </script>
+    <!--<iframe
+        title="Discord user embed"
+        width="340"
+        height="192"
+        frameborder="0"
+        sandbox="allow-scripts"
+        src="https://widgets.vendicated.dev/user?id=690530760540553276&theme=dark&banner=true&full-banner=true&rounded-corners=true&discord-icon=true&badges=true&guess-nitro=true&"
+    ></iframe>-->
 </body>
 </html>
