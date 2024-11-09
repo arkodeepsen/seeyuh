@@ -79,7 +79,7 @@ def health_check():
 def privacy_policy():
     with open("templates/privacy-policy.ejs") as file:
         template = Template(file.read())
-    html_content = template.render(botName=bot.user.name, contactEmail="contact@arkodeep.me")
+    html_content = template.render(bot_name=bot.user.name, contact_email="contact@arkodeep.me")
     return HTMLResponse(content=html_content)
 
 @app.get("/terms", response_class=HTMLResponse)
@@ -88,7 +88,7 @@ def privacy_policy():
 def terms_of_service():
     with open("templates/tos.ejs") as file:
         template = Template(file.read())
-    html_content = template.render(botName=bot.user.name, contactEmail="contact@arkodeep.me")
+    html_content = template.render(bot_name=bot.user.name, contact_email="contact@arkodeep.me")
     return HTMLResponse(content=html_content)
 
 def run_http_server():
