@@ -596,15 +596,27 @@ async def on_message(message):
                 break
     
         # 10% chance to respond to the message
-    if random.random() < 0.005:
+    if random.random() < 0.001:
         command_content = message.content.strip()
         author_name = message.author.name
         ai_prompt = f"Context: {author_name} says '{command_content}'. \nInstruction: Make a funny but interesting response related to the user, you can spin the user's message into a story or a joke."
 
+                # Check if the message is a reply to another message
+        if message.reference:
+            try:
+                original_message = await message.channel.fetch_message(message.reference.message_id)
+                original_author = original_message.author.name
+                original_content = original_message.content
+                context_message = f"\nLast relevant message in the guild: {original_author} said: {original_content}"
+
+            except discord.NotFound:
+                print("Original message not found.")
+                context_message = ""
+                
         mentioned_users = [user for user in message.mentions if user != bot.user]
         if mentioned_users:
             user_name = mentioned_users[0].name
-            ai_prompt = f"Context: {author_name} says about {user_name} '{command_content}'. \nInstruction: make fun of both users in a playful but interesting manner, you can spin the user's message into a story or a joke."
+            ai_prompt = f"{context_message} \nCurrent Context: {author_name} says about {user_name} '{command_content}'. \nInstruction: make fun of both users in a playful but interesting manner, you can spin the user's message into a story or a joke."
 
         async with message.channel.typing():  # Show typing indicator
             response = await get_ai_response(ai_prompt)
@@ -726,7 +738,7 @@ async def on_message(message):
 
     brain_rot_terms = social_media_terms + popular_phrases + gaming_meme_references + cultural_references + absurd_terms + reactions + miscellaneous_terms
     # Check for brain rot terms
-    if any(term in message.content.lower() for term in brain_rot_terms) and random.random() < 0.0125:
+    if any(term in message.content.lower() for term in brain_rot_terms) and random.random() < 0.005:
         # Reply to the original message without directly mentioning the user
         responses = [
             "Bro, that's so brainrot! 🧠💀", 
@@ -811,11 +823,11 @@ async def on_message(message):
     if any(phrase in message.content.lower() for phrase in ["pewdiepie", "felix kjellberg"]) and random.random() < 0.0125:
         await message.channel.send("PewDiePie? Brofist! 👊👊")
         return
-    if any(phrase in message.content.lower() for phrase in ["ratio ", "rati0", " ratio"]):
+    if any(phrase in message.content.lower() for phrase in ["ratio ", "rati0", " ratio"]) and random.random() < 0.0125:
         reply_message = await message.reply("Ratioed! 😂")
         await reply_message.add_reaction("⬆")
         return
-    if any(phrase in message.content.lower() for phrase in ["simp ", "simping"]) and random.random() < 0.5:
+    if any(phrase in message.content.lower() for phrase in ["simp ", "simping"]) and random.random() < 0.05:
         await message.channel.send("Simping is a way of life. 🥺")
         return
     if any(phrase in message.content.lower() for phrase in [" sus", "sus ", "amogus", "among us", "impostor", "crewmate", " vent ", "amongus"]) and random.random() < 0.01:
@@ -831,24 +843,24 @@ async def on_message(message):
     if any(phrase in message.content.lower() for phrase in [" rip ", "rest in peace", "rip in peace"]) and random.random() < 0.5:
         await message.channel.send("Rest in peace! 😢")
         return
-    if any(phrase in message.content.lower() for phrase in ["f in the chat", "press f", "fs in the chat"]):
+    if any(phrase in message.content.lower() for phrase in ["f in the chat", "press f", "fs in the chat"]) and random.random() < 0.5:
         await message.channel.send("F")
         return
-    if any(phrase in message.content.lower() for phrase in ["elon musk", "tesla", "spacex", "dogecoin"]) and random.random() < 0.5:
+    if any(phrase in message.content.lower() for phrase in ["elon musk", "tesla", "spacex", "dogecoin"]) and random.random() < 0.05:
         await message.channel.send("https://tenor.com/view/this-is-elon-musk-gif-24487310")
         return
-    if any(phrase in message.content.lower() for phrase in ["good bot", "great bot", "best bot"]):
+    if any(phrase in message.content.lower() for phrase in ["good bot", "great bot", "best bot"]) and random.random() < 0.05:
         await message.channel.send("Thank you! I'm here to help. 😄")
         return
 
-    if any(phrase in message.content.lower() for phrase in ["bad bot", "worst bot", "terrible bot"]):
+    if any(phrase in message.content.lower() for phrase in ["bad bot", "worst bot", "terrible bot"]) and random.random() < 0.05:
         await message.channel.send("I'm sorry to hear that. I'll try to do better. 😢")
         return
     # If the message does not contain any brain rot terms, proceed with the rest of the code
-    if any(phrase in message.content.lower() for phrase in ["ded chat", "dead chat", "deadchat", "dedchat"]):
+    if any(phrase in message.content.lower() for phrase in ["ded chat", "dead chat", "deadchat", "dedchat"]) and random.random() < 0.05:
         await message.channel.send("Ded chat? I'm here to revive it! 😎")
         return
-    if any(phrase in message.content.lower() for phrase in ["yamete", "kudasai"]):
+    if any(phrase in message.content.lower() for phrase in ["yamete", "kudasai"]) and random.random() < 0.05:
         await message.channel.send("⣿⣿⣷⡁⢆⠈⠕⢕⢂⢕⢂⢕⢂⢔⢂⢕⢄⠂⣂⠂⠆⢂⢕⢂⢕⢂⢕⢂⢕⢂\n"
                                 "⣿⣿⣿⡷⠊⡢⡹⣦⡑⢂⢕⢂⢕⢂⢕⢂⠕⠔⠌⠝⠛⠶⠶⢶⣦⣄⢂⢕⢂⢕\n"
                                 "⣿⣿⠏⣠⣾⣦⡐⢌⢿⣷⣦⣅⡑⠕⠡⠐⢿⠿⣛⠟⠛⠛⠛⠛⠡⢷⡈⢂⢕⢂\n"
@@ -864,7 +876,7 @@ async def on_message(message):
                                 "⠨⡂⡀⢑⢕⡅⠂⠄⠉⠛⠻⠿⢿⣿⣿⣿⣿⣿⣿⣿⣿⡿⢋⢔⢕⢕⣿⣿⠠⠈\n"
                                 "⠄⠪⣂⠁⢕⠆⠄⠂⠄⠁⡀⠂⡀⠄⢈⠉⢍⢛⢛⢛⢋⢔⢕⢕⢕⣽⣿⣿⠠⠈")
         return
-    if any(phrase in message.content.lower() for phrase in ["motivation", "motivate"]):
+    if any(phrase in message.content.lower() for phrase in ["motivation", "motivate"]) and random.random() < 0.05:
         await message.channel.send("Did someone say....\n"
                            "⠀⠀⢐⢸⢸⢭⢗⢯⡺⡵⣝⢮⡳⣝⢮⢳⢕⢽⢸⡪⡪⡊⢆⢑⢐⠀⠀⠀⠀⠀\n"
                            "⠀⢀⢢⢣⢏⢯⣓⢧⢳⡳⣕⢷⣝⡮⣗⡽⡹⣜⢕⢧⢳⢩⠢⡡⢂⠈⠀⠀⠀⠀\n"
