@@ -202,6 +202,9 @@ music.resume.category = "Music"
 music.stop.category = "Music"
 music.now_playing.category = "Music"
 music.queue.category = "Music"
+music.filter_command.category = "Music"
+music.list_filters.category = "Music"
+music.clear_filters.category = "Music"
 bot.tree.add_command(music.join)
 bot.tree.add_command(music.leave)
 bot.tree.add_command(music.play)
@@ -210,6 +213,9 @@ bot.tree.add_command(music.resume)
 bot.tree.add_command(music.stop)
 bot.tree.add_command(music.now_playing)
 bot.tree.add_command(music.queue)
+bot.tree.add_command(music.filter_command)
+bot.tree.add_command(music.list_filters)
+bot.tree.add_command(music.clear_filters)
 
 @bot.event
 async def on_message(message):
