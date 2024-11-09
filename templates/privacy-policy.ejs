@@ -25,12 +25,12 @@
 </head>
 <body>
     <h1>Privacy Policy</h1>
-    <p>Effective Date: <%= new Date().toLocaleDateString() %></p>
+    <p>Effective Date: {{ current_date }}</p>
 
-    <p>This Privacy Policy explains how <%= botName %> ("we", "our", "us") collects, uses, and shares information when you use our Discord bot.</p>
+    <p>This Privacy Policy explains how {{ bot_name }} ("we", "our", "us") collects, uses, and shares information when you use our Discord bot.</p>
 
     <h2>1. Information We Collect</h2>
-    <p>We may collect and store the following information when you use <%= botName %>:</p>
+    <p>We may collect and store the following information when you use {{ bot_name }}:</p>
     <ul>
         <li><strong>User Data:</strong> Usernames, user IDs, and interactions with the bot.</li>
         <li><strong>Server Data:</strong> Server names, IDs, and any settings configured for the bot within the server.</li>
@@ -47,11 +47,11 @@
     <p>We do not share your data with any third parties. Your information is used exclusively within the functionality of the bot.</p>
 
     <h2>5. Your Rights</h2>
-    <p>You have the right to request access to or deletion of your data. To make a request, please contact us at <a href="mailto:<%= contactEmail %>"><%= contactEmail %></a>.</p>
+    <p>You have the right to request access to or deletion of your data. To make a request, please contact us at <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>.</p>
 
     <h2>6. Changes to This Policy</h2>
     <p>We may update this Privacy Policy periodically. The latest version will always be available here.</p>
 
-    <p>If you have any questions about this Privacy Policy, please contact us at <a href="mailto:<%= contactEmail %>"><%= contactEmail %></a>.</p>
+    <p>If you have any questions about this Privacy Policy, please contact us at <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>.</p>
 </body>
 </html>

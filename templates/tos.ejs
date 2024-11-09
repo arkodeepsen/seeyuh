@@ -25,27 +25,27 @@
 </head>
 <body>
     <h1>Terms of Service</h1>
-    <p>Effective Date: <%= new Date().toLocaleDateString() %></p>
+    <p>Effective Date: {{ current_date }}</p>
 
-    <p>Welcome to <%= botName %>! By using this bot, you agree to the following terms and conditions:</p>
+    <p>Welcome to {{ bot_name }}! By using this bot, you agree to the following terms and conditions:</p>
 
     <h2>1. Usage</h2>
-    <p><%= botName %> is intended for entertainment and utility purposes on Discord. By using this bot, you agree to use it responsibly and in compliance with all Discord community guidelines.</p>
+    <p>{{ bot_name }} is intended for entertainment and utility purposes on Discord. By using this bot, you agree to use it responsibly and in compliance with all Discord community guidelines.</p>
 
     <h2>2. Prohibited Actions</h2>
     <ul>
-        <li>Do not use <%= botName %> to spam or harass other users.</li>
+        <li>Do not use {{ bot_name }} to spam or harass other users.</li>
         <li>Do not attempt to exploit or misuse the bot's features in any way.</li>
         <li>Do not use the bot to share or promote inappropriate or illegal content.</li>
     </ul>
 
     <h2>3. Disclaimer</h2>
-    <p>We make no guarantees regarding the functionality or availability of <%= botName %>. The bot is provided "as-is" without warranties of any kind. We are not responsible for any issues arising from its use.</p>
+    <p>We make no guarantees regarding the functionality or availability of {{ bot_name }}. The bot is provided "as-is" without warranties of any kind. We are not responsible for any issues arising from its use.</p>
 
     <h2>4. Changes to the Terms</h2>
-    <p>We may update these Terms of Service from time to time. The most recent version will always be available here. By continuing to use <%= botName %>, you agree to any changes made to these terms.</p>
+    <p>We may update these Terms of Service from time to time. The most recent version will always be available here. By continuing to use {{ bot_name }}, you agree to any changes made to these terms.</p>
 
     <h2>5. Contact</h2>
-    <p>If you have questions or concerns about these Terms, please contact us at <a href="mailto:<%= contactEmail %>"><%= contactEmail %></a>.</p>
+    <p>If you have questions or concerns about these Terms, please contact us at <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>.</p>
 </body>
 </html>
