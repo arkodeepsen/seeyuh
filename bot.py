@@ -1,4 +1,4 @@
-import discord, time, uvicorn, asyncio, logging, random, engine.commands.general as general, engine.commands.utility as utility, engine.commands.fun as fun, engine.commands.music as music
+import discord, time, uvicorn, asyncio, logging, random, engine.commands.general as general, engine.commands.utility as utility, engine.commands.fun as fun, engine.commands.music as music, engine.eventloop as eventloop
 from discord.ext import commands, tasks
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
@@ -98,12 +98,12 @@ def run_http_server():
 @bot.event
 async def on_ready():
     bot.uptime = time.time()
-    print(f'Logged in as {bot.user}')
     bot.loop.create_task(update_presence(bot)) # Start the presence update loop
     await bot.tree.sync() # Sync commands with Discord   
     # Start the inactivity check task
     check_inactivity.start()
-
+    eventloop.event_loop = asyncio.get_running_loop()
+    print(f'Logged in as {bot.user}')
 
 # Define the main function to run both the bot and HTTP server concurrently
 async def main():
