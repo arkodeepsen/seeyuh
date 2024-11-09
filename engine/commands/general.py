@@ -101,7 +101,9 @@ async def info_command(interaction: discord.Interaction, user: discord.User = No
             f"**Owner:** [{owner.name}](https://discord.com/users/{owner.id})\n"
             f"**Currently serving:** {len(interaction.client.guilds)} servers\n"
             f"**Invite:** [Click here](https://discord.com/oauth2/authorize?client_id={interaction.client.user.id}&permissions=8&scope=bot%20applications.commands)\n"
-            f"**Support:** [GitHub](https://github.com/arkodeepsen)\n"
+            f"**Website:** [seeyuh.link](https://seeyuh-production.up.railway.app/)\n"
+            f"**[Privacy Policy](https://seeyuh-production.up.railway.app/privacy-policy)**\n"
+            f"**[Terms of Service](https://seeyuh-production.up.railway.app/terms)**\n"
             f"For more information, use `/info @user` to get user details."
         )
         embed.set_thumbnail(url=interaction.client.user.avatar.url)
