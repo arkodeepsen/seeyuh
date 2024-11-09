@@ -2,6 +2,7 @@ import discord, time, uvicorn, asyncio, logging, random, engine.commands.general
 from discord.ext import commands, tasks
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from jinja2 import Template
 from engine.utils import load_env, intents, update_presence
 from engine.db import fetch_recent_message, save_message_to_db, retry_check_and_update_guild_entry
@@ -14,7 +15,11 @@ from sqlalchemy import Column, Integer, String, ForeignKey
 # Load environment variables
 DISCORD_TOKEN, OWNER, url, key = load_env()
 supabase: Client = create_client(url, key)
+
 app = FastAPI()
+# Mount the static files directory
+app.mount("/assets", StaticFiles(directory="assets"), name="assets")
+
 # SQLAlchemy base
 Base = declarative_base()
 
