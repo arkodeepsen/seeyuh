@@ -1,3 +1,5 @@
+# GEMINI_MULTIMODAL.PY
+
 import google.generativeai as genai
 import os, discord
 from dotenv import load_dotenv
@@ -7,58 +9,90 @@ load_dotenv()
 GOOGLE_API_KEY = os.getenv('GEMINI_PRO_API_KEY')
 genai.configure(api_key=GOOGLE_API_KEY)
 
-# Function to upload and retrieve the image file
-def prep_image(image_path):
-    sample_file = genai.upload_file(path=image_path, display_name="Image")
+# Function to upload and retrieve the file
+def prep_file(file_path, display_name):
+    sample_file = genai.upload_file(path=file_path, display_name=display_name)
     print(f"Uploaded file '{sample_file.display_name}' as: {sample_file.uri}")
-    return sample_file  # Return the entire sample file object
+    return sample_file  # Return the sample file object
 
-# Extract text from the image using the URI and a prompt
-def extract_text_from_image(sample_file, prompt):
+# Extract content from the file using the URI and a prompt
+def extract_content_from_file(sample_file, prompt):
     try:
         model = genai.GenerativeModel("models/gemini-1.5-flash")
         # Use the sample file object directly
         response = model.generate_content([sample_file, prompt])
         return response.text
     except Exception as e:
-        print(f"Error extracting text: {e}")
+        print(f"Error extracting content: {e}")
         return None
 
-# Download and process an image from a URL
+# Download and process an attachment from a URL
 async def handle_attachment(bot, message, attachment):
     try:
-        # Download the image file
+        # Determine the content type of the file
+        content_type = attachment.content_type
+        print(f"Content Type: {content_type}")
+
+        # Define supported content types
+        supported_types = ['image/', 'application/pdf', 'text/']
+        is_supported = any(content_type.startswith(supported) for supported in supported_types)
+
+        if not is_supported:
+            await message.reply("Unsupported file type. Please upload an image, PDF, or text file.")
+            return
+
+        # Set the local file path
+        _, file_extension = os.path.splitext(attachment.filename)
+        file_path = f"downloaded_file{file_extension}"
+
+        # Download the file
         async with aiohttp.ClientSession() as session:
             async with session.get(attachment.url) as resp:
                 if resp.status == 200:
-                    image_path = "downloaded_image.png"
-                    with open(image_path, "wb") as f:
+                    with open(file_path, "wb") as f:
                         f.write(await resp.read())
-                    print("Downloaded image successfully.")
+                    print("Downloaded file successfully.")
                 else:
-                    await message.reply("Failed to download the image.")
-                    return None
+                    await message.reply("Failed to download the file.")
+                    return
 
-        # Upload the downloaded image and prepare it for analysis
-        sample_file = prep_image(image_path)  # Get the sample file object
+        # Upload the downloaded file and prepare it for analysis
+        sample_file = prep_file(file_path, attachment.filename)
+
         # Determine the prompt
-        prompt = message.content.strip().replace(f"<@{message.guild.me.id}>", "").replace("seeyuh", "").strip() or "Explain the content of the image."
-        extracted_content = extract_text_from_image(sample_file, prompt)
+        prompt = message.content.strip().replace(f"<@{bot.user.id}>", "").replace("seeyuh", "").strip()
+        if not prompt:
+            if content_type.startswith('image/'):
+                prompt = "Explain the content of the image."
+            elif content_type == 'application/pdf':
+                prompt = "Provide a summary of the PDF document."
+            elif content_type.startswith('text/'):
+                prompt = "Provide an analysis of the text file."
+            else:
+                prompt = "Analyze the content of the file."
+
+        extracted_content = extract_content_from_file(sample_file, prompt)
 
         # Reply with extracted content
         if extracted_content:
-            embed = discord.Embed(title="Image Analysis", description=extracted_content, color=0x00ff00)
-            embed.set_thumbnail(url=attachment.url)
-            embed.set_footer(text=bot.user.name, icon_url=str(bot.user.avatar.url))
-            await message.reply(embed=embed)
+                        # Split the content into chunks if it exceeds the embed size limit
+            max_embed_size = 6000
+            content_chunks = [extracted_content[i:i + max_embed_size] for i in range(0, len(extracted_content), max_embed_size)]
+
+            for chunk in content_chunks:
+                embed = discord.Embed(title="Image Analysis", description=chunk, color=0x00ff00) if content_type.startswith('image/') else discord.Embed(title="File Analysis", description=chunk, color=0x00ff00)
+                if content_type.startswith('image/'):
+                    embed.set_thumbnail(url=attachment.url)
+                embed.set_footer(text=bot.user.name, icon_url=str(bot.user.avatar.url))
+                await message.reply(embed=embed)
         else:
-            await message.reply("Failed to extract text from the image.")
+            await message.reply("Failed to extract content from the file.")
 
     except Exception as e:
         print(f"An error occurred: {e}")
-        await message.reply("An error occurred while processing the image.")
+        await message.reply("An error occurred while processing the file.")
     finally:
-        # Clean up by deleting the downloaded image file if it exists
-        if os.path.exists(image_path):
-            os.remove(image_path)
-            print("Deleted temporary image file.")
+        # Clean up by deleting the downloaded file if it exists
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            print("Deleted temporary file.")

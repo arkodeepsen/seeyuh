@@ -18,7 +18,7 @@ class RestartHandler(FileSystemEventHandler):
         self.process = subprocess.Popen([sys.executable, self.script])
 
     def on_modified(self, event):
-        if event.src_path.endswith(".py"):
+        if event.src_path.endswith("bot.py"):
             print(f"Detected change in {event.src_path}, restarting...")
             self.start_bot()
 

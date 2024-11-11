@@ -575,3 +575,62 @@ def create_embed(interaction: discord.Interaction, word: str, meaning: str, exam
     embed.set_thumbnail(url="https://media.discordapp.net/attachments/533926025747234838/1303814912858128518/Urban_Dictionary_logo.svg.png")
     embed.set_footer(text=interaction.client.user.name, icon_url=interaction.client.user.display_avatar.url)
     return embed
+
+@app_commands.command(name='image', description='Search for an image on the web.')
+async def image_command(interaction: discord.Interaction, query: str):
+    await interaction.response.defer()
+
+    # Search for images using the DuckDuckGo API
+    url = f"https://api.duckduckgo.com/?q={query}&format=json&pretty=1"
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=10) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    image_url = data['Image']
+                    if image_url:
+                        embed = discord.Embed(title=f"Image search for '{query}'", color=discord.Color.blue())
+                        embed.set_image(url=image_url)
+                        embed.set_footer(text=interaction.client.user.name, icon_url=interaction.client.user.display_avatar.url)
+                        await interaction.followup.send(embed=embed)
+                    else:
+                        await interaction.followup.send("No images found for the query.")
+                else:
+                    await interaction.followup.send("Could not fetch images. Please try again later.")
+    except aiohttp.ClientError as e:
+        await interaction.followup.send(f"An error occurred: {str(e)}")
+        
+from craiyon import Craiyon
+import discord
+from discord import app_commands
+import base64
+import io
+
+@app_commands.command(name='imagine', description='Generate an image based on a given prompt.')
+async def imagine_command(interaction: discord.Interaction, prompt: str):
+    await interaction.response.defer()
+
+    try:
+        # Initialize the Craiyon API client
+        generator = Craiyon()  # No API key is required
+
+        # Generate images based on the prompt
+        result = await generator.async_generate(prompt)
+
+        # Get the first generated image (base64 encoded)
+        image_base64 = result.images[0]
+
+        # Decode the base64 image
+        image_data = base64.b64decode(image_base64)
+
+        # Create a file-like object
+        image_file = io.BytesIO(image_data)
+        image_file.seek(0)
+
+        # Send the image to the user
+        file = discord.File(fp=image_file, filename='generated_image.png')
+        await interaction.followup.send(content=f"Image generated for prompt: **{prompt}**", file=file)
+
+    except Exception as e:
+        await interaction.followup.send(f"An error occurred: {str(e)}")
