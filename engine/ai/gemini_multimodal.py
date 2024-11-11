@@ -64,8 +64,8 @@ async def handle_attachment(bot, message, attachment):
         if not prompt:
             if content_type.startswith('image/'):
                 prompt = "Explain the content of the image."
-            elif content_type == 'application/pdf':
-                prompt = "Provide a summary of the PDF document."
+            elif content_type.startswith('application/'):
+                prompt = "Provide a summary of the document."
             elif content_type.startswith('text/'):
                 prompt = "Provide an analysis of the text file."
             else:

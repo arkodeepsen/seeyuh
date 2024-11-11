@@ -1,8 +1,8 @@
-import discord, asyncio, aiohttp, random, httpx, re
+import discord, asyncio, aiohttp, random, httpx, re, json, io
 from discord import app_commands
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
-from engine.utils import load_env, get_reddit_access_token
+from engine.utils import load_env, get_reddit_access_token, unsplash_env, hf_env
 from engine.ai.gemini import code_ai_response, explain_ai_response, ask_ai_response, translate, prompt_ai_response
 from engine.ai.gemini_models import (
     pro10creative,
@@ -575,3 +575,161 @@ def create_embed(interaction: discord.Interaction, word: str, meaning: str, exam
     embed.set_thumbnail(url="https://media.discordapp.net/attachments/533926025747234838/1303814912858128518/Urban_Dictionary_logo.svg.png")
     embed.set_footer(text=interaction.client.user.name, icon_url=interaction.client.user.display_avatar.url)
     return embed
+
+UNSPLASH_ACCESS_KEY = unsplash_env()
+async def unsplash_image_search(query: str, orientation: str = 'landscape'):
+
+    url = 'https://api.unsplash.com/photos/random'
+    params = {
+        'query': query,
+        'client_id': UNSPLASH_ACCESS_KEY,
+        'orientation': orientation  # Optional: 'landscape', 'portrait', 'squarish'
+    }
+
+    headers = {
+        'Accept-Version': 'v1'
+    }
+
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.get(url, params=params, headers=headers, timeout=10) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    image_url = data['urls']['regular']
+                    photographer = data['user']['name']
+                    photo_link = data['links']['html']
+                    return image_url, photographer, photo_link
+                elif resp.status == 404:
+                    print(f"No images found for query: {query}")
+                    return None, None, None
+                elif resp.status == 403:
+                    print("Access Forbidden: Check your Unsplash Access Key and permissions.")
+                    return None, None, None
+                elif resp.status == 429:
+                    print("Rate limit exceeded: Too many requests to Unsplash API.")
+                    return None, None, None
+                else:
+                    print(f"Error fetching image: {resp.status}")
+                    return None, None, None
+        except asyncio.TimeoutError:
+            print("Request timed out while contacting Unsplash API.")
+            return None, None, None
+        except Exception as e:
+            print(f"Exception during Unsplash image search: {e}")
+            return None, None, None
+
+@app_commands.command(name="image", description="Search for an image using Unsplash")
+@app_commands.choices(orientation=[
+    app_commands.Choice(name="Landscape", value="landscape"),
+    app_commands.Choice(name="Portrait", value="portrait"),
+    app_commands.Choice(name="Squarish", value="squarish")
+])
+async def image_command(interaction: discord.Interaction, query: str, orientation: app_commands.Choice[str]):
+
+    await interaction.response.defer()  # Defer response to show the bot is working
+
+    image_url, photographer, photo_link = await unsplash_image_search(query, orientation.value)
+
+    if image_url:
+        embed = discord.Embed(
+            title=f"Image result for '{query}'",
+            description=f"Photo by [{photographer}]({photo_link}) on [Unsplash](https://unsplash.com/)",
+            color=discord.Color.blue()
+        )
+        embed.set_image(url=image_url)
+        embed.set_footer(
+            text=interaction.client.user.name,
+            icon_url=interaction.client.user.display_avatar.url
+        )
+        await interaction.followup.send(embed=embed)
+    else:
+        await interaction.followup.send("Sorry, I couldn't find any images for that query.")
+        
+# Hugging Face API Key
+HF_API_KEY = hf_env()
+HF_MODEL = "stabilityai/stable-diffusion-2-1"  # Use Stable Diffusion v2 mode
+if not HF_API_KEY:
+    print("Hugging Face API Key not found. Please set HF_API_KEY in your environment variables.")
+    
+async def generate_image(prompt, negative_prompt=None, width=None, height=None, steps=None, retries=3, backoff_factor=2):
+    headers = {
+        "Authorization": f"Bearer {HF_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    data = {
+        "inputs": prompt,
+        "options": {
+            "wait_for_model": True
+        }
+    }
+    if negative_prompt:
+        data["negative_prompt"] = negative_prompt
+    if width:
+        data["width"] = width
+    if height:
+        data["height"] = height
+    if steps:
+        data["steps"] = steps
+
+    data = json.dumps(data)
+
+    for attempt in range(1, retries + 1):
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"https://api-inference.huggingface.co/models/{HF_MODEL}",
+                    headers=headers,
+                    data=data,
+                    timeout=60  # Increased timeout
+                ) as response:
+                    if response.status == 200:
+                        image_data = await response.read()
+                        print(f"Image generated successfully for prompt: '{prompt}'")
+                        return io.BytesIO(image_data)  # Return as byte stream
+                    else:
+                        text = await response.text()
+                        print(f"Error: {response.status}, Response: {text}")
+                        if response.status in [429, 500, 502, 503, 504]:
+                            raise aiohttp.ClientError(f"Server error: {response.status}")
+                        return None
+        except (asyncio.TimeoutError, aiohttp.ClientError) as e:
+            print(f"Attempt {attempt} failed with error: {e}")
+            if attempt == retries:
+                print("All retry attempts failed.")
+                return None
+            await asyncio.sleep(backoff_factor ** attempt)
+        except Exception as e:
+            print(f"Unexpected exception during image generation: {e}")
+            return None
+
+@app_commands.command(name="imagine", description="Generate an AI image")
+async def imagine_command(
+    interaction: discord.Interaction,
+    prompt: str,
+    negative_prompt: str = None,
+    width: int = None,
+    height: int = None,
+    steps: int = None
+):
+    await interaction.response.defer()  # Show processing indicator
+
+    image_data = await generate_image(prompt, negative_prompt, width, height, steps)
+    if image_data:
+        try:
+            # Ensure image format is supported (e.g., PNG)
+            image_data.seek(0)
+            file = discord.File(fp=image_data, filename="image.png")
+            embed = discord.Embed(
+                title=f"Generated Image for: '{prompt}'",
+                color=discord.Color.blue(),
+                description="Image generated using Stable Diffusion."
+            )
+            embed.set_image(url="attachment://image.png")
+            await interaction.followup.send(embed=embed, file=file)
+        except Exception as e:
+            print(f"Error sending image to Discord: {e}")
+            await interaction.followup.send("Failed to send the generated image.")
+    else:
+        await interaction.followup.send(
+            "Sorry, I couldn't generate an image for that prompt. Please try again later."
+        )

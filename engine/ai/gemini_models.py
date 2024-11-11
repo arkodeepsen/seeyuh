@@ -54,19 +54,19 @@ safety_settings = [
 ]
 
 pro10creative = genai.GenerativeModel(
-    model_name='gemini-pro',
+    model_name='gemini-pro-002',
     generation_config=slightly_creative_pro,
     safety_settings=safety_settings
 )
 
 pro15creative = genai.GenerativeModel(
-    model_name='gemini-1.5-pro',
+    model_name='gemini-1.5-pro-002',
     generation_config=very_creative_pro,
     safety_settings=safety_settings
 )
 
 pro15normal = genai.GenerativeModel(
-    model_name='gemini-1.5-pro',
+    model_name='gemini-1.5-pro-002',
     generation_config=slightly_creative_pro,
     safety_settings=safety_settings
 )   

@@ -9,6 +9,16 @@ def load_env():
     key = os.getenv("SUPABASE_KEY")
     return DISCORD_TOKEN, OWNER, url, key
 
+def unsplash_env():
+    load_dotenv()  # Load environment variables from a .env file
+    UNSPLASH_ACCESS_KEY = os.getenv('UNSPLASH_ACCESS_KEY')
+    return UNSPLASH_ACCESS_KEY
+
+def hf_env():
+    load_dotenv()  # Load environment variables from a .env file
+    HF_API_KEY = os.getenv('HF_API_KEY')
+    return HF_API_KEY
+
 async def get_reddit_access_token():
     client_id = os.getenv("REDDIT_CLIENT_ID")
     client_secret = os.getenv("REDDIT_CLIENT_SECRET")
