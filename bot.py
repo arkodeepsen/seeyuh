@@ -231,10 +231,13 @@ async def on_message(message):
         if message.attachments:
             async with message.channel.typing():  # Show typing indicator
                 for attachment in message.attachments:
-                    if attachment.content_type and attachment.content_type.startswith("image/") or attachment.content_type == "application/pdf" or attachment.content_type == "application/json" or attachment.content_type.startswith("text/"):
-                        await handle_attachment(bot, message, attachment)
+                    if attachment.content_type and attachment.content_type.startswith("image/") or attachment.content_type == "application/pdf" or attachment.content_type.startswith("text/"):
+                        if attachment.content_type == "image/bmp" or attachment.content_type == "text/csv":
+                            await message.reply(f"Unsupported file type. {attachment.content_type} files are not supported. Please try different file types.")
+                        else:
+                            await handle_attachment(bot, message, attachment)
                     else:
-                        await message.reply("Unsupported file type. Please upload an image, pdf, plain text or text based code file.")
+                        await message.reply(f"Unsupported file type {attachment.content_type}. Please upload an image, pdf, plain text or text based code file.")
             return  # Stop further processing if this condition is met
 
         # Check if the message is a reply to another message that has attachments
@@ -244,12 +247,15 @@ async def on_message(message):
                 if original_message.attachments:
                     async with message.channel.typing():  # Show typing indicator
                         for attachment in original_message.attachments:
-                            if attachment.content_type and attachment.content_type.startswith("image/") or attachment.content_type == "application/pdf" or attachment.content_type == "application/json" or attachment.content_type.startswith("text/"):
-                                await handle_attachment(bot, original_message, attachment)
+                            if attachment.content_type and attachment.content_type.startswith("image/") or attachment.content_type == "application/pdf" or attachment.content_type.startswith("text/"):
+                                if attachment.content_type == "image/bmp" or attachment.content_type == "text/csv":
+                                    await message.reply(f"Unsupported file type. {attachment.content_type} files are not supported. Please try different file types.")
+                                else:
+                                    await handle_attachment(bot, original_message, attachment)
                             elif attachment.content_type == "text/plain":
                                 await handle_attachment(bot, message, attachment)
                             else:
-                                await message.reply("Unsupported file type. Please upload an image, pdf, plain text or text based code file.")
+                                await message.reply(f"Unsupported file type {attachment.content_type}. Please upload an image, pdf, plain text or text based code file.")
                     return  # Stop further processing if this condition is met
             except discord.NotFound:
                 await message.reply("The original message could not be found.")

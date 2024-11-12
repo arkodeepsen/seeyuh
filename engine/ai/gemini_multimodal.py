@@ -1,18 +1,29 @@
 # GEMINI_MULTIMODAL.PY
 
 import google.generativeai as genai
-import os, discord
+import os, discord, logging
 from dotenv import load_dotenv
 import aiohttp
 
 load_dotenv()
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("bot.log"),
+        logging.StreamHandler()
+    ]
+)
+
 GOOGLE_API_KEY = os.getenv('GEMINI_PRO_API_KEY')
 genai.configure(api_key=GOOGLE_API_KEY)
 
 # Function to upload and retrieve the file
 def prep_file(file_path, display_name):
     sample_file = genai.upload_file(path=file_path, display_name=display_name)
-    print(f"Uploaded file '{sample_file.display_name}' as: {sample_file.uri}")
+    logging.info(f"Uploaded file '{sample_file.display_name}' as: {sample_file.uri}")
     return sample_file  # Return the sample file object
 
 # Extract content from the file using the URI and a prompt
@@ -23,7 +34,7 @@ def extract_content_from_file(sample_file, prompt):
         response = model.generate_content([sample_file, prompt])
         return response.text
     except Exception as e:
-        print(f"Error extracting content: {e}")
+        logging.error(f"Error extracting content: {e}")
         return None
 
 # Download and process an attachment from a URL
@@ -31,10 +42,10 @@ async def handle_attachment(bot, message, attachment):
     try:
         # Determine the content type of the file
         content_type = attachment.content_type
-        print(f"Content Type: {content_type}")
+        logging.info(f"Content Type: {content_type}")
 
         # Define supported content types
-        supported_types = ['image/', 'application/pdf', 'text/']
+        supported_types = ['image/', 'application/', 'text/']
         is_supported = any(content_type.startswith(supported) for supported in supported_types)
 
         if not is_supported:
@@ -51,7 +62,7 @@ async def handle_attachment(bot, message, attachment):
                 if resp.status == 200:
                     with open(file_path, "wb") as f:
                         f.write(await resp.read())
-                    print("Downloaded file successfully.")
+                    logging.info("Downloaded file successfully.")
                 else:
                     await message.reply("Failed to download the file.")
                     return
@@ -64,7 +75,7 @@ async def handle_attachment(bot, message, attachment):
         if not prompt:
             if content_type.startswith('image/'):
                 prompt = "Explain the content of the image."
-            elif content_type == 'application/':
+            elif content_type.startswith ('application/'):
                 prompt = "Provide a summary of the document."
             elif content_type.startswith('text/'):
                 prompt = "Provide an analysis of the text file."
@@ -89,10 +100,10 @@ async def handle_attachment(bot, message, attachment):
             await message.reply("Failed to extract content from the file.")
 
     except Exception as e:
-        print(f"An error occurred: {e}")
+        logging.error(f"An error occurred: {e}")
         await message.reply("An error occurred while processing the file.")
     finally:
         # Clean up by deleting the downloaded file if it exists
         if os.path.exists(file_path):
             os.remove(file_path)
-            print("Deleted temporary file.")
+            logging.error("Deleted temporary file.")
