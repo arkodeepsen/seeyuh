@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Template
-from engine.utils import load_env, intents, update_presence
+from engine.utils import load_env, intents, update_presence, is_image_request, extract_image_prompt
 from engine.db import fetch_recent_message, save_message_to_db, retry_check_and_update_guild_entry
 from engine.ai.gemini import get_ai_response, code_ai_response
 from engine.ai.gemini_multimodal import handle_attachment
@@ -231,7 +231,10 @@ async def on_message(message):
         if message.attachments:
             async with message.channel.typing():  # Show typing indicator
                 for attachment in message.attachments:
-                    if attachment.content_type and attachment.content_type.startswith("image/") or attachment.content_type == "application/pdf" or attachment.content_type.startswith("text/"):
+                    if attachment.size > 10 * 1024 * 1024:  # Check if the attachment size exceeds 10 MB
+                        await message.reply(f"Attachment size exceeds 10 MB limit. Please upload a smaller file.")
+                        return # Stop further processing if this condition is met
+                    if attachment.content_type and (attachment.content_type.startswith("image/") or attachment.content_type == "application/pdf" or attachment.content_type.startswith("text/")):
                         if attachment.content_type == "image/bmp" or attachment.content_type == "text/csv":
                             await message.reply(f"Unsupported file type. {attachment.content_type} files are not supported. Please try different file types.")
                         else:
@@ -247,7 +250,10 @@ async def on_message(message):
                 if original_message.attachments:
                     async with message.channel.typing():  # Show typing indicator
                         for attachment in original_message.attachments:
-                            if attachment.content_type and attachment.content_type.startswith("image/") or attachment.content_type == "application/pdf" or attachment.content_type.startswith("text/"):
+                            if attachment.size > 10 * 1024 * 1024:  # Check if the attachment size exceeds 10 MB
+                                await message.reply(f"Attachment size exceeds 10 MB limit. Please upload a smaller file.")
+                                return  # Stop further processing if this condition is met
+                            if attachment.content_type and (attachment.content_type.startswith("image/") or attachment.content_type == "application/pdf" or attachment.content_type.startswith("text/")):
                                 if attachment.content_type == "image/bmp" or attachment.content_type == "text/csv":
                                     await message.reply(f"Unsupported file type. {attachment.content_type} files are not supported. Please try different file types.")
                                 else:
@@ -343,7 +349,17 @@ async def on_message(message):
                 user_name = mentioned_users[0].name
                 current_query = f"from user {author_name} about user {user_name} : {command_content}."
                 ai_prompt = context_message + "\nCurrent query: " + current_query
-        
+
+            # Check if the message is requesting an image
+            if is_image_request(command_content):
+                image_prompt = extract_image_prompt(command_content)
+                # Generate the image
+                image_data = await utility.generate_image(image_prompt)
+                if image_data:
+                    # Send the image as a file in the chat
+                    file = discord.File(fp=image_data, filename="image.png")
+                    await message.channel.send(file=file)
+
             async with message.channel.typing():  # Show typing indicator
                 response = await get_ai_response(ai_prompt)
             # Split the response into multiple messages if it exceeds 2000 characters
@@ -476,6 +492,17 @@ async def on_message(message):
                 user_name = mentioned_users[0].name
                 current_query = f"from user {author_name} about user {user_name} : {command_content}."
                 ai_prompt = context_message + "Current query:" + current_query
+            
+                        # Check if the message is requesting an image
+            if is_image_request(command_content):
+                image_prompt = extract_image_prompt(command_content)
+                # Generate the image
+                image_data = await utility.generate_image(image_prompt)
+                if image_data:
+                    # Send the image as a file in the chat
+                    file = discord.File(fp=image_data, filename="image.png")
+                    await message.channel.send(file=file)
+                    
             async with message.channel.typing():  # Show typing indicator
                 response = await get_ai_response(ai_prompt)
             # Split the response into multiple messages if it exceeds 2000 characters
@@ -496,13 +523,13 @@ async def on_message(message):
         mentioned_users = [user for user in message.mentions if user != bot.user]
         # Proceed with command processing if message has three or fewer words
         command_found = False
+        command_list = ["play", "pause", "resume", "stop", "skip", "queue", "np", "filters", "filters_clear", "join", "leave", "ask"]
         for word in words:
             # Check if the command exists
-            command = bot.tree.get_command(word)
+            command = bot.tree.get_command(word) if word not in command_list else None
             if command:
                 command_found = True
                 command_name = word
-
                 # Start the background task to retry the entry update
                 bot.loop.create_task(retry_check_and_update_guild_entry(supabase, str(message.guild.id), message.guild.name))
                 

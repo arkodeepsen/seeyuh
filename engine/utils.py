@@ -78,3 +78,40 @@ async def update_presence(bot):
 
         # Wait a few minutes before updating again (e.g., 5 minutes)
         await asyncio.sleep(300)
+  
+image_keywords = ["draw an image of", "show me an image of", "generate an image of", "create an image of", "send me a picture of",
+    "I want to see an image of", "can you create an image of", "I'd like a picture of", "make a picture of", "show an image of",
+    "give me a picture of", "I need an image of", "I want an image of", "I'd like an image of", "I want to see a picture of",
+    "generate artwork of", "design a scene with", "paint a picture of", "create artwork of", "show a depiction of", "produce a visual of", 
+    "render an image of", "illustrate a scene with", "I'd love a drawing of", "craft a picture showing", "make a portrait of", 
+    "give me an artwork featuring", "let me see a rendering of", "compose a picture with", "can you make a drawing of", "give a visual representation of", "depict a scene with", 
+    "showcase an artwork of", "conjure an image of", "create something with", "develop an illustration showing","make me artwork of", "I'd like a painting of", 
+    "draw something showing", "produce a picture of", "generate a portrait of", "create a rendering of", "can you visualize", "generate a scene with",
+    "generate a scene of", "create a detailed picture of", "produce a visual representation of", "render a realistic image of", "design a concept art for", "compose an artistic view of", 
+    "make a painting that shows", "create a landscape with", "sketch out a concept of", "illustrate a setting featuring", "show me a rendered version of", "I'd love to see an artwork of", 
+    "paint a scene depicting", "draw a scenario with", "create an imaginative image showing", "visualize a scene that has", "produce a portrait illustrating", "conjure up a picture of",
+    "design an artwork showing", "can you render an illustration of", "I need a visual that captures", "illustrate a scenario with", "show a concept art of", "draw a scene based on",
+    "develop a creative depiction of", "create an image that features", "craft a detailed artwork of", "draw a vivid representation of", "sketch an idea showing", "illustrate a scene filled with",
+    "make a digital rendering of", "give me a visual impression of", "paint a striking image of", "I'd like to see a concept of", "make an artistic interpretation of", "compose a scenic view of", 
+    "craft an imaginative artwork of" ] 
+image_end_keywords = [
+    "generate an image", "create an illustration", "draw a picture", "make an artwork", 
+    "produce a rendering", "show a visual", "visualize this", "render an image", 
+    "depict this", "make a picture", "show a drawing", "design an artwork", 
+    "illustrate this scene", "paint this scenario", "show an art piece", 
+    "create a visual", "give me a sketch", "give an illustration", 
+    "produce a concept", "draw this scene", "make a digital art", "generate picture",
+    "compose a visual", "craft a picture", "display an artwork", "generate image"
+]      
+def is_image_request(message_content):
+    message_content_lower = message_content.lower()
+    return any(keyword in message_content_lower for keyword in image_keywords) or any(message_content_lower.endswith(keyword) for keyword in image_end_keywords)
+
+def extract_image_prompt(message_content):
+    for keyword in image_keywords:
+        if keyword in message_content.lower():
+            prompt = message_content.lower().split(keyword, 1)[1].strip()
+        elif message_content.lower().endswith(keyword):
+            prompt = message_content.lower().rsplit(keyword, 1)[0].strip()
+            return prompt
+    return message_content  # Use the whole message as the prompt if no keyword is found

@@ -55,7 +55,7 @@ async def joke_command(interaction: discord.Interaction):
     joke_prompt = "Tell a light-hearted, funny joke that will make the user laugh."
 
     # Get the AI response for the joke
-    response = await slash_ai_response(joke_prompt)
+    response = await slash_ai8b_response(joke_prompt)
     
     # Send the joke as a reply after deferring
     await interaction.followup.send(f"{response}")
@@ -69,7 +69,7 @@ async def fact_command(interaction: discord.Interaction):
     fact_prompt = "Tell a random, interesting fact that will surprise the user."
     
     # Get the AI response for the fact
-    response = await slash_ai_response(fact_prompt)
+    response = await slash_ai8b_response(fact_prompt)
     
     # Send the fact as a reply after deferring
     await interaction.followup.send(f"{response}")
@@ -83,7 +83,7 @@ async def quote_command(interaction: discord.Interaction):
     quote_prompt = "Share an inspiring, motivational quote that will uplift the user."
     
     # Get the AI response for the quote
-    response = await slash_ai_response(quote_prompt)
+    response = await slash_ai8b_response(quote_prompt)
     
     # Send the quote as a reply after deferring
     await interaction.followup.send(f"{response}")
@@ -97,7 +97,7 @@ async def advice_command(interaction: discord.Interaction):
     advice_prompt = "Give a piece of advice that will help the user in their daily life."
     
     # Get the AI response for the advice
-    response = await slash_ai_response(advice_prompt)
+    response = await slash_ai8b_response(advice_prompt)
     
     # Send the advice as a reply after deferring
     await interaction.followup.send(f"{response}")
@@ -111,7 +111,7 @@ async def riddle_command(interaction: discord.Interaction):
     riddle_prompt = "Share a fun, challenging riddle that will make the user think and solve."
     
     # Get the AI response for the riddle
-    response = await slash_ai_response(riddle_prompt)
+    response = await slash_ai8b_response(riddle_prompt)
     
     # Send the riddle as a reply after deferring
     await interaction.followup.send(f"{response}")
