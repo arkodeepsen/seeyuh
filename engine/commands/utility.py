@@ -647,7 +647,7 @@ async def image_command(interaction: discord.Interaction, query: str, orientatio
         
 # Hugging Face API Key
 HF_API_KEY = hf_env()
-HF_MODEL = "stabilityai/stable-diffusion-2-1"  # Use Stable Diffusion v2 mode
+HF_MODEL = "stabilityai/stable-diffusion-3.5-large-turbo"  # Use Stable Diffusion v2 mode
 if not HF_API_KEY:
     print("Hugging Face API Key not found. Please set HF_API_KEY in your environment variables.")
     
