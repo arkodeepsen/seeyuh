@@ -96,12 +96,12 @@ image_keywords = ["draw an image of", "show me an image of", "generate an image 
     "craft an imaginative artwork of" ] 
 image_end_keywords = [
     "generate an image", "create an illustration", "draw a picture", "make an artwork", 
-    "produce a rendering", "show a visual", "visualize this", "render an image", 
-    "depict this", "make a picture", "show a drawing", "design an artwork", 
-    "illustrate this scene", "paint this scenario", "show an art piece", 
-    "create a visual", "give me a sketch", "give an illustration", 
-    "produce a concept", "draw this scene", "make a digital art", "generate picture",
-    "compose a visual", "craft a picture", "display an artwork", "generate image"
+    "produce a rendering", "show a visual", "visualize this", "render an image",
+    "depict this", "make a picture", "show a drawing", "design an artwork", "show an image", "make an image",
+    "illustrate this scene", "paint this scenario", "show an art piece", "show picture", "show pic", "make picture", "make pic",
+    "create a visual", "give me a sketch", "give an illustration", "show image", "make image", "generate a picture", "generate pic",
+    "produce a concept", "draw this scene", "make a digital art", "generate picture", "draw an image", "draw image", "draw picture", "draw pic",
+    "compose a visual", "craft a picture", "display an artwork", "generate image","show a picture", "give a picture", "give an image", "give image", "give pic", "give picture",
 ]      
 def is_image_request(message_content):
     message_content_lower = message_content.lower()
