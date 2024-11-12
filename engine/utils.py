@@ -79,7 +79,7 @@ async def update_presence(bot):
         # Wait a few minutes before updating again (e.g., 5 minutes)
         await asyncio.sleep(300)
   
-image_keywords = ["draw an image of", "show me an image of", "generate an image of", "create an image of", "send me a picture of",
+image_keywords = ["draw an image of", "show me an image of", "generate an image of", "generate a picture of", "create an image of", "send me a picture of",
     "I want to see an image of", "can you create an image of", "I'd like a picture of", "make a picture of", "show an image of",
     "give me a picture of", "I need an image of", "I want an image of", "I'd like an image of", "I want to see a picture of",
     "generate artwork of", "design a scene with", "paint a picture of", "create artwork of", "show a depiction of", "produce a visual of", 
