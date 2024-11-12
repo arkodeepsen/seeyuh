@@ -724,6 +724,11 @@ async def imagine_command(
                 color=discord.Color.blue(),
                 description="Image generated using Stable Diffusion."
             )
+            embed.set_author(
+            name=f"Requested by {interaction.user}",
+            icon_url=interaction.user.display_avatar.url
+            )
+            embed.set_footer(text=interaction.client.user.name, icon_url=interaction.client.user.display_avatar.url)
             embed.set_image(url="attachment://image.png")
             await interaction.followup.send(embed=embed, file=file)
         except Exception as e:
