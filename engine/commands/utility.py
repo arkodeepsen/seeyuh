@@ -657,6 +657,7 @@ async def generate_image(
     height=None,
     steps=None,
     model="stable-diffusion-3.5-turbo",
+    seed=-1,
     retries=3,
     backoff_factor=2
 ):
@@ -687,8 +688,12 @@ async def generate_image(
         data["height"] = height
     if steps:
         data["steps"] = steps
+    if seed is not None:
+        data["seed"] = seed
 
     data = json.dumps(data)
+
+    # Rest of the function remains the same...
 
     for attempt in range(1, retries + 1):
         try:
@@ -809,8 +814,6 @@ MODEL_CHOICES = [
     app_commands.Choice(name="FLUX.1-schnell", value="FLUX.1-schnell"),
     app_commands.Choice(name="Stable Diffusion 3.5 Large", value="stable-diffusion-3.5-large"),
     app_commands.Choice(name="FLUX.1-dev", value="FLUX.1-dev"),
-    app_commands.Choice(name="Stable Diffusion 3.5 Medium", value="stable-diffusion-3.5-medium"),
-    app_commands.Choice(name="Dreamlike Photoreal 2.0", value="dreamlike-photoreal-2.0"),
     app_commands.Choice(name="FLUX Midjourney Anime", value="flux-midjourney-anime"),
     app_commands.Choice(name="FLUX Ghibsky Illustration", value="flux-ghibsky-illustration"),
     app_commands.Choice(name="Stable Diffusion XL Base 1.0", value="stable-diffusion-xl-base-1.0"),
@@ -824,29 +827,31 @@ MODEL_CHOICES = [
     app_commands.Choice(name="pixel-art-xl", value="pixel-art-xl"),
     app_commands.Choice(name="Stable Diffusion 3 Medium", value="stable-diffusion-3-medium"),
     app_commands.Choice(name="OpenJourney", value="openjourney"),
+    app_commands.Choice(name="Dreamlike Photoreal 2.0", value="dreamlike-photoreal-2.0"),
     app_commands.Choice(name="Stable Diffusion 2.1", value="stable-diffusion-2-1")
 ]
 
-@app_commands.command(name="imagine", description="Generate an AI image")
+@app_commands.command(name="imagine", description="Generate an image with AI")
 @app_commands.describe(
     prompt="The text prompt for the image.",
-    negative_prompt="Text to avoid in the image.",
-    width="Width of the image (optional).",
-    height="Height of the image (optional).",
+    model="Choose AI model to use.",
+    negative_prompt="Text to avoid in the image (optional).",
+    width="Width of the image in pixels (optional).",
+    height="Height of the image in pixels (optional).",
     steps="Number of inference steps (optional).",
-    model="The AI model to use."
+    seed="Seed for the image generation (optional)."
 )
 @app_commands.choices(model=MODEL_CHOICES)
 async def imagine_command(
     interaction: discord.Interaction,
     prompt: str,
-    negative_prompt: str = None,
+    model: str = "stable-diffusion-3.5-turbo",
+    negative_prompt: str = "multiple limbs, bad hands, bad feet, disfigured faces, blurry, low resolution, deformed",
     width: int = None,
     height: int = None,
     steps: int = None,
-    model: str = "stable-diffusion-3.5-turbo"
+    seed: int = -1
 ):
-    # Function body remains the same
     await interaction.response.defer()  # Show processing indicator
 
     image_data = await generate_image(
@@ -855,8 +860,10 @@ async def imagine_command(
         width=width,
         height=height,
         steps=steps,
-        model=model
+        model=model,
+        seed=seed
     )
+
     if image_data:
         try:
             image_data.seek(0)
