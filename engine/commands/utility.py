@@ -657,7 +657,7 @@ async def generate_image(
     height=None,
     steps=None,
     model="stable-diffusion-3.5-turbo",
-    seed=-1,
+    seed=random.randint(0, 3999999999),
     retries=3,
     backoff_factor=2
 ):
@@ -850,7 +850,7 @@ async def imagine_command(
     width: int = None,
     height: int = None,
     steps: int = None,
-    seed: int = -1
+    seed: int = random.randint(0, 3999999999)
 ):
     await interaction.response.defer()  # Show processing indicator
 
