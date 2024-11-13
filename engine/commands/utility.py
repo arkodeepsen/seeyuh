@@ -644,14 +644,29 @@ async def image_command(interaction: discord.Interaction, query: str, orientatio
         await interaction.followup.send(embed=embed)
     else:
         await interaction.followup.send("Sorry, I couldn't find any images for that query.")
-        
+                
 # Hugging Face API Key
 HF_API_KEY = hf_env()
-HF_MODEL = "stabilityai/stable-diffusion-3.5-large-turbo"  # Use Stable Diffusion v2 mode
 if not HF_API_KEY:
     print("Hugging Face API Key not found. Please set HF_API_KEY in your environment variables.")
     
-async def generate_image(prompt, negative_prompt=None, width=None, height=None, steps=None, retries=3, backoff_factor=2):
+async def generate_image(
+    prompt,
+    negative_prompt="multiple limbs, bad hands, bad feet, disfigured faces, blurry, low resolution, deformed",
+    width=None,
+    height=None,
+    steps=None,
+    model="stable-diffusion-3.5-turbo",
+    retries=3,
+    backoff_factor=2
+):
+    # Retrieve the model information
+    model_info = AVAILABLE_MODELS.get(model)
+    if not model_info:
+        print(f"Model '{model}' not found. Using default model.")
+        model_info = AVAILABLE_MODELS["stable-diffusion-3.5-turbo"]
+    hf_model_id = model_info["model_id"]
+
     headers = {
         "Authorization": f"Bearer {HF_API_KEY}",
         "Content-Type": "application/json",
@@ -662,6 +677,8 @@ async def generate_image(prompt, negative_prompt=None, width=None, height=None, 
             "wait_for_model": True
         }
     }
+
+    # Include additional parameters if provided
     if negative_prompt:
         data["negative_prompt"] = negative_prompt
     if width:
@@ -677,15 +694,15 @@ async def generate_image(prompt, negative_prompt=None, width=None, height=None, 
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(
-                    f"https://api-inference.huggingface.co/models/{HF_MODEL}",
+                    f"https://api-inference.huggingface.co/models/{hf_model_id}",
                     headers=headers,
                     data=data,
-                    timeout=60  # Increased timeout
+                    timeout=120
                 ) as response:
                     if response.status == 200:
                         image_data = await response.read()
-                        print(f"Image generated successfully for prompt: '{prompt}'")
-                        return io.BytesIO(image_data)  # Return as byte stream
+                        print(f"Image generated successfully for prompt: '{prompt}' using model: '{model}'")
+                        return io.BytesIO(image_data)
                     else:
                         text = await response.text()
                         print(f"Error: {response.status}, Response: {text}")
@@ -701,34 +718,163 @@ async def generate_image(prompt, negative_prompt=None, width=None, height=None, 
         except Exception as e:
             print(f"Unexpected exception during image generation: {e}")
             return None
+        
+# Define available models and their descriptions
+AVAILABLE_MODELS = {
+    "stable-diffusion-3.5-turbo": {
+        "model_id": "stabilityai/stable-diffusion-3.5-large-turbo",
+        "description": "Image generated using Stable Diffusion 3.5 Turbo."
+    },
+    "FLUX.1-schnell": {
+        "model_id": "black-forest-labs/FLUX.1-schnell",
+        "description": "Image generated using FLUX.1 [schnell]"
+    },
+    "stable-diffusion-3.5-large": {
+        "model_id": "stabilityai/stable-diffusion-3.5-large",
+        "description": "Image generated using Stable Diffusion 3.5 Large."
+    },
+    "FLUX.1-dev": {
+        "model_id": "black-forest-labs/FLUX.1-dev",
+        "description": "Image generated using FLUX.1 [dev]"
+    },
+    "stable-diffusion-3.5-medium": {
+        "model_id": "stabilityai/stable-diffusion-3.5-medium",
+        "description": "Image generated using Stable Diffusion 3.5 Medium."
+    },
+    "dreamlike-photoreal-2.0": {
+        "model_id": "dreamlike-art/dreamlike-photoreal-2.0",
+        "description": "Image generated using Dreamlike Photoreal 2.0."
+    },
+    "flux-midjourney-anime": {
+        "model_id": "brushpenbob/flux-midjourney-anime",
+        "description": "Image generated using FLUX Midjourney Anime."
+    },
+    "flux-ghibsky-illustration": {
+        "model_id": "aleksa-codes/flux-ghibsky-illustration",
+        "description": "Image generated using FLUX Ghibsky Illustration."
+    },
+    "stable-diffusion-xl-base-1.0": {
+        "model_id": "stabilityai/stable-diffusion-xl-base-1.0",
+        "description": "Image generated using Stable Diffusion XL Base 1.0."
+    },
+    "RealVisXL_V4.0": {
+        "model_id": "SG161222/RealVisXL_V4.0",
+        "description": "Image generated using RealVisXL V4.0."
+    },
+    "epiCPhotoGasm": {
+        "model_id": "Yntec/epiCPhotoGasm",
+        "description": "Image generated using epiCPhotoGasm."
+    },
+    "HyperRemix": {
+        "model_id": "Yntec/HyperRemix",
+        "description": "Image generated using HyperRemix."
+    },
+    "AnalogMadness-realistic-model-v5": {
+        "model_id": "digiplay/AnalogMadness-realistic-model-v5",
+        "description": "Image generated using AnalogMadness-realistic-model-v5."
+    },
+    "ZHMix-Dramatic-v2.0": {
+        "model_id": "digiplay/ZHMix-Dramatic-v2.0",
+        "description": "Image generated using ZHMix-Dramatic-v2.0."
+    },
+    "MilkyWonderland_v1": {
+        "model_id": "digiplay/MilkyWonderland_v1",
+        "description": "Image generated using MilkyWonderland_v1."
+    },
+    "Hyperlink": {
+        "model_id": "Yntec/Hyperlink",
+        "description": "Image generated using Hyperlink."
+    },
+    "pixel-art-xl": {
+        "model_id": "nerijs/pixel-art-xl",
+        "description": "Image generated using pixel-art-xl."
+    },
+    "stable-diffusion-3-medium": {
+        "model_id": "stabilityai/stable-diffusion-3-medium",
+        "description": "Image generated using Stable Diffusion 3 Medium."
+    },
+    "openjourney": {
+        "model_id": "prompthero/openjourney",
+        "description": "Image generated using OpenJourney."
+    },
+    "stable-diffusion-2-1": {
+        "model_id": "stabilityai/stable-diffusion",
+        "description": "Image generated using Stable Diffusion 2.1."
+    },
+
+}
+
+MODEL_CHOICES = [
+    app_commands.Choice(name="Stable Diffusion 3.5 Turbo", value="stable-diffusion-3.5-turbo"),
+    app_commands.Choice(name="FLUX.1-schnell", value="FLUX.1-schnell"),
+    app_commands.Choice(name="Stable Diffusion 3.5 Large", value="stable-diffusion-3.5-large"),
+    app_commands.Choice(name="FLUX.1-dev", value="FLUX.1-dev"),
+    app_commands.Choice(name="Stable Diffusion 3.5 Medium", value="stable-diffusion-3.5-medium"),
+    app_commands.Choice(name="Dreamlike Photoreal 2.0", value="dreamlike-photoreal-2.0"),
+    app_commands.Choice(name="FLUX Midjourney Anime", value="flux-midjourney-anime"),
+    app_commands.Choice(name="FLUX Ghibsky Illustration", value="flux-ghibsky-illustration"),
+    app_commands.Choice(name="Stable Diffusion XL Base 1.0", value="stable-diffusion-xl-base-1.0"),
+    app_commands.Choice(name="RealVisXL V4.0", value="RealVisXL_V4.0"),
+    app_commands.Choice(name="epiCPhotoGasm", value="epiCPhotoGasm"),
+    app_commands.Choice(name="HyperRemix", value="HyperRemix"),
+    app_commands.Choice(name="AnalogMadness-realistic-model-v5", value="AnalogMadness-realistic-model-v5"),
+    app_commands.Choice(name="ZHMix-Dramatic-v2.0", value="ZHMix-Dramatic-v2.0"),
+    app_commands.Choice(name="MilkyWonderland_v1", value="MilkyWonderland_v1"),
+    app_commands.Choice(name="Hyperlink", value="Hyperlink"),
+    app_commands.Choice(name="pixel-art-xl", value="pixel-art-xl"),
+    app_commands.Choice(name="Stable Diffusion 3 Medium", value="stable-diffusion-3-medium"),
+    app_commands.Choice(name="OpenJourney", value="openjourney"),
+    app_commands.Choice(name="Stable Diffusion 2.1", value="stable-diffusion-2-1")
+]
 
 @app_commands.command(name="imagine", description="Generate an AI image")
+@app_commands.describe(
+    prompt="The text prompt for the image.",
+    negative_prompt="Text to avoid in the image.",
+    width="Width of the image (optional).",
+    height="Height of the image (optional).",
+    steps="Number of inference steps (optional).",
+    model="The AI model to use."
+)
+@app_commands.choices(model=MODEL_CHOICES)
 async def imagine_command(
     interaction: discord.Interaction,
     prompt: str,
     negative_prompt: str = None,
     width: int = None,
     height: int = None,
-    steps: int = None
+    steps: int = None,
+    model: str = "stable-diffusion-3.5-turbo"
 ):
+    # Function body remains the same
     await interaction.response.defer()  # Show processing indicator
 
-    image_data = await generate_image(prompt, negative_prompt, width, height, steps)
+    image_data = await generate_image(
+        prompt,
+        negative_prompt=negative_prompt,
+        width=width,
+        height=height,
+        steps=steps,
+        model=model
+    )
     if image_data:
         try:
-            # Ensure image format is supported (e.g., PNG)
             image_data.seek(0)
             file = discord.File(fp=image_data, filename="image.png")
+            model_description = AVAILABLE_MODELS[model]["description"]
             embed = discord.Embed(
                 title=f"Generated Image for: '{prompt}'",
                 color=discord.Color.blue(),
-                description="Image generated using Stable Diffusion."
+                description=model_description
             )
             embed.set_author(
-            name=f"Requested by {interaction.user}",
-            icon_url=interaction.user.display_avatar.url
+                name=f"Requested by {interaction.user}",
+                icon_url=interaction.user.display_avatar.url
             )
-            embed.set_footer(text=interaction.client.user.name, icon_url=interaction.client.user.display_avatar.url)
+            embed.set_footer(
+                text=interaction.client.user.name,
+                icon_url=interaction.client.user.display_avatar.url
+            )
             embed.set_image(url="attachment://image.png")
             await interaction.followup.send(embed=embed, file=file)
         except Exception as e:
