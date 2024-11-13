@@ -803,10 +803,73 @@ AVAILABLE_MODELS = {
         "description": "Image generated using OpenJourney."
     },
     "stable-diffusion-2-1": {
-        "model_id": "stabilityai/stable-diffusion",
+        "model_id": "stabilityai/stable-diffusion-2-1",
         "description": "Image generated using Stable Diffusion 2.1."
     },
-
+    "beLIEve": {
+        "model_id": "Yntec/beLIEve",
+        "description": "Image generated using beLIEve."
+    },
+    "fishmix_other_v1": {
+        "model_id": "digiplay/fishmix_other_v1",
+        "description": "Image generated using fishmix_other_v1."
+    },
+    "HyperPhotoGASM" : {
+        "model_id": "Yntec/HyperPhotoGASM",
+        "description": "Image generated using HyperPhotoGASM."
+    },
+    "Gap_2.6": {
+        "model_id": "digiplay/Gap_2.6",
+        "description": "Image generated using Gap_2.6."
+    },
+    "CrystalReality": {
+        "model_id": "Yntec/CrystalReality",
+        "description": "Image generated using CrystalReality."
+    },
+    "meinamix-meinav11-sd15": {
+        "model_id": "John6666/meinamix-meinav11-sd15",
+        "description": "Image generated using meinamix-meinav11-sd15."
+    },
+    "ya3p_VAE": {
+        "model_id": "digiplay/ya3p_VAE",
+        "description": "Image generated using ya3p_VAE."
+    },
+    "ZemiHR_v2_diffusers": {
+        "model_id": "digiplay/ZemiHR_v2_diffusers",
+        "description": "Image generated using ZemiHR_v2_diffusers."
+    },
+    "Chip_n_DallE": {
+        "model_id": "Yntec/Chip_n_DallE",
+        "description": "Image generated using Chip_n_DallE."
+    },
+    "ClayStyle": {
+        "model_id": "Yntec/ClayStyle",
+        "description": "Image generated using ClayStyle."
+    },
+    "Maji5PlusCCTV": {
+        "model_id": "digiplay/Maji5PlusCCTV",
+        "description": "Image generated using Maji5PlusCCTV."
+    },
+    "LusterMix_v1.5_safetensors": {
+        "model_id": "digiplay/LusterMix_v1.5_safetensors",
+        "description": "Image generated using LusterMix_v1.5_safetensors."
+    },
+    "Ponygraphy": {
+        "model_id": "Yntec/Ponygraphy",
+        "description": "Image generated using Ponygraphy."
+    },
+    "DucHaitenGODofSIMP": {
+        "model_id": "Yntec/DucHaitenGODofSIMP",
+        "description": "Image generated using DucHaitenGODofSIMP."
+    },
+    "DonutHoleMix_Beta": {
+        "model_id": "digiplay/DonutHoleMix_Beta",
+        "description": "Image generated using DonutHoleMix_Beta."
+    },
+    "Reddit": {
+        "model_id": "Yntec/Reddit",
+        "description": "Image generated using Reddit"
+    }
 }
 
 MODEL_CHOICES = [
@@ -817,6 +880,7 @@ MODEL_CHOICES = [
     app_commands.Choice(name="FLUX Midjourney Anime", value="flux-midjourney-anime"),
     app_commands.Choice(name="FLUX Ghibsky Illustration", value="flux-ghibsky-illustration"),
     app_commands.Choice(name="Stable Diffusion XL Base 1.0", value="stable-diffusion-xl-base-1.0"),
+    app_commands.Choice(name="beLIEve", value="beLIEve"),
     app_commands.Choice(name="RealVisXL V4.0", value="RealVisXL_V4.0"),
     app_commands.Choice(name="epiCPhotoGasm", value="epiCPhotoGasm"),
     app_commands.Choice(name="HyperRemix", value="HyperRemix"),
@@ -825,10 +889,15 @@ MODEL_CHOICES = [
     app_commands.Choice(name="MilkyWonderland_v1", value="MilkyWonderland_v1"),
     app_commands.Choice(name="Hyperlink", value="Hyperlink"),
     app_commands.Choice(name="pixel-art-xl", value="pixel-art-xl"),
-    app_commands.Choice(name="Stable Diffusion 3 Medium", value="stable-diffusion-3-medium"),
     app_commands.Choice(name="OpenJourney", value="openjourney"),
-    app_commands.Choice(name="Dreamlike Photoreal 2.0", value="dreamlike-photoreal-2.0"),
-    app_commands.Choice(name="Stable Diffusion 2.1", value="stable-diffusion-2-1")
+    app_commands.Choice(name="LusterMix_v1.5_safetensors", value="LusterMix_v1.5_safetensors"),
+    app_commands.Choice(name="Chip_n_DallE", value="Chip_n_DallE"),
+    app_commands.Choice(name="ZemiHR_v2_diffusers", value="ZemiHR_v2_diffusers"),
+    app_commands.Choice(name="meinamix-meinav11-sd15", value="meinamix-meinav11-sd15"),
+    app_commands.Choice(name="ya3p_VAE", value="ya3p_VAE"),
+    app_commands.Choice(name="DucHaitenGODofSIMP", value="DucHaitenGODofSIMP"),
+    app_commands.Choice(name="Reddit", value="Reddit"),
+    app_commands.Choice(name="DonutHoleMix_Beta", value="DonutHoleMix_Beta"),
 ]
 
 @app_commands.command(name="imagine", description="Generate an image with AI")
