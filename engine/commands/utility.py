@@ -680,16 +680,12 @@ async def generate_image(
     }
 
     # Include additional parameters if provided
-    if negative_prompt:
-        data["negative_prompt"] = negative_prompt
     if width:
         data["width"] = width
     if height:
         data["height"] = height
     if steps:
         data["steps"] = steps
-    if seed is not None:
-        data["seed"] = seed
 
     data = json.dumps(data)
 
