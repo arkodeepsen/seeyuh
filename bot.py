@@ -139,6 +139,10 @@ utility.search_command.category = "Utility"
 utility.meaning_command.category = "Utility"
 utility.image_command.category = "Utility"
 utility.imagine_command.category = "Utility"
+utility.motion_command.category = "Utility"
+utility.bg_remover_command.category = "Utility"
+utility.edit_command.category = "Utility"
+utility.extend_command.category = "Utility"
 bot.tree.add_command(utility.say_command)
 bot.tree.add_command(utility.emoji_command)
 bot.tree.add_command(utility.avatar_command)
@@ -154,6 +158,10 @@ bot.tree.add_command(utility.search_command)
 bot.tree.add_command(utility.meaning_command)
 bot.tree.add_command(utility.image_command)
 bot.tree.add_command(utility.imagine_command)
+bot.tree.add_command(utility.motion_command)
+bot.tree.add_command(utility.bg_remover_command)
+bot.tree.add_command(utility.edit_command)
+bot.tree.add_command(utility.extend_command)
 
 # Register the commands from fun.py
 fun.roast_command.category = "Fun"
@@ -225,7 +233,7 @@ bot.tree.add_command(music.clear_filters)
 async def on_message(message):
     if message.author == bot.user:
         return
-
+    
     # Check if the message has attachments and bot is mentioned
     if (bot.user.mentioned_in(message) or "seeyuh" in message.content.lower()):
         if message.attachments:
