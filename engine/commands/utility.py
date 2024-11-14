@@ -864,6 +864,10 @@ AVAILABLE_MODELS = {
         "model_id": "digiplay/DonutHoleMix_Beta",
         "description": "Image generated using DonutHoleMix_Beta."
     },
+    "Flux.1-dev-LoRA-r128-RedditReality": {
+        "model_id": "RareConcepts/Flux.1-dev-LoRA-r128-RedditReality",
+        "description": "Image generated using RedditReality"
+    },
     "Reddit": {
         "model_id": "Yntec/Reddit",
         "description": "Image generated using Reddit"
@@ -885,7 +889,7 @@ MODEL_CHOICES = [
     app_commands.Choice(name="AnalogMadness-realistic-model-v5", value="AnalogMadness-realistic-model-v5"),
     app_commands.Choice(name="ZHMix-Dramatic-v2.0", value="ZHMix-Dramatic-v2.0"),
     app_commands.Choice(name="MilkyWonderland_v1", value="MilkyWonderland_v1"),
-    app_commands.Choice(name="Hyperlink", value="Hyperlink"),
+    app_commands.Choice(name="CrystalReality", value="CrystalReality"),
     app_commands.Choice(name="pixel-art-xl", value="pixel-art-xl"),
     app_commands.Choice(name="OpenJourney", value="openjourney"),
     app_commands.Choice(name="LusterMix_v1.5_safetensors", value="LusterMix_v1.5_safetensors"),
@@ -893,8 +897,8 @@ MODEL_CHOICES = [
     app_commands.Choice(name="ZemiHR_v2_diffusers", value="ZemiHR_v2_diffusers"),
     app_commands.Choice(name="meinamix-meinav11-sd15", value="meinamix-meinav11-sd15"),
     app_commands.Choice(name="ya3p_VAE", value="ya3p_VAE"),
-    app_commands.Choice(name="DucHaitenGODofSIMP", value="DucHaitenGODofSIMP"),
-    app_commands.Choice(name="Reddit", value="Reddit"),
+    app_commands.Choice(name="Flux.1-dev-LoRA-r128-RedditReality", value="Flux.1-dev-LoRA-r128-RedditReality"),
+    app_commands.Choice(name="maJi5PlusCCTV", value="Maji5PlusCCTV"),
     app_commands.Choice(name="DonutHoleMix_Beta", value="DonutHoleMix_Beta"),
 ]
 
