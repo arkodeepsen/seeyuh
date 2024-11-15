@@ -91,6 +91,18 @@ def terms_of_service():
     html_content = template.render(bot_name=bot.user.name, contact_email="contact@arkodeep.me")
     return HTMLResponse(content=html_content)
 
+@app.get("/donation", response_class=HTMLResponse)
+@app.get("/donate", response_class=HTMLResponse)
+def donation():
+    with open("templates/donate.ejs") as file:
+        template = Template(file.read())
+    html_content = template.render(bot_name=bot.user.name, contact_email="contact@arkodeep.me")
+    return HTMLResponse(content=html_content)
+
+@app.get("/invite", response_class=HTMLResponse)
+def invite():
+    return HTMLResponse(content='<meta http-equiv="refresh" content="0; url=https://discord.com/oauth2/authorize?client_id=690530760540553276" />')
+
 def run_http_server():
     uvicorn.run(app, host="0.0.0.0", port=8080)
 

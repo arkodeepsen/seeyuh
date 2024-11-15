@@ -1,0 +1,107 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Donate to SEEYUH</title>
+    <link rel="icon" href="/assets/favicon.ico" type="image/x-icon">
+    <style>
+        body {
+            font-family: "Whitney", Arial, sans-serif;
+            background-color: #282b30;
+            margin: 0;
+            padding: 0;
+            color: #dcddde;
+        }
+        .container {
+            max-width: 800px;
+            margin: auto;
+            padding: 20px;
+            text-align: center;
+            justify-content: center;
+        }
+        .header {
+            background-color: #7289da;
+            padding: 20px;
+        }
+        .header img {
+            width: 100px;
+            border-radius: 50%;
+        }
+        .header h1 {
+            margin: 10px 0 0;
+            color: #ffffff;
+        }
+        .content {
+            margin-top: 30px;
+        }
+        .content p {
+            font-size: 1.2rem;
+        }
+        .paypal-button-container {
+            justify-content: center;
+            align-items: center;
+            margin-top: 20px;
+            margin-left: 200px;
+        }
+        a {
+            color: #5865F2;
+            text-decoration: none;
+        }
+        .nav {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .nav a {
+            color: #5865F2;
+        }
+        /* Scrollbar styles */
+        ::-webkit-scrollbar {
+            width: 10px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(31, 31, 31, 0.5);
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.5);
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.7);
+        }
+    </style>
+    <!-- Include PayPal SDK -->
+    <script src="https://www.paypal.com/sdk/js?client-id=BAAiJ-2ah6es_FQFh5seEnPb7WB9zhYFWJ0717GWEYdznhiqc4IMr3A1Zc7PATCkRUS_EO92wSI4V1ruMw&components=hosted-buttons&disable-funding=venmo&currency=USD"></script>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <img src="/assets/avatar.gif" alt="SEEYUH">
+            <h1>Support SEEYUH</h1>
+        </div>
+        <div class="content">
+            <p>
+                If you enjoy using {{bot_name}} and would like to support its development and hosting costs,
+                please consider making a donation. Your support helps keep the bot running and allows us
+                to continue adding new features! You can send custom requests and enquiries at <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>.
+            </p>
+            <div class="paypal-button-container" id="paypal-container-MEUTRX685GMGU"></div>
+        </div>
+
+        <div class="nav">
+            <a href="/"><img src="/assets/avatar.gif" alt="Avatar"></a>
+            <a href="/donate">Donate</a>
+            <a href="/policy">Privacy Policy</a>
+            <a href="/terms">Terms of Service</a>
+        </div>
+    </div>
+    <script>
+        paypal.HostedButtons({
+          hostedButtonId: "MEUTRX685GMGU",
+        }).render("#paypal-container-MEUTRX685GMGU")
+      </script>
+</body>
+</html>
