@@ -93,7 +93,21 @@ image_keywords = ["draw an image of", "show me an image of", "generate an image 
     "design an artwork showing", "can you render an illustration of", "I need a visual that captures", "illustrate a scenario with", "show a concept art of", "draw a scene based on",
     "develop a creative depiction of", "create an image that features", "craft a detailed artwork of", "draw a vivid representation of", "sketch an idea showing", "illustrate a scene filled with",
     "make a digital rendering of", "give me a visual impression of", "paint a striking image of", "I'd like to see a concept of", "make an artistic interpretation of", "compose a scenic view of", 
-    "craft an imaginative artwork of" ] 
+    "craft an imaginative artwork of", "draw image", "show me image", "generate image", "generate picture", "create image", "send me picture",
+    "I want to see an image of", "can you create image", "I'd like picture", "make picture", "show image",
+    "give me picture", "I need image", "I want image", "I'd like image", "I want to see picture",
+    "generate artwork", "design scene with", "paint picture", "create artwork", "show depiction", "produce visual", 
+    "render image", "illustrate scene", "I'd love drawing", "craft picture showing", "make portrait", 
+    "give me artwork", "let me see rendering", "compose picture", "can you make drawing", "give visual representation", "depict scene", 
+    "develop illustration showing","make me artwork", "I'd like painting", 
+    "draw something", "produce picture", "generate portrait", "create rendering", "generate scene",
+    "create detailed picture", "produce visual representation", "render realistic image", "design concept art", "compose artistic view", 
+    "make painting", "create landscape", "sketch out concept", "illustrate ", "show me rendered version", "I'd love to see artwork", 
+    "paint scene", "draw scenario", "create imaginative image", "visualize scene", "produce portrait", "conjure up picture",
+    "design artwork", "can you render illustration", "I need visual", "illustrate scenario", "show concept art", "draw scene",
+    "develop creative depiction", "create image that features", "craft detailed artwork", "draw vivid representation", "sketch idea", "illustrate scene",
+    "make digital rendering", "give me visual impression", "paint striking image", "I'd like to see concept", "make artistic interpretation", "compose scenic view", 
+    "craft imaginative artwork" ] 
 image_end_keywords = [
     "generate an image", "create an illustration", "draw a picture", "make an artwork", 
     "produce a rendering", "show a visual", "visualize this", "render an image",
