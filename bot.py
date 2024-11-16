@@ -269,7 +269,7 @@ async def on_message(message):
                                 if attachment.content_type == "image/bmp" or attachment.content_type == "text/csv":
                                     await message.reply(f"Unsupported file type. {attachment.content_type} files are not supported. Please try different file types.")
                                 else:
-                                    await handle_attachment(bot, original_message, attachment)
+                                    await handle_attachment(bot, message, attachment)
                             elif attachment.content_type == "text/plain":
                                 await handle_attachment(bot, message, attachment)
                             else:
