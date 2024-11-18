@@ -1,7 +1,8 @@
-import discord, asyncio, aiohttp, random, httpx, re, json, io
+import discord, asyncio, aiohttp, random, httpx, re, json, io, base64
 from discord import app_commands
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
+from PIL import Image  # Import Pillow for image processing
 from engine.utils import load_env, get_reddit_access_token, unsplash_env, hf_env
 from engine.ai.gemini import code_ai_response, explain_ai_response, ask_ai_response, translate, prompt_ai_response
 from engine.ai.gemini_models import (
@@ -652,7 +653,7 @@ if not HF_API_KEY:
     
 async def generate_image(
     prompt,
-    negative_prompt="multiple limbs, bad hands, bad feet, disfigured faces, blurry, low resolution, deformed",
+    negative_prompt="(deformed iris, deformed pupils, semi-realistic, cgi, 3d, render, sketch, cartoon, drawing, anime:1.4), text, close up, cropped, out of frame, worst quality, low quality, jpeg artifacts, ugly, duplicate, morbid, mutilated, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, dehydrated, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, too many fingers, long neck",
     width=None,
     height=None,
     steps=None,
@@ -680,7 +681,7 @@ async def generate_image(
     }
 
     # Include additional parameters if provided
-    data["negative_prompt"] = negative_prompt if negative_prompt else "multiple limbs, bad hands, bad feet, disfigured faces, blurry, low resolution, deformed"
+    data["negative_prompt"] = negative_prompt if negative_prompt else "(deformed iris, deformed pupils, semi-realistic, cgi, 3d, render, sketch, cartoon, drawing, anime:1.4), text, close up, cropped, out of frame, worst quality, low quality, jpeg artifacts, ugly, duplicate, morbid, mutilated, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, dehydrated, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, too many fingers, long neck"
     if width:
         data["width"] = width
     if height:
@@ -871,7 +872,20 @@ AVAILABLE_MODELS = {
     "Reddit": {
         "model_id": "Yntec/Reddit",
         "description": "Image generated using Reddit"
-    }
+    },
+    "Flux-Super-Realism-LoRA": {
+        "model_id": "strangerzonehf/Flux-Super-Realism-LoRA",
+        "description": "Image generated using Flux-Super-Realism-LoRA"
+    },
+    "FLUX_master": {
+        "model_id": "pimpilikipilapi1/NSFW_master",
+        "description": "Image generated using FLUX_master"
+    },
+    "DucHaiten-Real3D-V1": {
+        "model_id": "digiplay/DucHaiten-Real3D-NSFW-V1",
+        "description": "Image generated using DucHaiten-Real3D-V1"
+    },
+
 }
 
 MODEL_CHOICES = [
@@ -879,27 +893,27 @@ MODEL_CHOICES = [
     app_commands.Choice(name="FLUX.1-schnell", value="FLUX.1-schnell"),
     app_commands.Choice(name="Stable Diffusion 3.5 Large", value="stable-diffusion-3.5-large"),
     app_commands.Choice(name="FLUX.1-dev", value="FLUX.1-dev"),
-    app_commands.Choice(name="FLUX Midjourney Anime", value="flux-midjourney-anime"),
     app_commands.Choice(name="FLUX Ghibsky Illustration", value="flux-ghibsky-illustration"),
+    app_commands.Choice(name="FLUX Super Realism LoRA", value="Flux-Super-Realism-LoRA"),
+    app_commands.Choice(name="FLUX Master", value="FLUX_master"),
     app_commands.Choice(name="Stable Diffusion XL Base 1.0", value="stable-diffusion-xl-base-1.0"),
-    app_commands.Choice(name="beLIEve", value="beLIEve"),
     app_commands.Choice(name="RealVisXL V4.0", value="RealVisXL_V4.0"),
     app_commands.Choice(name="epiCPhotoGasm", value="epiCPhotoGasm"),
     app_commands.Choice(name="HyperRemix", value="HyperRemix"),
     app_commands.Choice(name="AnalogMadness-realistic-model-v5", value="AnalogMadness-realistic-model-v5"),
     app_commands.Choice(name="ZHMix-Dramatic-v2.0", value="ZHMix-Dramatic-v2.0"),
     app_commands.Choice(name="MilkyWonderland_v1", value="MilkyWonderland_v1"),
-    app_commands.Choice(name="CrystalReality", value="CrystalReality"),
-    app_commands.Choice(name="pixel-art-xl", value="pixel-art-xl"),
     app_commands.Choice(name="OpenJourney", value="openjourney"),
     app_commands.Choice(name="LusterMix_v1.5_safetensors", value="LusterMix_v1.5_safetensors"),
     app_commands.Choice(name="Chip_n_DallE", value="Chip_n_DallE"),
     app_commands.Choice(name="ZemiHR_v2_diffusers", value="ZemiHR_v2_diffusers"),
     app_commands.Choice(name="meinamix-meinav11-sd15", value="meinamix-meinav11-sd15"),
     app_commands.Choice(name="ya3p_VAE", value="ya3p_VAE"),
-    app_commands.Choice(name="Flux.1-dev-LoRA-r128-RedditReality", value="Flux.1-dev-LoRA-r128-RedditReality"),
     app_commands.Choice(name="maJi5PlusCCTV", value="Maji5PlusCCTV"),
     app_commands.Choice(name="DonutHoleMix_Beta", value="DonutHoleMix_Beta"),
+    app_commands.Choice(name="DucHaiten-Real3D-V1", value="DucHaiten-Real3D-V1"),
+    app_commands.Choice(name="Gap_2.6", value="Gap_2.6"),
+    app_commands.Choice(name="Reddit", value="Reddit")
 ]
 
 @app_commands.command(name="imagine", description="Generate an image with AI")
@@ -917,7 +931,7 @@ async def imagine_command(
     interaction: discord.Interaction,
     prompt: str,
     model: str = "stable-diffusion-3.5-turbo",
-    negative_prompt: str = "multiple limbs, bad hands, bad feet, disfigured faces, blurry, low resolution, deformed",
+    negative_prompt: str = "(deformed iris, deformed pupils, semi-realistic, cgi, 3d, render, sketch, cartoon, drawing, anime:1.4), text, close up, cropped, out of frame, worst quality, low quality, jpeg artifacts, ugly, duplicate, morbid, mutilated, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, dehydrated, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, too many fingers, long neck",
     width: int = None,
     height: int = None,
     steps: int = None,
@@ -961,4 +975,424 @@ async def imagine_command(
     else:
         await interaction.followup.send(
             "Sorry, I couldn't generate an image for that prompt. Please try again later."
+        )
+        
+async def generate_caption(image_bytes):
+    headers = {
+        "Authorization": f"Bearer {HF_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    # Encode image to base64 string
+    encoded_image = base64.b64encode(image_bytes).decode('utf-8')
+
+    # Prepare the payload
+    payload = {
+        "inputs": {
+            "image": encoded_image
+        }
+    }
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            "https://api-inference.huggingface.co/models/nlpconnect/vit-gpt2-image-captioning",
+            headers=headers,
+            json=payload,
+            timeout=120
+        ) as response:
+            if response.status == 200:
+                result = await response.json()
+                if isinstance(result, list) and len(result) > 0:
+                    caption = result[0].get('generated_text', '')
+                    return caption
+                else:
+                    print("No caption generated.")
+            else:
+                text = await response.text()
+                print(f"Error: {response.status}, Response: {text}")
+    return None
+
+@app_commands.command(name="caption", description="Generate a caption for an image.")
+@app_commands.describe(
+    image="The image to caption."
+)
+async def caption_command(
+    interaction: discord.Interaction,
+    image: discord.Attachment
+):
+    await interaction.response.defer()
+    try:
+        image_bytes = await image.read()
+        caption = await generate_caption(image_bytes)
+        if caption:
+            embed = discord.Embed(
+                title="Image Caption",
+                description=caption,
+                color=discord.Color.blue()
+            )
+            embed.set_author(
+                name=f"Requested by {interaction.user}",
+                icon_url=interaction.user.display_avatar.url
+            )
+            file = discord.File(fp=io.BytesIO(image_bytes), filename="image.png")
+            embed.set_image(url="attachment://image.png")
+            embed.set_footer(
+                text=interaction.client.user.name,
+                icon_url=interaction.client.user.display_avatar.url
+            )
+            await interaction.followup.send(embed=embed, file=file)
+        else:
+            await interaction.followup.send(
+                "Sorry, I couldn't generate a caption for the image. Please try again later."
+            )
+    except Exception as e:
+        print(f"Error: {e}")
+        await interaction.followup.send("An error occurred while processing your request.")
+        
+async def generate_variations(image_bytes):
+    headers = {
+        "Authorization": f"Bearer {HF_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    # Encode the image to Base64
+    encoded_image = base64.b64encode(image_bytes).decode('utf-8')
+
+    payload = {
+        "inputs": {
+            "image": encoded_image
+        },
+        "options": {
+            "wait_for_model": True
+        }
+    }
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            "https://api-inference.huggingface.co/models/lambdalabs/sd-image-variations-diffusers",
+            headers=headers,
+            json=payload,
+            timeout=120
+        ) as response:
+            if response.status == 200:
+                result = await response.json()
+                if isinstance(result, dict) and 'generated_image' in result:
+                    image_base64 = result['generated_image']
+                    # Decode the generated image
+                    generated_image = io.BytesIO(base64.b64decode(image_base64))
+                    return generated_image
+                else:
+                    print("No image found in the response.")
+            else:
+                text = await response.text()
+                print(f"Error: {response.status}, Response: {text}")
+    return None
+@app_commands.command(name="variation", description="Generate a variation of an image using AI.")
+@app_commands.describe(
+    image="The image to generate a variation from."
+)
+async def variation_command(
+    interaction: discord.Interaction,
+    image: discord.Attachment
+):
+    await interaction.response.defer()
+    try:
+        # Read the image bytes from the attachment
+        image_bytes = await image.read()
+
+        # Generate the variation
+        variation_image = await generate_variations(image_bytes)
+
+        if variation_image:
+            file = discord.File(fp=variation_image, filename="variation.png")
+            embed = discord.Embed(
+                title="Image Variation",
+                color=discord.Color.blue()
+            )
+            embed.set_author(
+                name=f"Requested by {interaction.user}",
+                icon_url=interaction.user.display_avatar.url
+            )
+            embed.set_image(url="attachment://variation.png")
+            embed.set_footer(
+                text=interaction.client.user.name,
+                icon_url=interaction.client.user.display_avatar.url
+            )
+            await interaction.followup.send(embed=embed, file=file)
+        else:
+            await interaction.followup.send(
+                "Sorry, I couldn't generate a variation of the image. Please try again later."
+            )
+    except Exception as e:
+        print(f"Error: {e}")
+        await interaction.followup.send(
+            "An error occurred while processing your request."
+        )
+        
+async def upscale_image(image_bytes):
+    headers = {
+        "Authorization": f"Bearer {HF_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    # Encode the image to Base64
+    encoded_image = base64.b64encode(image_bytes).decode('utf-8')
+
+    payload = {
+        "inputs": {
+            "image": encoded_image
+        },
+        "options": {
+            "wait_for_model": True
+        }
+    }
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            "https://api-inference.huggingface.co/models/jasperai/Flux.1-dev-Controlnet-Upscaler",
+            headers=headers,
+            json=payload,
+            timeout=120
+        ) as response:
+            if response.status == 200:
+                result = await response.json()
+                if isinstance(result, dict) and 'generated_image' in result:
+                    image_base64 = result['generated_image']
+                    # Decode the generated image
+                    upscaled_image = io.BytesIO(base64.b64decode(image_base64))
+                    return upscaled_image
+                else:
+                    print("No image found in the response.")
+            else:
+                text = await response.text()
+                print(f"Error: {response.status}, Response: {text}")
+    return None
+
+@app_commands.command(name="upscale", description="Upscale an image using AI.")
+@app_commands.describe(
+    image="The image to upscale."
+)
+async def upscale_command(
+    interaction: discord.Interaction,
+    image: discord.Attachment
+):
+    await interaction.response.defer()
+    try:
+        # Read the image bytes from the attachment
+        image_bytes = await image.read()
+
+        # Upscale the image
+        upscaled_image = await upscale_image(image_bytes)
+
+        if upscaled_image:
+            file = discord.File(fp=upscaled_image, filename="upscaled_image.png")
+            embed = discord.Embed(
+                title="Upscaled Image",
+                color=discord.Color.blue()
+            )
+            embed.set_author(
+                name=f"Requested by {interaction.user}",
+                icon_url=interaction.user.display_avatar.url
+            )
+            embed.set_image(url="attachment://upscaled_image.png")
+            embed.set_footer(
+                text=interaction.client.user.name,
+                icon_url=interaction.client.user.display_avatar.url
+            )
+            await interaction.followup.send(embed=embed, file=file)
+        else:
+            await interaction.followup.send(
+                "Sorry, I couldn't upscale the image. Please try again later."
+            )
+    except Exception as e:
+        print(f"Error: {e}")
+        await interaction.followup.send(
+            "An error occurred while processing your request."
+        )
+        
+async def inpaint_image(image_bytes, prompt, mask_bytes=None):
+    headers = {
+        "Authorization": f"Bearer {HF_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    # Encode the image to Base64
+    encoded_image = base64.b64encode(image_bytes).decode('utf-8')
+
+    payload = {
+        "inputs": {
+            "image": encoded_image,
+            "prompt": prompt
+        },
+        "options": {
+            "wait_for_model": True
+        }
+    }
+
+    # Include the mask if provided
+    if mask_bytes:
+        encoded_mask = base64.b64encode(mask_bytes).decode('utf-8')
+        payload["inputs"]["mask_image"] = encoded_mask
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            "https://api-inference.huggingface.co/models/alimama-creative/FLUX.1-dev-Controlnet-Inpainting-Beta",
+            headers=headers,
+            json=payload,
+            timeout=120
+        ) as response:
+            if response.status == 200:
+                result = await response.json()
+                if isinstance(result, dict) and 'generated_image' in result:
+                    image_base64 = result['generated_image']
+                    # Decode the generated image
+                    inpainted_image = io.BytesIO(base64.b64decode(image_base64))
+                    return inpainted_image
+                else:
+                    print("No image found in the response.")
+            else:
+                text = await response.text()
+                print(f"Error: {response.status}, Response: {text}")
+    return None
+
+@app_commands.command(name="inpaint", description="Inpaint an image using AI.")
+@app_commands.describe(
+    image="The image to inpaint.",
+    prompt="Description of what to inpaint.",
+    mask="(Optional) The mask image indicating areas to inpaint."
+)
+async def inpaint_command(
+    interaction: discord.Interaction,
+    image: discord.Attachment,
+    prompt: str,
+    mask: discord.Attachment = None
+):
+    await interaction.response.defer()
+    try:
+        # Read the image bytes from the attachment
+        image_bytes = await image.read()
+
+        # Read mask bytes if provided
+        mask_bytes = await mask.read() if mask else None
+
+        # Perform inpainting
+        inpainted_image = await inpaint_image(image_bytes, prompt, mask_bytes)
+
+        if inpainted_image:
+            file = discord.File(fp=inpainted_image, filename="inpainted_image.png")
+            embed = discord.Embed(
+                title="Inpainted Image",
+                description=f"Prompt: {prompt}",
+                color=discord.Color.blue()
+            )
+            embed.set_author(
+                name=f"Requested by {interaction.user}",
+                icon_url=interaction.user.display_avatar.url
+            )
+            embed.set_image(url="attachment://inpainted_image.png")
+            embed.set_footer(
+                text=interaction.client.user.name,
+                icon_url=interaction.client.user.display_avatar.url
+            )
+            await interaction.followup.send(embed=embed, file=file)
+        else:
+            await interaction.followup.send(
+                "Sorry, I couldn't inpaint the image. Please try again later."
+            )
+    except Exception as e:
+        print(f"Error: {e}")
+        await interaction.followup.send(
+            "An error occurred while processing your request."
+        )
+        
+async def remove_background(image_bytes):
+    headers = {
+        "Authorization": f"Bearer {HF_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    # Encode the image to Base64
+    encoded_image = base64.b64encode(image_bytes).decode('utf-8')
+
+    payload = {
+        "inputs": encoded_image,
+        "options": {
+            "wait_for_model": True
+        }
+    }
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            "https://api-inference.huggingface.co/models/briaai/RMBG-2.0",
+            headers=headers,
+            json=payload,
+            timeout=120
+        ) as response:
+            if response.status == 200:
+                result = await response.json()
+                if isinstance(result, dict) and 'data' in result:
+                    mask_data = result['data'][0]['mask']
+
+                    # Decode the mask image
+                    mask_bytes = base64.b64decode(mask_data)
+
+                    # Apply the mask to the original image
+                    output_image = await apply_mask_to_image(image_bytes, mask_bytes)
+                    return output_image
+                else:
+                    print("No mask data found in the response.")
+            else:
+                text = await response.text()
+                print(f"Error: {response.status}, Response: {text}")
+    return None
+
+async def apply_mask_to_image(image_bytes, mask_bytes):
+    with Image.open(io.BytesIO(image_bytes)).convert("RGBA") as img:
+        with Image.open(io.BytesIO(mask_bytes)).convert("L") as mask:
+            img.putalpha(mask)
+            output_buffer = io.BytesIO()
+            img.save(output_buffer, format='PNG')
+            output_buffer.seek(0)
+            return output_buffer
+
+@app_commands.command(name="removebackground", description="Remove the background from an image.")
+@app_commands.describe(
+    image="The image to process."
+)
+async def removebackground_command(
+    interaction: discord.Interaction,
+    image: discord.Attachment
+):
+    await interaction.response.defer()
+    try:
+        # Read the image bytes from the attachment
+        image_bytes = await image.read()
+
+        # Remove the background
+        output_image = await remove_background(image_bytes)
+
+        if output_image:
+            file = discord.File(fp=output_image, filename="no_background.png")
+            embed = discord.Embed(
+                title="Background Removed",
+                color=discord.Color.blue()
+            )
+            embed.set_author(
+                name=f"Requested by {interaction.user}",
+                icon_url=interaction.user.display_avatar.url
+            )
+            embed.set_image(url="attachment://no_background.png")
+            embed.set_footer(
+                text=interaction.client.user.name,
+                icon_url=interaction.client.user.display_avatar.url
+            )
+            await interaction.followup.send(embed=embed, file=file)
+        else:
+            await interaction.followup.send(
+                "Sorry, I couldn't remove the background from the image. Please try again later."
+            )
+    except Exception as e:
+        print(f"Error: {e}")
+        await interaction.followup.send(
+            "An error occurred while processing your request."
         )
