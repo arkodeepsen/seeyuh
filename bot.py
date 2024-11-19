@@ -153,9 +153,8 @@ utility.image_command.category = "Utility"
 utility.imagine_command.category = "Utility"
 utility.caption_command.category = "Utility"
 utility.variation_command.category = "Utility"
-utility.upscale_command.category = "Utility"
-utility.inpaint_command.category = "Utility"
-utility.removebackground_command.category = "Utility"
+utility.refine_command.category = "Utility"
+utility.modify_command.category = "Utility"
 bot.tree.add_command(utility.say_command)
 bot.tree.add_command(utility.emoji_command)
 bot.tree.add_command(utility.avatar_command)
@@ -173,9 +172,8 @@ bot.tree.add_command(utility.image_command)
 bot.tree.add_command(utility.imagine_command)
 bot.tree.add_command(utility.caption_command)
 bot.tree.add_command(utility.variation_command)
-bot.tree.add_command(utility.upscale_command)
-bot.tree.add_command(utility.inpaint_command)
-bot.tree.add_command(utility.removebackground_command)
+bot.tree.add_command(utility.refine_command)
+bot.tree.add_command(utility.modify_command)
 
 # Register the commands from fun.py
 fun.roast_command.category = "Fun"

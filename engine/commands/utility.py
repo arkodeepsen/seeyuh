@@ -2,7 +2,7 @@ import discord, asyncio, aiohttp, random, httpx, re, json, io, base64
 from discord import app_commands
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
-from PIL import Image  # Import Pillow for image processing
+from PIL import Image
 from engine.utils import load_env, get_reddit_access_token, unsplash_env, hf_env
 from engine.ai.gemini import code_ai_response, explain_ai_response, ask_ai_response, translate, prompt_ai_response
 from engine.ai.gemini_models import (
@@ -1051,38 +1051,21 @@ async def caption_command(
         
 async def generate_variations(image_bytes):
     headers = {
-        "Authorization": f"Bearer {HF_API_KEY}",
-        "Content-Type": "application/json",
-    }
-
-    # Encode the image to Base64
-    encoded_image = base64.b64encode(image_bytes).decode('utf-8')
-
-    payload = {
-        "inputs": {
-            "image": encoded_image
-        },
-        "options": {
-            "wait_for_model": True
-        }
+        "Authorization": f"Bearer {HF_API_KEY}"
+        # Do not set 'Content-Type' header when sending raw binary data
     }
 
     async with aiohttp.ClientSession() as session:
         async with session.post(
             "https://api-inference.huggingface.co/models/lambdalabs/sd-image-variations-diffusers",
             headers=headers,
-            json=payload,
-            timeout=120
+            data=image_bytes,  # Send the raw image bytes directly
+            timeout=360
         ) as response:
             if response.status == 200:
-                result = await response.json()
-                if isinstance(result, dict) and 'generated_image' in result:
-                    image_base64 = result['generated_image']
-                    # Decode the generated image
-                    generated_image = io.BytesIO(base64.b64decode(image_base64))
-                    return generated_image
-                else:
-                    print("No image found in the response.")
+                # The API returns the generated image bytes directly
+                generated_image = io.BytesIO(await response.read())
+                return generated_image
             else:
                 text = await response.text()
                 print(f"Error: {response.status}, Response: {text}")
@@ -1104,7 +1087,8 @@ async def variation_command(
         variation_image = await generate_variations(image_bytes)
 
         if variation_image:
-            file = discord.File(fp=variation_image, filename="variation.png")
+            variation_file = discord.File(fp=variation_image, filename="variation.png")
+            original_file = discord.File(fp=io.BytesIO(image_bytes), filename="image.png")
             embed = discord.Embed(
                 title="Image Variation",
                 color=discord.Color.blue()
@@ -1114,11 +1098,12 @@ async def variation_command(
                 icon_url=interaction.user.display_avatar.url
             )
             embed.set_image(url="attachment://variation.png")
+            embed.set_thumbnail(url="attachment://image.png")
             embed.set_footer(
                 text=interaction.client.user.name,
                 icon_url=interaction.client.user.display_avatar.url
             )
-            await interaction.followup.send(embed=embed, file=file)
+            await interaction.followup.send(embed=embed, files=[variation_file, original_file])
         else:
             await interaction.followup.send(
                 "Sorry, I couldn't generate a variation of the image. Please try again later."
@@ -1129,159 +1114,71 @@ async def variation_command(
             "An error occurred while processing your request."
         )
         
-async def upscale_image(image_bytes):
-    headers = {
-        "Authorization": f"Bearer {HF_API_KEY}",
-        "Content-Type": "application/json",
-    }
-
-    # Encode the image to Base64
-    encoded_image = base64.b64encode(image_bytes).decode('utf-8')
-
-    payload = {
-        "inputs": {
-            "image": encoded_image
-        },
-        "options": {
-            "wait_for_model": True
-        }
-    }
-
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-            "https://api-inference.huggingface.co/models/jasperai/Flux.1-dev-Controlnet-Upscaler",
-            headers=headers,
-            json=payload,
-            timeout=120
-        ) as response:
-            if response.status == 200:
-                result = await response.json()
-                if isinstance(result, dict) and 'generated_image' in result:
-                    image_base64 = result['generated_image']
-                    # Decode the generated image
-                    upscaled_image = io.BytesIO(base64.b64decode(image_base64))
-                    return upscaled_image
-                else:
-                    print("No image found in the response.")
-            else:
-                text = await response.text()
-                print(f"Error: {response.status}, Response: {text}")
-    return None
-
-@app_commands.command(name="upscale", description="Upscale an image using AI.")
-@app_commands.describe(
-    image="The image to upscale."
-)
-async def upscale_command(
-    interaction: discord.Interaction,
-    image: discord.Attachment
-):
-    await interaction.response.defer()
+async def refine_image(image_bytes, prompt):
     try:
-        # Read the image bytes from the attachment
-        image_bytes = await image.read()
-
-        # Upscale the image
-        upscaled_image = await upscale_image(image_bytes)
-
-        if upscaled_image:
-            file = discord.File(fp=upscaled_image, filename="upscaled_image.png")
-            embed = discord.Embed(
-                title="Upscaled Image",
-                color=discord.Color.blue()
-            )
-            embed.set_author(
-                name=f"Requested by {interaction.user}",
-                icon_url=interaction.user.display_avatar.url
-            )
-            embed.set_image(url="attachment://upscaled_image.png")
-            embed.set_footer(
-                text=interaction.client.user.name,
-                icon_url=interaction.client.user.display_avatar.url
-            )
-            await interaction.followup.send(embed=embed, file=file)
-        else:
-            await interaction.followup.send(
-                "Sorry, I couldn't upscale the image. Please try again later."
-            )
-    except Exception as e:
-        print(f"Error: {e}")
-        await interaction.followup.send(
-            "An error occurred while processing your request."
-        )
+        # Convert bytes to PIL Image
+        image = Image.open(io.BytesIO(image_bytes))
         
-async def inpaint_image(image_bytes, prompt, mask_bytes=None):
+        # Convert to PNG format
+        png_buffer = io.BytesIO()
+        image.save(png_buffer, format='PNG')
+        png_buffer.seek(0)
+        png_bytes = png_buffer.getvalue()
+    except Exception as e:
+        print(f"Image validation error: {e}")
+        return None
+
     headers = {
         "Authorization": f"Bearer {HF_API_KEY}",
-        "Content-Type": "application/json",
+        "Content-Type": "application/json"
     }
-
-    # Encode the image to Base64
-    encoded_image = base64.b64encode(image_bytes).decode('utf-8')
-
+    
+    # Prepare payload with both image and prompt
     payload = {
-        "inputs": {
-            "image": encoded_image,
-            "prompt": prompt
-        },
-        "options": {
-            "wait_for_model": True
-        }
+        "inputs": png_bytes,
+        "prompt": prompt
     }
 
-    # Include the mask if provided
-    if mask_bytes:
-        encoded_mask = base64.b64encode(mask_bytes).decode('utf-8')
-        payload["inputs"]["mask_image"] = encoded_mask
-
+    # Send raw image bytes
     async with aiohttp.ClientSession() as session:
         async with session.post(
-            "https://api-inference.huggingface.co/models/alimama-creative/FLUX.1-dev-Controlnet-Inpainting-Beta",
+            "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-refiner-1.0",
             headers=headers,
-            json=payload,
+            data=png_bytes,  # Send raw bytes directly
             timeout=120
         ) as response:
             if response.status == 200:
-                result = await response.json()
-                if isinstance(result, dict) and 'generated_image' in result:
-                    image_base64 = result['generated_image']
-                    # Decode the generated image
-                    inpainted_image = io.BytesIO(base64.b64decode(image_base64))
-                    return inpainted_image
-                else:
-                    print("No image found in the response.")
+                refined_image = io.BytesIO(await response.read())
+                refined_image.seek(0)
+                return refined_image
             else:
                 text = await response.text()
                 print(f"Error: {response.status}, Response: {text}")
     return None
 
-@app_commands.command(name="inpaint", description="Inpaint an image using AI.")
+@app_commands.command(name="refine", description="Refine an image using AI.")
 @app_commands.describe(
-    image="The image to inpaint.",
-    prompt="Description of what to inpaint.",
-    mask="(Optional) The mask image indicating areas to inpaint."
+    image="The image to refine.",
+    prompt="A text prompt to guide the refinement."
 )
-async def inpaint_command(
+async def refine_command(
     interaction: discord.Interaction,
     image: discord.Attachment,
-    prompt: str,
-    mask: discord.Attachment = None
+    prompt: str
 ):
     await interaction.response.defer()
     try:
         # Read the image bytes from the attachment
         image_bytes = await image.read()
 
-        # Read mask bytes if provided
-        mask_bytes = await mask.read() if mask else None
+        # Refine the image
+        refined_image = await refine_image(image_bytes, prompt)
 
-        # Perform inpainting
-        inpainted_image = await inpaint_image(image_bytes, prompt, mask_bytes)
-
-        if inpainted_image:
-            file = discord.File(fp=inpainted_image, filename="inpainted_image.png")
+        if refined_image:
+            refined_file = discord.File(fp=refined_image, filename="refined_image.png")
+            original_file = discord.File(fp=io.BytesIO(image_bytes), filename="image.png")
             embed = discord.Embed(
-                title="Inpainted Image",
+                title="Refined Image",
                 description=f"Prompt: {prompt}",
                 color=discord.Color.blue()
             )
@@ -1289,107 +1186,106 @@ async def inpaint_command(
                 name=f"Requested by {interaction.user}",
                 icon_url=interaction.user.display_avatar.url
             )
-            embed.set_image(url="attachment://inpainted_image.png")
+            embed.set_image(url="attachment://refined_image.png")
+            embed.set_thumbnail(url="attachment://image.png")
             embed.set_footer(
                 text=interaction.client.user.name,
                 icon_url=interaction.client.user.display_avatar.url
             )
-            await interaction.followup.send(embed=embed, file=file)
+            await interaction.followup.send(embed=embed, files=[refined_file, original_file])
         else:
             await interaction.followup.send(
-                "Sorry, I couldn't inpaint the image. Please try again later."
+                "Sorry, I couldn't refine the image. Please try again later."
             )
     except Exception as e:
         print(f"Error: {e}")
         await interaction.followup.send(
             "An error occurred while processing your request."
         )
-        
-async def remove_background(image_bytes):
+
+async def modify_image(image_bytes, instruction):
+    try:
+        # Convert bytes to PIL Image and validate
+        with Image.open(io.BytesIO(image_bytes)) as img:
+            # Convert to RGB if needed
+            if img.mode in ('RGBA', 'LA'):
+                img = img.convert('RGB')
+            
+            # Save as PNG
+            png_buffer = io.BytesIO()
+            img.save(png_buffer, format='PNG')
+            png_bytes = png_buffer.getvalue()
+    except Exception as e:
+        print(f"Image validation error: {e}")
+        return None
+
     headers = {
-        "Authorization": f"Bearer {HF_API_KEY}",
-        "Content-Type": "application/json",
+        "Authorization": f"Bearer {HF_API_KEY}"
+        # Remove Content-Type header to let aiohttp handle it
     }
 
-    # Encode the image to Base64
-    encoded_image = base64.b64encode(image_bytes).decode('utf-8')
-
-    payload = {
-        "inputs": encoded_image,
-        "options": {
-            "wait_for_model": True
-        }
-    }
+    # Create form data
+    form = aiohttp.FormData()
+    form.add_field('image', 
+                  png_bytes,
+                  filename='image.png',
+                  content_type='image/png')
+    form.add_field('text', instruction)
 
     async with aiohttp.ClientSession() as session:
         async with session.post(
-            "https://api-inference.huggingface.co/models/briaai/RMBG-2.0",
+            "https://api-inference.huggingface.co/models/timbrooks/instruct-pix2pix",
             headers=headers,
-            json=payload,
+            data=form,
             timeout=120
         ) as response:
             if response.status == 200:
-                result = await response.json()
-                if isinstance(result, dict) and 'data' in result:
-                    mask_data = result['data'][0]['mask']
-
-                    # Decode the mask image
-                    mask_bytes = base64.b64decode(mask_data)
-
-                    # Apply the mask to the original image
-                    output_image = await apply_mask_to_image(image_bytes, mask_bytes)
-                    return output_image
-                else:
-                    print("No mask data found in the response.")
+                return io.BytesIO(await response.read())
             else:
                 text = await response.text()
-                print(f"Error: {response.status}, Response: {text}")
-    return None
+                print(f"Error {response.status}: {text}")
+                return None
 
-async def apply_mask_to_image(image_bytes, mask_bytes):
-    with Image.open(io.BytesIO(image_bytes)).convert("RGBA") as img:
-        with Image.open(io.BytesIO(mask_bytes)).convert("L") as mask:
-            img.putalpha(mask)
-            output_buffer = io.BytesIO()
-            img.save(output_buffer, format='PNG')
-            output_buffer.seek(0)
-            return output_buffer
-
-@app_commands.command(name="removebackground", description="Remove the background from an image.")
+@app_commands.command(name="modify", description="Modify an image based on an instruction.")
 @app_commands.describe(
-    image="The image to process."
+    image="The image to modify.",
+    instruction="A text instruction describing the modification."
 )
-async def removebackground_command(
+async def modify_command(
     interaction: discord.Interaction,
-    image: discord.Attachment
+    image: discord.Attachment,
+    instruction: str
 ):
     await interaction.response.defer()
     try:
         # Read the image bytes from the attachment
         image_bytes = await image.read()
 
-        # Remove the background
-        output_image = await remove_background(image_bytes)
+        # Modify the image
+        modified_image = await modify_image(image_bytes, instruction)
 
-        if output_image:
-            file = discord.File(fp=output_image, filename="no_background.png")
+        if modified_image:
+            modified_file = discord.File(fp=modified_image, filename="modified_image.png")
+            original_file = discord.File(fp=io.BytesIO(image_bytes), filename="image.png")
             embed = discord.Embed(
-                title="Background Removed",
+                title="Modified Image",
+                description=f"Instruction: {instruction}",
                 color=discord.Color.blue()
             )
             embed.set_author(
                 name=f"Requested by {interaction.user}",
                 icon_url=interaction.user.display_avatar.url
             )
-            embed.set_image(url="attachment://no_background.png")
+            embed.set_image(url="attachment://modified_image.png")
+            embed.set_thumbnail(url="attachment://image.png")
             embed.set_footer(
                 text=interaction.client.user.name,
                 icon_url=interaction.client.user.display_avatar.url
             )
-            await interaction.followup.send(embed=embed, file=file)
+            await interaction.followup.send(embed=embed, files=[modified_file, original_file])
         else:
             await interaction.followup.send(
-                "Sorry, I couldn't remove the background from the image. Please try again later."
+                "Sorry, I couldn't modify the image. Please try again later."
             )
     except Exception as e:
         print(f"Error: {e}")
