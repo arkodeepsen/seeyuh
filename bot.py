@@ -1,4 +1,4 @@
-import discord, time, uvicorn, asyncio, logging, random, engine.commands.general as general, engine.commands.utility as utility, engine.commands.fun as fun, engine.commands.music as music, engine.eventloop as eventloop
+import discord, time, uvicorn, asyncio, logging, random, engine.commands.general as general, engine.commands.utility as utility, engine.commands.fun as fun, engine.commands.music as music, engine.commands.moderation as moderation, engine.eventloop as eventloop
 from discord.ext import commands, tasks
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
@@ -65,6 +65,10 @@ async def check_inactivity():
 @app.get("/status")
 def health_check():
     return {"status": "ok"}
+
+@app.head("/api/uptimerobot")
+async def status():
+    return {}  # Return an empty response body for HEAD request, no body content
 
 @app.get("/api/endpoint")
 def bot_details():
@@ -138,6 +142,22 @@ bot.tree.add_command(general.help_command)
 bot.tree.add_command(general.ping_command)
 bot.tree.add_command(general.info_command)
 bot.tree.add_command(general.serverinfo_command)
+
+# Register the commands from moderation.py
+moderation.kick.category = "Moderation"
+moderation.ban.category = "Moderation"
+moderation.purge.category = "Moderation"
+moderation.mute.category = "Moderation"
+moderation.unmute.category = "Moderation"
+moderation.warn.category = "Moderation"
+moderation.timeout.category = "Moderation"
+bot.tree.add_command(moderation.kick)
+bot.tree.add_command(moderation.ban)
+bot.tree.add_command(moderation.purge)
+bot.tree.add_command(moderation.mute)
+bot.tree.add_command(moderation.unmute)
+bot.tree.add_command(moderation.warn)
+bot.tree.add_command(moderation.timeout)
 
 # Register the commands from utility.py
 utility.say_command.category = "Utility"

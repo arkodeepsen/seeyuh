@@ -26,6 +26,10 @@ class HelpView(discord.ui.View):
     @discord.ui.button(label="Utility", style=discord.ButtonStyle.primary, emoji="🔧")
     async def utility_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.show_category(interaction, "Utility")
+    
+    @discord.ui.button(label="Moderation", style=discord.ButtonStyle.primary, emoji="🛡️")
+    async def moderation_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.show_category(interaction, "Moderation")
 
     async def show_category(self, interaction: discord.Interaction, category: str):
         commands = [cmd for cmd in interaction.client.tree.get_commands() if getattr(cmd, 'category', None) == category]
