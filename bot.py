@@ -67,7 +67,7 @@ def health_check():
     return {"status": "ok"}
 
 @app.head("/api/uptimerobot")
-async def status():
+async def uptimerobot_check():
     return {}  # Return an empty response body for HEAD request, no body content
 
 @app.get("/api/endpoint")
@@ -75,7 +75,7 @@ def bot_details():
     return {"name": bot.user.name, "id": bot.user.id, "uptime": time.ctime(bot.uptime), "ping": round(bot.latency * 1000), "unique_users": len(bot.users), "guild_count": len(bot.guilds)}
 
 @app.get("/", response_class=HTMLResponse)
-def health_check():
+def home():
     with open("templates/index.ejs") as file:
         template = Template(file.read())
     bot_uptime = time.strftime("%H:%M:%S", time.gmtime(time.time() - bot.uptime))
