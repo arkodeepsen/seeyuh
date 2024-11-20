@@ -4,6 +4,18 @@ Seeyuh Bot is a powerful, AI-driven Discord bot designed for dynamic and multimo
 
 ---
 
+## 🚦 **Bot Status**
+![Status](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh-production.up.railway.app%2Fstatus&query=status&prefix=%20&label=Status)
+   
+
+---
+
+## 📦 **Hosting Details**
+- **Platform**: Hosted on Railway  
+- **Region**: Virginia, USA  
+- **Bot Connection**: Connected to Discord's Singapore region  
+- **Preferred Port**: 8080  
+
 ## 🎯 **Features**
 
 ### 🤖 **AI-Powered Interactions**
@@ -77,5 +89,6 @@ This bot is proprietary and not open-source. Unauthorized copying, redistributio
 
 ---
 
-## 📧 **Contact**
-For support, customizations, or inquiries, contact the bot owner or visit the [support server](https://discord.gg/your-invite-link).  
+## 🌐 **Dynamic Updates**
+- Visit the [Seeyuh Bot Status Page](https://seeyuh-production.up.railway.app/) for real-time metrics and updates.  
+- Join our [support server](https://discord.gg/ETXgCVYmBb) for announcements and issues.
