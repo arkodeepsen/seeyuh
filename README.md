@@ -10,8 +10,8 @@ Seeyuh Bot is a powerful, AI-driven Discord bot designed for dynamic and multimo
 ![ID](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh-production.up.railway.app%2Fapi%2Fendpoint&query=id&prefix=%20&label=ID)
 ![Uptime](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh-production.up.railway.app%2Fapi%2Fendpoint&query=uptime&prefix=%20&label=Uptime)
 ![Ping](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh-production.up.railway.app%2Fapi%2Fendpoint&query=ping&prefix=%20&suffix=ms&label=Ping)
-![Users](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh-production.up.railway.app%2Fapi%2Fendpoint&query=unique_users&prefix=%20&suffix=ms&label=Users)
-![Servers](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh-production.up.railway.app%2Fapi%2Fendpoint&query=guild_count&prefix=%20&suffix=ms&label=Servers)
+![Users](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh-production.up.railway.app%2Fapi%2Fendpoint&query=unique_users&prefix=%20&label=Users)
+![Servers](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh-production.up.railway.app%2Fapi%2Fendpoint&query=guild_count&prefix=%20&label=Servers)
 
 ---
 
