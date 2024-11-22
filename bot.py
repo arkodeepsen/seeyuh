@@ -271,7 +271,7 @@ async def on_message(message):
         return
 
     # Check if the message has attachments and bot is mentioned
-    if (bot.user.mentioned_in(message) or "seeyuh" in message.content.lower()):
+    if (bot.user.mentioned_in(message) or "seeyuh" in message.content.lower()) and not is_image_request(message.content):
         if message.attachments:
             async with message.channel.typing():  # Show typing indicator
                 for attachment in message.attachments:
@@ -390,8 +390,12 @@ async def on_message(message):
             ai_prompt = context_message + "Current query: " + current_query
         
             if mentioned_users:
-                user_name = mentioned_users[0].name
-                current_query = f"from user {author_name} about user {user_name} : {command_content}."
+                mentioned_user_names = [user.name for user in mentioned_users]
+                if message.reference and len(mentioned_users) > 1:
+                    original_author_name = original_message.author.name
+                    mentioned_user_names = [name for name in mentioned_user_names if name != original_author_name]
+                user_names_str = ", ".join(mentioned_user_names)
+                current_query = f"from user {author_name} about users {user_names_str} : {command_content}."
                 ai_prompt = context_message + "\nCurrent query: " + current_query
 
             # Initialize image generation variables
@@ -555,8 +559,12 @@ async def on_message(message):
             current_query = f"from user {author_name} : {command_content}."
             ai_prompt = context_message + "Current query: " + current_query
             if mentioned_users:
-                user_name = mentioned_users[0].name
-                current_query = f"from user {author_name} about user {user_name} : {command_content}."
+                mentioned_user_names = [user.name for user in mentioned_users]
+                if message.reference and len(mentioned_users) > 1:
+                    original_author_name = original_message.author.name
+                    mentioned_user_names = [name for name in mentioned_user_names if name != original_author_name]
+                user_names_str = ", ".join(mentioned_user_names)
+                current_query = f"from user {author_name} about users {user_names_str} : {command_content}."
                 ai_prompt = context_message + "Current query:" + current_query
             
             # Initialize image generation variables
@@ -742,8 +750,12 @@ async def on_message(message):
                 
         mentioned_users = [user for user in message.mentions if user != bot.user]
         if mentioned_users:
-            user_name = mentioned_users[0].name
-            ai_prompt = f"{context_message} \nCurrent Context: {author_name} says about {user_name} '{command_content}'. \nInstruction: make fun of both users in a playful but interesting manner, you can spin the user's message into a story or a joke."
+            mentioned_user_names = [user.name for user in mentioned_users]
+            if message.reference and len(mentioned_users) > 1:
+                original_author_name = original_message.author.name
+                mentioned_user_names = [name for name in mentioned_user_names if name != original_author_name]
+            user_names_str = ", ".join(mentioned_user_names)
+            ai_prompt = f"{context_message} \nCurrent Context: {author_name} says about {user_names_str} '{command_content}'. \nInstruction: make fun of both users in a playful but interesting manner, you can spin the user's message into a story or a joke."
 
         async with message.channel.typing():  # Show typing indicator
             response = await get_ai_response(ai_prompt)
