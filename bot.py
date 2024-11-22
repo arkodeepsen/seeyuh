@@ -1,6 +1,6 @@
-import discord, time, uvicorn, asyncio, logging, random, engine.commands.general as general, engine.commands.utility as utility, engine.commands.fun as fun, engine.commands.music as music, engine.commands.moderation as moderation, engine.eventloop as eventloop
+import discord, time, uvicorn, asyncio, requests, os, aiohttp, random, engine.commands.general as general, engine.commands.utility as utility, engine.commands.fun as fun, engine.commands.music as music, engine.commands.moderation as moderation, engine.eventloop as eventloop
 from discord.ext import commands, tasks
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Template
@@ -110,6 +110,56 @@ def donation():
 @app.get("/invite", response_class=HTMLResponse)
 def invite():
     return HTMLResponse(content='<meta http-equiv="refresh" content="0; url=https://discord.com/oauth2/authorize?client_id=690530760540553276" />')
+
+DISCORD_WEBHOOK_URL = os.getenv('DISCORD_WEBHOOK_URL')
+
+@app.post("/github-webhook")
+async def github_webhook(request: Request):
+    try:
+        payload = await request.json()
+        repo_name = payload.get('repository', {}).get('full_name', 'Unknown repo')
+        event_type = request.headers.get('X-GitHub-Event', 'ping')
+
+        # Create a custom message based on the event type
+        if event_type == 'push':
+            ref = payload.get('ref', 'Unknown ref')
+            commits = payload.get('commits', [])
+            commit_messages = "\n".join([f"- {commit['message']} by {commit['author']['name']}" for commit in commits])
+            message = f"**New push event in {repo_name}**\n**Ref:** {ref}\n**Commits:**\n{commit_messages}"
+        elif event_type == 'pull_request':
+            action = payload.get('action', 'Unknown action')
+            pr_title = payload.get('pull_request', {}).get('title', 'No title')
+            pr_url = payload.get('pull_request', {}).get('html_url', '#')
+            message = f"**New pull request in {repo_name}**\n**Action:** {action}\n**Title:** [{pr_title}]({pr_url})"
+        elif event_type == 'issues':
+            action = payload.get('action', 'Unknown action')
+            issue_title = payload.get('issue', {}).get('title', 'No title')
+            issue_url = payload.get('issue', {}).get('html_url', '#')
+            message = f"**New issue in {repo_name}**\n**Action:** {action}\n**Title:** [{issue_title}]({issue_url})"
+        elif event_type == 'issue_comment':
+            action = payload.get('action', 'Unknown action')
+            comment_body = payload.get('comment', {}).get('body', 'No content')
+            issue_title = payload.get('issue', {}).get('title', 'No title')
+            issue_url = payload.get('issue', {}).get('html_url', '#')
+            message = f"**New comment on issue in {repo_name}**\n**Action:** {action}\n**Issue:** [{issue_title}]({issue_url})\n**Comment:** {comment_body}"
+        else:
+            message = f"**New event from GitHub: {repo_name}**"
+
+        embed = discord.Embed(description=message, color=discord.Color.blue())
+        embed.set_footer(text="GitHub Webhook", icon_url="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png")
+
+        discord_payload = {
+            "embeds": [embed.to_dict()]
+        }
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(DISCORD_WEBHOOK_URL, json=discord_payload) as response:
+                if response.status != 204:
+                    return {"status": "error", "response": await response.text()}
+        
+        return {"status": "success"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 def run_http_server():
     uvicorn.run(app, host="0.0.0.0", port=8080)
