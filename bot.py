@@ -125,17 +125,19 @@ async def github_webhook(request: Request):
             ref = payload.get('ref', 'Unknown ref')
             commits = payload.get('commits', [])
             pusher = payload.get('pusher', {}).get('name', 'Unknown pusher')
+            pusher_avatar = payload.get('sender', {}).get('avatar_url', 'https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png')
             commit_messages = "\n".join([f"[`{commit['id'][:7]}`]({commit['url']}) - {commit['message']} by {commit['author']['name']}" for commit in commits])
 
             embed = discord.Embed(
-                title="🚀 New Push Event",
-                description=f"Repository: [{repo_name}]({payload.get('repository', {}).get('html_url', '#')})",
-                color=discord.Color.green()
+            title="🚀 New Push Event",
+            description=f"Repository: [{repo_name}]({payload.get('repository', {}).get('html_url', '#')})",
+            color=discord.Color.green()
             )
             embed.add_field(name="Ref", value=ref, inline=False)
             embed.add_field(name="Pusher", value=pusher, inline=False)
             embed.add_field(name="Commits", value=commit_messages or "No commits", inline=False)
             embed.set_footer(text="GitHub Webhook • Push Event", icon_url="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png")
+            embed.set_thumbnail(url=pusher_avatar)
 
         elif event_type == 'pull_request':
             action = payload.get('action', 'Unknown action')
@@ -143,18 +145,20 @@ async def github_webhook(request: Request):
             pr_title = pr.get('title', 'No title')
             pr_url = pr.get('html_url', '#')
             pr_user = pr.get('user', {}).get('login', 'Unknown user')
+            pr_user_avatar = pr.get('user', {}).get('avatar_url', 'https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png')
             pr_body = pr.get('body', 'No description')
 
             embed = discord.Embed(
-                title="📥 Pull Request Event",
-                description=f"Repository: [{repo_name}]({payload.get('repository', {}).get('html_url', '#')})",
-                color=discord.Color.blue()
+            title="📥 Pull Request Event",
+            description=f"Repository: [{repo_name}]({payload.get('repository', {}).get('html_url', '#')})",
+            color=discord.Color.blue()
             )
             embed.add_field(name="Action", value=action.capitalize(), inline=False)
             embed.add_field(name="Title", value=f"[{pr_title}]({pr_url})", inline=False)
             embed.add_field(name="Author", value=pr_user, inline=False)
             embed.add_field(name="Description", value=pr_body or "No description", inline=False)
             embed.set_footer(text="GitHub Webhook • Pull Request Event", icon_url="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png")
+            embed.set_thumbnail(url=pr_user_avatar)
 
         elif event_type == 'issues':
             action = payload.get('action', 'Unknown action')
@@ -162,53 +166,59 @@ async def github_webhook(request: Request):
             issue_title = issue.get('title', 'No title')
             issue_url = issue.get('html_url', '#')
             issue_user = issue.get('user', {}).get('login', 'Unknown user')
+            issue_user_avatar = issue.get('user', {}).get('avatar_url', 'https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png')
             issue_body = issue.get('body', 'No description')
 
             embed = discord.Embed(
-                title="🐛 Issue Event",
-                description=f"Repository: [{repo_name}]({payload.get('repository', {}).get('html_url', '#')})",
-                color=discord.Color.orange()
+            title="🐛 Issue Event",
+            description=f"Repository: [{repo_name}]({payload.get('repository', {}).get('html_url', '#')})",
+            color=discord.Color.orange()
             )
             embed.add_field(name="Action", value=action.capitalize(), inline=False)
             embed.add_field(name="Title", value=f"[{issue_title}]({issue_url})", inline=False)
             embed.add_field(name="Author", value=issue_user, inline=False)
             embed.add_field(name="Description", value=issue_body or "No description", inline=False)
             embed.set_footer(text="GitHub Webhook • Issue Event", icon_url="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png")
+            embed.set_thumbnail(url=issue_user_avatar)
 
         elif event_type == 'issue_comment':
             action = payload.get('action', 'Unknown action')
             comment = payload.get('comment', {})
             comment_body = comment.get('body', 'No content')
             commenter = comment.get('user', {}).get('login', 'Unknown user')
+            commenter_avatar = comment.get('user', {}).get('avatar_url', 'https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png')
             issue = payload.get('issue', {})
             issue_title = issue.get('title', 'No title')
             issue_url = issue.get('html_url', '#')
 
             embed = discord.Embed(
-                title="💬 Issue Comment Event",
-                description=f"Repository: [{repo_name}]({payload.get('repository', {}).get('html_url', '#')})",
-                color=discord.Color.purple()
+            title="💬 Issue Comment Event",
+            description=f"Repository: [{repo_name}]({payload.get('repository', {}).get('html_url', '#')})",
+            color=discord.Color.purple()
             )
             embed.add_field(name="Action", value=action.capitalize(), inline=False)
             embed.add_field(name="Issue", value=f"[{issue_title}]({issue_url})", inline=False)
             embed.add_field(name="Commenter", value=commenter, inline=False)
             embed.add_field(name="Comment", value=comment_body or "No content", inline=False)
             embed.set_footer(text="GitHub Webhook • Issue Comment Event", icon_url="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png")
+            embed.set_thumbnail(url=commenter_avatar)
 
         else:
             # Detailed default case for other event types
             sender = payload.get('sender', {}).get('login', 'Unknown sender')
+            sender_avatar = payload.get('sender', {}).get('avatar_url', 'https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png')
             event_description = f"A `{event_type}` event occurred in [{repo_name}]({payload.get('repository', {}).get('html_url', '#')}) initiated by **{sender}**."
 
             embed = discord.Embed(
-                title="🔔 GitHub Event Notification",
-                description=event_description,
-                color=discord.Color.gold()
+            title="🔔 GitHub Event Notification",
+            description=event_description,
+            color=discord.Color.gold()
             )
             embed.add_field(name="Event Type", value=event_type, inline=False)
             embed.add_field(name="Sender", value=sender, inline=False)
             embed.add_field(name="Details", value="Check the repository for more information.", inline=False)
             embed.set_footer(text="GitHub Webhook • General Event", icon_url="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png")
+            embed.set_thumbnail(url=sender_avatar)
 
         discord_payload = {
             "embeds": [embed.to_dict()]
