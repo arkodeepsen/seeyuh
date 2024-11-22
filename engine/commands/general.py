@@ -124,7 +124,7 @@ async def info_command(interaction: discord.Interaction, user: discord.User = No
                 member = None  # If still None, handle gracefully
 
         embed.title = f"User Information for {user.name}"
-        embed.set_thumbnail(url=user.avatar.url)
+        embed.set_thumbnail(url=user.display_avatar.url)
         
         # Check if member is None and provide appropriate details
         if member:
