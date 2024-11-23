@@ -518,7 +518,7 @@ async def on_message(message):
             
     if any(phrase in message.content.lower() for phrase in ["thick of it", "thickofit"]):
         link = "https://www.youtube.com/watch?v=At8v_Yc044Y"
-        lyrics = """
+        lyrics1 = """
         I'm in the thick of it, everybody knows
         They know me where it snows, I skied in and they froze
         I don't know no nothin' 'bout no ice, I'm just cold
@@ -527,12 +527,14 @@ async def on_message(message):
         They knocked me down, but still, my feet, they find the floor
         I went from living rooms straight out to sold-out tours
         Life's a fight, but trust, I'm ready for the war
-        
+        """
+        lyrics2 = """
         Woah-oh-oh
         This is how the story goes
         Woah-oh-oh
         I guess this is how the story goes
-        
+        """
+        lyrics3 = """
         I'm in the thick of it, everybody knows
         They know me where it snows, I skied in and they froze
         I don't know no nothin' 'bout no ice, I'm just cold
@@ -542,12 +544,14 @@ async def on_message(message):
         Always drama when I ring
         See, I believe that if I see it in my heart
         Smash through the ceiling 'cause I'm reachin' for the stars
-        
+        """
+        lyrics4 = """
         Woah-oh-oh
         This is how the story goes
         Woah-oh-oh
         I guess this is how the story goes
-        
+        """
+        lyrics5 = """
         I'm in the thick of it, everybody knows
         They know me where it snows, I skied in and they froze (woo)
         I don't know no nothin' 'bout no ice, I'm just cold
@@ -558,7 +562,8 @@ async def on_message(message):
         My life is hard, I took the wheel, I cracked the code (yeah-yeah, woah-oh-oh)
         Ain't nobody gon' save you, man, this life will break you (yeah, woah-oh-oh)
         In the thick of it, this is how the story goes
-        
+        """
+        lyrics6 = """
         I'm in the thick of it, everybody knows
         They know me where it snows, I skied in and they froze
         I don't know no nothin' 'bout no ice, I'm just cold
@@ -567,7 +572,8 @@ async def on_message(message):
         They know me where it snows, I skied in and they froze (yeah)
         I don't know no nothin' 'bout no ice, I'm just cold
         Forty somethin' milli' subs or so, I've been told (ooh-ooh)
-        
+        """
+        lyrics7 = """
         Woah-oh-oh (nah-nah-nah-nah, ayy, ayy)
         This is how the story goes (nah, nah)
         Woah-oh-oh
@@ -575,12 +581,12 @@ async def on_message(message):
         """
         # Check if the bot is mentioned or the message contains "seeyuh"
         if bot.user.mentioned_in(message) or "seeyuh" in message.content.lower():
-            response = random.choice([link, lyrics])
+            response = random.choice([link, lyrics1, lyrics2, lyrics3, lyrics4, lyrics5, lyrics6, lyrics7])
             await message.channel.send(response)
             return
         # Otherwise, apply the random chance criteria
         elif random.random() < 0.05:
-            response = random.choice([link, lyrics])
+            response = random.choice([link, lyrics1, lyrics2, lyrics3, lyrics4, lyrics5, lyrics6, lyrics7])
             await message.channel.send(response)
             return
             
