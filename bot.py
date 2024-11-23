@@ -769,7 +769,7 @@ async def on_message(message):
                             response = f"User not mentioned, unreadable or you mentioned me. Please mention a user or try `/{word}` if issue persists."
                             await message.reply(response)  # Send the error message to the channel
                         elif "missing 1 required positional argument: 'content' in str(e)":
-                            response = f"Use `/{word} content` `/help` to know more."
+                            response = f"Use `/{word}` for the command.\n Use `/help` to know more."
                             await message.reply(response)  # Send the error message to the channel
                         elif "missing 2 required positional arguments: 'content' and 'embed'" in str(e):
                             response = f"Content or embed not provided. Please use `/{word}` if issue persists."
@@ -946,7 +946,7 @@ async def on_message(message):
                             response = f"User not mentioned, unreadable or you mentioned me. Please mention a user or try `/{word}` if issue persists."
                             await message.reply(response)  # Send the error message to the channel
                         elif "missing 1 required positional argument: 'content' in str(e)":
-                            response = f"Use `/{word} content` `/help` to know more."
+                            response = f"Use `/{word}` for the command.\n Use `/help` to know more."
                             await message.reply(response)  # Send the error message to the channel
                         elif "missing 2 required positional arguments: 'content' and 'embed'" in str(e):
                             response = f"Content or embed not provided. Please use `/{word}` if issue persists."

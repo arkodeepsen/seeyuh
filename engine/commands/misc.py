@@ -1,7 +1,9 @@
-import discord, requests, asyncio, os, re
+import discord, requests, asyncio, os, re, aiohttp
 from discord import app_commands
 from discord.ext import commands
 from supabase import Client, create_client
+from io import BytesIO
+from PIL import Image, ImageDraw, ImageFont
 
 # Initialize Supabase client (ensure this matches your bot.py initialization)
 SUPABASE_URL = os.getenv('SUPABASE_URL')
@@ -201,40 +203,30 @@ async def leaderboard(interaction: discord.Interaction, scope: str):
     
     await interaction.response.defer(ephemeral=False)
 
-    # Determine query based on scope
+    # Prepare parameters for the RPC call
     if scope == 'global':
-        query = supabase.table('messages') \
-            .select('user_id') \
-            .count('user_id', alias='message_count') \
-            .group('user_id') \
-            .order('message_count', desc=True) \
-            .limit(10) \
-            .execute()
+        params = {'in_scope': 'global'}
         title = "🌐 Global Leaderboard"
     else:
         guild_id = str(interaction.guild.id)
-        query = supabase.table('messages') \
-            .select('user_id') \
-            .count('user_id', alias='message_count') \
-            .eq('guild_id', guild_id) \
-            .group('user_id') \
-            .order('message_count', desc=True) \
-            .limit(10) \
-            .execute()
+        params = {'in_scope': 'server', 'in_guild_id': guild_id}
         title = f"📊 Server Leaderboard for {interaction.guild.name}"
 
-    if not query.data:
+    # Call the 'get_leaderboard' function
+    response = supabase.rpc('get_leaderboard', params).execute()
+
+    leaderboard_data = response.data
+
+    if not leaderboard_data:
         await interaction.followup.send("⚠️ No data available for the selected scope.", ephemeral=False)
         return
-
-    leaderboard_data = query.data
 
     # Fetch Discord user objects concurrently
     async def fetch_user(user_id):
         try:
             user = await interaction.client.fetch_user(int(user_id))
             return user
-        except discord.NotFound:
+        except (discord.NotFound, discord.HTTPException):
             return None
 
     users = await asyncio.gather(*[fetch_user(entry['user_id']) for entry in leaderboard_data])
@@ -243,7 +235,8 @@ async def leaderboard(interaction: discord.Interaction, scope: str):
     leaderboard_entries = []
     for idx, (entry, user) in enumerate(zip(leaderboard_data, users), start=1):
         username = user.name if user else f"User ID {entry['user_id']}"
-        leaderboard_entries.append(f"**{idx}. {username}** - {entry['message_count']} messages")
+        message_count = entry['message_count']
+        leaderboard_entries.append(f"**{idx}. {username}** - {message_count} messages")
 
     # Create embed
     embed = discord.Embed(
@@ -251,6 +244,8 @@ async def leaderboard(interaction: discord.Interaction, scope: str):
         description="\n".join(leaderboard_entries),
         color=discord.Color.green()
     )
+    if users and users[0]:
+        embed.set_thumbnail(url=interaction.guild.icon.url if scope == 'server' else users[0].display_avatar.url)
     embed.set_footer(text="Leaderboard • Powered by Supabase", icon_url=interaction.client.user.display_avatar.url)
 
     await interaction.followup.send(embed=embed, ephemeral=False)
@@ -261,90 +256,57 @@ async def rank(interaction: discord.Interaction):
     
     user_id = str(interaction.user.id)
     guild_id = str(interaction.guild.id) if interaction.guild else None
-    
-    # Fetch global message count
-    global_count_response = supabase.table('messages') \
-        .select('user_id') \
-        .eq('user_id', user_id) \
-        .count() \
-        .execute()
-    global_message_count = global_count_response.count if global_count_response.status_code == 200 else 0
-    
-    # Fetch server message count
+
+    # Prepare parameters for the RPC call
+    params = {'p_user_id': user_id}
     if guild_id:
-        server_count_response = supabase.table('messages') \
-            .select('user_id') \
-            .eq('guild_id', guild_id) \
-            .eq('user_id', user_id) \
-            .count() \
-            .execute()
-        server_message_count = server_count_response.count if server_count_response.status_code == 200 else 0
-    else:
-        server_message_count = 0
-    
-    # Calculate global rank
-    global_rank_response = supabase.table('messages') \
-        .select('user_id, count') \
-        .group('user_id') \
-        .execute()
-    
-    if global_rank_response.status_code == 200:
-        sorted_global = sorted(
-            [item for item in global_rank_response.data],
-            key=lambda x: x['count'],
-            reverse=True
-        )
-        global_rank = next((index + 1 for index, item in enumerate(sorted_global) if item['user_id'] == user_id), None)
-    else:
-        global_rank = None
-    
-    # Calculate server rank
-    if guild_id:
-        server_rank_response = supabase.table('messages') \
-            .select('user_id, count') \
-            .eq('guild_id', guild_id) \
-            .group('user_id') \
-            .execute()
-        
-        if server_rank_response.status_code == 200:
-            sorted_server = sorted(
-                [item for item in server_rank_response.data],
-                key=lambda x: x['count'],
-                reverse=True
-            )
-            server_rank = next((index + 1 for index, item in enumerate(sorted_server) if item['user_id'] == user_id), None)
-        else:
-            server_rank = None
-    else:
-        server_rank = 'N/A'
-    
-    # Create rank image
-    from PIL import Image, ImageDraw, ImageFont
-    import aiohttp
-    from io import BytesIO
+        params['p_guild_id'] = guild_id
+
+    # Call the 'get_rank' function
+    try:
+        response = supabase.rpc('get_rank', params).execute()
+    except Exception as e:
+        await interaction.followup.send(f"⚠️ An error occurred while fetching your rank: {e}", ephemeral=True)
+        return
+
+    rank_data = response.data
+
+    if not rank_data:
+        await interaction.followup.send("⚠️ No rank data available.", ephemeral=False)
+        return
+
+    rank_info = rank_data[0]  # Assuming the function returns a single row
+
+    global_message_count = rank_info.get('global_message_count', 0)
+    global_rank = rank_info.get('global_rank', 0)
+    server_message_count = rank_info.get('server_message_count', 0) if guild_id else 0
+    server_rank = rank_info.get('server_rank', 0) if guild_id else 0
 
     # Fetch user avatar
     avatar_url = interaction.user.display_avatar.url
-    
+
     async with aiohttp.ClientSession() as session:
         async with session.get(avatar_url) as resp:
+            if resp.status != 200:
+                await interaction.followup.send("⚠️ Failed to fetch your avatar.", ephemeral=True)
+                return
             avatar_bytes = await resp.read()
     avatar = Image.open(BytesIO(avatar_bytes)).convert("RGBA")
     avatar = avatar.resize((100, 100))
-    
+
     # Create base image
     img = Image.new('RGB', (400, 200), color=(54,57,63))
     draw = ImageDraw.Draw(img)
-    
+
     # Load font
     try:
         font = ImageFont.truetype("arial.ttf", 20)
     except:
         font = ImageFont.load_default()
-    
+
     # Paste avatar
     img.paste(avatar, (20, 50), avatar)
-    
+
     # Write text
     draw.text((140, 50), f"Username: {interaction.user.name}", font=font, fill=(255,255,255))
     draw.text((140, 80), f"Global Rank: {global_rank if global_rank else 'N/A'}", font=font, fill=(255,255,255))
@@ -354,8 +316,8 @@ async def rank(interaction: discord.Interaction):
         draw.text((140, 170), f"Server Messages: {server_message_count}", font=font, fill=(255,255,255))
     else:
         draw.text((140, 140), f"Server Rank: N/A", font=font, fill=(255,255,255))
-    
-    # Save image to BytesIO
+
+    # Save image to BytesIO and send
     with BytesIO() as image_binary:
         img.save(image_binary, 'PNG')
         image_binary.seek(0)
