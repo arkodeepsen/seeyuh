@@ -12,6 +12,10 @@ Seeyuh Bot is a powerful, AI-driven Discord bot designed for dynamic and multimo
 ![Ping](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh-production.up.railway.app%2Fapi%2Fendpoint&query=ping&prefix=%20&suffix=ms&label=Ping)
 ![Users](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh-production.up.railway.app%2Fapi%2Fendpoint&query=unique_users&prefix=%20&label=Users)
 ![Servers](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh-production.up.railway.app%2Fapi%2Fendpoint&query=guild_count&prefix=%20&label=Servers)
+<br>
+![Discord Bots](https://top.gg/api/widget/owner/690530760540553276.svg)
+![Discord Bots](https://top.gg/api/widget/upvotes/690530760540553276.svg)
+![Discord Bots](https://top.gg/api/widget/servers/690530760540553276.svg)
 
 ---
 
@@ -97,3 +101,7 @@ This bot is proprietary and not open-source. Unauthorized copying, redistributio
 ## 🌐 **Dynamic Updates**
 - Visit the [Seeyuh Bot Status Page](https://seeyuh-production.up.railway.app/) for real-time metrics and updates.  
 - Join our [support server](https://discord.gg/ETXgCVYmBb) for announcements and issues.
+
+---
+
+[![Discord Bots](https://top.gg/api/widget/690530760540553276.svg)](https://top.gg/bot/690530760540553276)
