@@ -391,11 +391,13 @@ bot.tree.add_command(music.filter_command)
 bot.tree.add_command(music.list_filters)
 bot.tree.add_command(music.clear_filters)
 
-#Register the commands from misc.py
+# Register the commands from misc.py
 misc.steam.category = "Misc"
+misc.steamlink.category = "Misc"
 misc.leaderboard.category = "Misc"
 misc.rank.category = "Misc"
 bot.tree.add_command(misc.steam)
+bot.tree.add_command(misc.steamlink)
 bot.tree.add_command(misc.leaderboard)
 bot.tree.add_command(misc.rank)
 

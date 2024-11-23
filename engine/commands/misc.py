@@ -11,7 +11,7 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 # Get the Steam API key from environment variables
 STEAM_API_KEY = os.getenv('STEAM_API_KEY')
 
-# Define the 'steam' slash command
+# Define the 'steam' command as a regular command
 @app_commands.command(name='steam', description='Link your Steam account or lookup Steam profiles.')
 @app_commands.describe(
     user='Mention a user to lookup their Steam profile.',
@@ -32,7 +32,10 @@ async def steam(interaction: discord.Interaction, user: discord.User = None, ste
             embed = create_steam_embed(steam_data)
             await interaction.followup.send(embed=embed, ephemeral=False)
         else:
-            await interaction.followup.send("⚠️ Could not retrieve Steam details. Ensure the Steam ID is correct and the profile is public.", ephemeral=True)
+            await interaction.followup.send(
+                "⚠️ Could not retrieve Steam details. Ensure the Steam ID is correct and the profile is public.",
+                ephemeral=True
+            )
         return
 
     if user:
@@ -41,9 +44,13 @@ async def steam(interaction: discord.Interaction, user: discord.User = None, ste
         if cached.data:
             steam_data = cached.data[0]['steam_data']
             embed = create_steam_embed(steam_data)
-            await interaction.followup.send(f"🕹️ **Steam Profile for {user.name}**", embed=embed, ephemeral=False)
+            await interaction.followup.send(
+                f"🕹️ **Steam Profile for {user.name}**", embed=embed, ephemeral=False
+            )
         else:
-            await interaction.followup.send(f"⚠️ {user.mention} has not linked their Steam account with seeyuh.", ephemeral=False)
+            await interaction.followup.send(
+                f"⚠️ {user.mention} has not linked their Steam account.", ephemeral=False
+            )
         return
 
     # Case 3: Lookup own Steam profile
@@ -56,13 +63,13 @@ async def steam(interaction: discord.Interaction, user: discord.User = None, ste
     else:
         # Prompt user to link their Steam account
         await interaction.followup.send(
-            f"{interaction.user.mention}, you have not linked your Steam account. Use `/steam link` to link your Steam account.",
+            f"{interaction.user.mention}, you have not linked your Steam account. Use `/steamlink` to link your Steam account.",
             ephemeral=True
         )
 
-# Define the 'steam link' subcommand
-@steam.subcommand(name='link', description='Link your Steam account to your Discord account.')
-async def steam_link(interaction: discord.Interaction):
+# Define the 'steamlink' command
+@app_commands.command(name='steamlink', description='Link your Steam account to your Discord account.')
+async def steamlink(interaction: discord.Interaction):
     user = interaction.user
     await interaction.response.defer(ephemeral=True)
 
@@ -105,15 +112,15 @@ async def steam_link(interaction: discord.Interaction):
     except Exception as e:
         await interaction.followup.send(f"⚠️ An unexpected error occurred: {e}", ephemeral=True)
 
+# Helper functions (extract_steam_id, resolve_vanity_url, get_steam_data, create_steam_embed, get_persona_state)
 def extract_steam_id(input_str):
     """Extract Steam ID from input string using regex."""
     input_str = input_str.strip()
-    # Regex patterns to match full URLs or just the vanity/ID
     patterns = [
         r'https?://steamcommunity\.com/id/([a-zA-Z0-9_-]+)',
         r'https?://steamcommunity\.com/profiles/(\d+)',
-        r'^([a-zA-Z0-9_-]+)$',  # Vanity ID without URL
-        r'^(\d+)$'               # Steam64 ID without URL
+        r'^([a-zA-Z0-9_-]+)$',  # Vanity ID
+        r'^(\d+)$'               # Steam64 ID
     ]
     for pattern in patterns:
         match = re.match(pattern, input_str)

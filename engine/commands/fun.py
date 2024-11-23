@@ -642,23 +642,70 @@ async def dadjoke_command(interaction: discord.Interaction):
         await interaction.followup.send("An unexpected error occurred. Please try again later.")
         print(f"Unexpected error: {e}")
         
-@app_commands.command(name="cowsay", description="Get a cow to say something!")
-async def cowsay_command(interaction: discord.Interaction, message: str):
+COW_TYPES = {
+    "default": """
+    \\   ^__^
+    \\  (oo)\\_______
+    | (__ )\\       )\\/\\
+    |    ||----w |
+    |    ||     ||""",
+    
+    "dead": """
+    \\   ^__^
+    \\  (xx)\\_______
+    | (__ )\\       )\\/\\
+    |    ||----w |
+    |    ||     ||""",
+    
+    "happy": """
+    \\   ^__^
+    \\  (^^)\\_______
+    | (__ )\\       )\\/\\
+    |    ||----w |
+    |    ||     ||""",
+    
+    "sleepy": """
+    \\   ^__^
+    \\  (--)\\_______ 
+    | (__ )\\       )\\/\\
+    |    ||----w |
+    |    ||     ||"""
+}
+
+@app_commands.command(name="cowsay", description="Get a custom cow to say something!")
+@app_commands.choices(cow_type=[
+    app_commands.Choice(name="Default", value="default"),
+    app_commands.Choice(name="Dead", value="dead"),
+    app_commands.Choice(name="Happy", value="happy"),
+    app_commands.Choice(name="Sleepy", value="sleepy")
+])
+async def cowsay_command(interaction: discord.Interaction, message: str, cow_type: app_commands.Choice[str] = None):
     await interaction.response.defer()
-    cow = f"""
-     __________________________
-    < {message} >
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~
-    \   ^__^
-    \  (oo)\_______
-    | (__)\       )\/\  
-    |    ||----w |      
-    |  ||     ||        
-    \  ||   ||  /           
-    \__||__||__/            
-    """
-    await interaction.followup.send(cow)
-               
+    
+    # Use default cow if no type specified
+    cow_art = COW_TYPES[cow_type.value if cow_type else "default"]
+    
+    # Calculate message box width
+    max_width = 40
+    message_lines = [message[i:i+max_width] for i in range(0, len(message), max_width)]
+    
+    # Create message box
+    width = max(len(line) for line in message_lines)
+    box = ["     " + "_" * (width + 2)]
+    if len(message_lines) == 1:
+        box.append(f"    < {message_lines[0]} >")
+    else:
+        box.append(f"    / {message_lines[0]:<{width}} \\")
+        for line in message_lines[1:-1]:
+            box.append(f"    | {line:<{width}} |")
+        box.append(f"    \\ {message_lines[-1]:<{width}} /")
+    box.append("     " + "-" * (width + 2))
+    
+    # Combine message box with cow art
+    final_message = "\n".join(box) + cow_art
+    
+    await interaction.followup.send(f"```{final_message}```")
+    
 # Define the /gif slash command
 @app_commands.command(name="gif", description="Search for a GIF on Giphy.")
 async def gif_command(interaction: discord.Interaction, query: str):
