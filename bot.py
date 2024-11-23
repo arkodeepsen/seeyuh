@@ -330,6 +330,8 @@ fun.advice_command.category = "Fun"
 fun.quote_command.category = "Fun"
 fun.riddle_command.category = "Fun"
 fun.meme_command.category = "Fun"
+fun.dadjoke_command.category = "Fun"
+fun.cowsay_command.category = "Fun"
 fun.gif_command.category = "Fun"
 fun.rps_command.category = "Fun"
 fun.tictactoe_command.category = "Fun"
@@ -350,6 +352,8 @@ bot.tree.add_command(fun.advice_command)
 bot.tree.add_command(fun.quote_command)
 bot.tree.add_command(fun.riddle_command)
 bot.tree.add_command(fun.meme_command)
+bot.tree.add_command(fun.dadjoke_command)
+bot.tree.add_command(fun.cowsay_command)
 bot.tree.add_command(fun.gif_command)
 bot.tree.add_command(fun.rps_command)
 bot.tree.add_command(fun.tictactoe_command)
@@ -389,7 +393,41 @@ bot.tree.add_command(music.clear_filters)
 
 #Register the commands from misc.py
 misc.steam.category = "Misc"
+misc.leaderboard.category = "Misc"
+misc.rank.category = "Misc"
 bot.tree.add_command(misc.steam)
+bot.tree.add_command(misc.leaderboard)
+bot.tree.add_command(misc.rank)
+
+@bot.event
+async def on_guild_join(guild):
+    """
+    Event handler that triggers when the bot is added to a new guild (server).
+    Sends the help embed to the 'general' channel or the first available text channel.
+    """
+    # Attempt to find a text channel that contains 'general' in its name
+    general_channel = discord.utils.find(
+        lambda c: 'general' in c.name.lower() and isinstance(c, discord.TextChannel), guild.channels
+    )
+    
+    # If no 'general' channel is found, try all text channels until a suitable one is found
+    if not general_channel:
+        for channel in guild.text_channels:
+            if channel.permissions_for(guild.me).send_messages:
+                general_channel = channel
+                break
+        else:
+            general_channel = None
+    
+    # If a suitable channel is found, send the help embed
+    if general_channel:
+        embed = discord.Embed(title="Thanks for adding me!", description="I'm Seeyuh, a versatile Discord bot. Use `/help` to see all available commands.", color=discord.Color.green())
+        try:
+            await general_channel.send(embed=embed)
+        except discord.Forbidden:
+            print(f"Permission denied to send messages in {general_channel.name} of {guild.name}.")
+        except Exception as e:
+            print(f"Failed to send help message to {guild.name}: {e}")
 
 @bot.event
 async def on_message(message):

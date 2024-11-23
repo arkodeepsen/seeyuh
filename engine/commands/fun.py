@@ -608,6 +608,56 @@ async def meme_command(interaction: discord.Interaction):
     except Exception as e:
         await interaction.followup.send("An unexpected error occurred. Please try again later.")
         print(f"Unexpected error: {e}")
+        
+@app_commands.command(name="dadjoke", description="Get a random dad joke from r/dadjokes.")
+async def dadjoke_command(interaction: discord.Interaction):
+    await interaction.response.defer()
+    access_token = await get_reddit_access_token()
+    url = "https://oauth.reddit.com/r/dadjokes/hot.json?limit=50"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "User-Agent": "seeyuh/0.1.0 (by u/drgamerarko)"
+    }
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            
+        # Extract dad jokes from the response
+        jokes = data["data"]["children"]
+        random_joke = random.choice(jokes)["data"]
+        
+        # Create and send the embed with the dad joke
+        embed = discord.Embed(title="Dad Joke", description=random_joke["title"], color=discord.Color.random())
+        embed.add_field(name="Joke", value=random_joke["selftext"], inline=False)
+        embed.set_footer(text=f"👍 {random_joke['score']} | 💬 {random_joke['num_comments']} comments", icon_url=interaction.client.user.avatar.url)
+        
+        await interaction.followup.send(embed=embed)
+    
+    except httpx.HTTPStatusError as e:
+        await interaction.followup.send("There was an error fetching dad jokes from Reddit. Please try again later.")
+        print(f"HTTP error: {e}")
+    except Exception as e:
+        await interaction.followup.send("An unexpected error occurred. Please try again later.")
+        print(f"Unexpected error: {e}")
+        
+@app_commands.command(name="cowsay", description="Get a cow to say something!")
+async def cowsay_command(interaction: discord.Interaction, message: str):
+    await interaction.response.defer()
+    cow = f"""
+     __________________________
+    < {message} >
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~
+    \   ^__^
+    \  (oo)\_______
+    | (__)\       )\/\  
+    |    ||----w |      
+    |  ||     ||        
+    \  ||   ||  /           
+    \__||__||__/            
+    """
+    await interaction.followup.send(cow)
                
 # Define the /gif slash command
 @app_commands.command(name="gif", description="Search for a GIF on Giphy.")
