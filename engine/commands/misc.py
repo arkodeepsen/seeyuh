@@ -12,7 +12,7 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 STEAM_API_KEY = os.getenv('STEAM_API_KEY')
 
 # Define the 'steam' command as a regular command
-@app_commands.command(name='steam', description='Link your Steam account or lookup Steam profiles.')
+@app_commands.command(name='steam', description='Lookup your or others Steam profiles.')
 @app_commands.describe(
     user='Mention a user to lookup their Steam profile.',
     steam_input='Provide your Steam ID or profile URL to lookup.'
@@ -87,6 +87,7 @@ async def steamlink(interaction: discord.Interaction):
 
     try:
         msg = await interaction.client.wait_for('message', check=check, timeout=60)
+        await msg.delete()  # Delete the user's message after reading
         steam_input = msg.content
         steam_id = extract_steam_id(steam_input)
         if not steam_id:
@@ -171,7 +172,7 @@ def create_steam_embed(steam_data):
     embed.add_field(name="🏷️ Real Name", value=steam_data.get('realname', 'N/A'), inline=True)
     embed.add_field(name="🔄 Status", value=get_persona_state(steam_data.get('personastate')), inline=True)
     embed.add_field(name="🌍 Country", value=steam_data.get('loccountrycode', 'N/A'), inline=True)
-    embed.set_footer(text="Steam API • Powered by discord.py", icon_url="https://steamstore-a.akamaihd.net/public/shared/images/header/logo_steam.svg")
+    embed.set_footer(text="Steam API • Powered by discord.py", icon_url="https://upload.wikimedia.org/wikipedia/commons/8/83/Steam_icon_logo.svg")
     return embed
 
 def get_persona_state(state_code):
