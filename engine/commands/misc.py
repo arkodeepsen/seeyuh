@@ -172,7 +172,7 @@ def create_steam_embed(steam_data):
     embed.add_field(name="🏷️ Real Name", value=steam_data.get('realname', 'N/A'), inline=True)
     embed.add_field(name="🔄 Status", value=get_persona_state(steam_data.get('personastate')), inline=True)
     embed.add_field(name="🌍 Country", value=steam_data.get('loccountrycode', 'N/A'), inline=True)
-    embed.set_footer(text="Steam API • Powered by discord.py", icon_url="https://upload.wikimedia.org/wikipedia/commons/8/83/Steam_icon_logo.svg")
+    embed.set_footer(text="Steam API • Powered by discord.py", icon_url="https://media.discordapp.net/attachments/533926025747234838/1309933897315913830/steam.png")
     return embed
 
 def get_persona_state(state_code):
