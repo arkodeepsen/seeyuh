@@ -72,7 +72,7 @@ async def uptimerobot_check():
 
 @app.get("/api/endpoint")
 def bot_details():
-    return {"name": bot.user.name, "id": bot.user.id, "uptime": time.ctime(bot.uptime), "ping": round(bot.latency * 1000), "unique_users": len(bot.users), "total_users": len(set(bot.get_all_members())), "guild_count": len(bot.guilds)}
+    return {"name": bot.user.name, "id": bot.user.id, "uptime": time.ctime(bot.uptime), "ping": round(bot.latency * 1000), "unique_users": len(set(bot.get_all_members())), "total_users": len(bot.get_all_members()), "guild_count": len(bot.guilds)}
 
 @app.get("/", response_class=HTMLResponse)
 def home():
