@@ -1,4 +1,7 @@
 # Seeyuh Bot
+![Discord Bots](https://top.gg/api/widget/owner/690530760540553276.svg)
+![Discord Bots](https://top.gg/api/widget/upvotes/690530760540553276.svg)
+![Discord Bots](https://top.gg/api/widget/servers/690530760540553276.svg)
 
 Seeyuh Bot is a powerful, AI-driven Discord bot designed for dynamic and multimodal interactions. Equipped with advanced features and seamless integration capabilities, it aims to provide a fun, efficient, and intelligent experience for Discord users.
 
@@ -13,10 +16,6 @@ Seeyuh Bot is a powerful, AI-driven Discord bot designed for dynamic and multimo
 ![Total Users](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh-production.up.railway.app%2Fapi%2Fendpoint&query=total_users&prefix=%20&label=Total-Users)
 ![Unique Users](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh-production.up.railway.app%2Fapi%2Fendpoint&query=unique_users&prefix=%20&label=Unique-Users)
 ![Servers](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh-production.up.railway.app%2Fapi%2Fendpoint&query=guild_count&prefix=%20&label=Servers)
-<br>
-![Discord Bots](https://top.gg/api/widget/owner/690530760540553276.svg)
-![Discord Bots](https://top.gg/api/widget/upvotes/690530760540553276.svg)
-![Discord Bots](https://top.gg/api/widget/servers/690530760540553276.svg)
 
 ---
 
