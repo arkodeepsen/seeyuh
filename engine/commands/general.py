@@ -108,6 +108,8 @@ async def info_command(interaction: discord.Interaction, user: discord.User = No
             f"**Commands:** {' '.join([f'`/{command.name}` ' for command in interaction.client.tree.get_commands()])}\n"
             f"**Owner:** *[{owner.name}](https://discord.com/users/{owner.id})*\n"
             f"**Currently serving:** {len(interaction.client.guilds)} servers\n"
+            f"**Total Users:** {sum(guild.member_count for guild in interaction.client.guilds)}\n"
+            f"**Unique Users:** {len(set(interaction.client.get_all_members()))}\n"
             f"**[Invite](https://discord.com/oauth2/authorize?client_id={interaction.client.user.id}&permissions=8&scope=bot%20applications.commands)**\n"
             f"**[Website](https://seeyuh-production.up.railway.app/)**\n"
             f"**[Privacy Policy](https://seeyuh-production.up.railway.app/privacy-policy)**\n"

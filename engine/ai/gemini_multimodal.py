@@ -81,7 +81,7 @@ async def handle_attachment(bot, message, attachment):
                 prompt = "Provide an analysis of the text file."
             else:
                 prompt = "Analyze the content of the file."
-
+        prompt = f"Generate a response to the following prompt under 4096 characters: {prompt}"
         extracted_content = extract_content_from_file(sample_file, prompt)
 
         # Reply with extracted content
