@@ -69,7 +69,7 @@ async def update_presence(bot):
         # Set the bot's activity with updated user count
         activity = discord.Activity(
             type=discord.ActivityType.listening,
-            name=f"{unique_users} users across {guild_count} servers! 😉"  # Updated text
+            name=f"{unique_users} total users across {guild_count} servers! 😉"  # Updated text
         )
         await bot.change_presence(
             status=discord.Status.idle,

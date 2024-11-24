@@ -72,7 +72,7 @@ async def uptimerobot_check():
 
 @app.get("/api/endpoint")
 def bot_details():
-    return {"name": bot.user.name, "id": bot.user.id, "uptime": time.ctime(bot.uptime), "ping": round(bot.latency * 1000), "unique_users": len(bot.users), "guild_count": len(bot.guilds)}
+    return {"name": bot.user.name, "id": bot.user.id, "uptime": time.ctime(bot.uptime), "ping": round(bot.latency * 1000), "unique_users": len(bot.users), "total_users": set(bot.get_all_members()), "guild_count": len(bot.guilds)}
 
 @app.get("/", response_class=HTMLResponse)
 def home():
@@ -431,11 +431,31 @@ async def on_guild_join(guild):
         except Exception as e:
             print(f"Failed to send help message to {guild.name}: {e}")
 
+# List of greeting emojis
+greeting_emojis = ["👋", "😊", "😃", "🙌", "🤗"]
+
 @bot.event
 async def on_message(message):
     if message.author == bot.user:
         return
-
+    
+    # Ignore messages that mention @everyone or @here
+    if "@everyone" in message.content or "@here" in message.content:
+        return
+    
+    # Check if the bot is mentioned or its name is used
+    if bot.user.mentioned_in(message) or "seeyuh" in message.content.lower():
+        # Check if there is no other content in the message
+        if message.content.strip() == f"<@{bot.user.id}>" or message.content.strip().lower() == "seeyuh":
+            # React with a random greeting emoji
+            await message.add_reaction(random.choice(greeting_emojis))
+            return
+        if random.random() < 0.001:  # 0.1% chance
+            await message.channel.send(
+                "If you enjoy using this bot, consider supporting its development with a small donation: https://paypal.me/arkodeepsen"
+            )
+            pass
+        
     # Check if the message has attachments and bot is mentioned
     if (bot.user.mentioned_in(message) or "seeyuh" in message.content.lower()) and not is_image_request(message.content):
         if message.attachments:
