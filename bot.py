@@ -5,7 +5,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Template
 from engine.utils import load_env, intents, update_presence, is_image_request, extract_image_prompt
-from engine.db import fetch_recent_message, save_message_to_db, retry_check_and_update_guild_entry, generate_and_cache_invites
+from engine.db import fetch_recent_message, save_message_to_db, retry_check_and_update_guild_entry, generate_and_cache_invites, sync_guilds_and_users
 from engine.ai.gemini import get_ai_response, code_ai_response
 from engine.ai.gemini_multimodal import handle_attachment
 from supabase import create_client, Client
@@ -242,12 +242,14 @@ async def on_ready():
     bot.uptime = time.time()
     bot.loop.create_task(update_presence(bot)) # Start the presence update loop
     await bot.tree.sync() # Sync commands with Discord   
-    # Start the inactivity check task
-    check_inactivity.start()
+    # Start the inactivity check task if not already running
+    if not check_inactivity.is_running():
+        check_inactivity.start()
     eventloop.event_loop = asyncio.get_running_loop()
     print(f'Logged in as {bot.user}')
-    # Generate and cache invites
-    await generate_and_cache_invites(bot)
+    # Generate and cache invites without blocking the event loop
+    asyncio.create_task(generate_and_cache_invites(bot))
+    asyncio.create_task(sync_guilds_and_users(bot))
 
 # Define the main function to run both the bot and HTTP server concurrently
 async def main():

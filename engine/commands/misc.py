@@ -291,31 +291,75 @@ async def rank(interaction: discord.Interaction):
                 await interaction.followup.send("⚠️ Failed to fetch your avatar.", ephemeral=True)
                 return
             avatar_bytes = await resp.read()
+
+    # Open avatar image
     avatar = Image.open(BytesIO(avatar_bytes)).convert("RGBA")
-    avatar = avatar.resize((100, 100))
+    avatar = avatar.resize((150, 150))
 
     # Create base image
-    img = Image.new('RGB', (400, 200), color=(54,57,63))
+    img = Image.new('RGBA', (700, 250), color=(255, 255, 255, 0))
+
+    # Determine style based on rank
+    if global_rank == 1:
+        background_color = (255, 223, 0)  # Gold
+        badge_path = 'assets/badges/gold_badge.png'
+    elif global_rank == 2:
+        background_color = (192, 192, 192)  # Silver
+        badge_path = 'assets/badges/silver_badge.png'
+    elif global_rank == 3:
+        background_color = (205, 127, 50)  # Bronze
+        badge_path = 'assets/badges/bronze_badge.png'
+    elif 4 <= global_rank <= 10:
+        background_color = (72, 61, 139)  # Dark Slate Blue
+        badge_path = 'assets/badges/top10_badge.png'
+    else:
+        background_color = (54, 57, 63)  # Default background
+        badge_path = None
+
+    # Draw background
     draw = ImageDraw.Draw(img)
+    draw.rectangle([(0, 0), img.size], fill=background_color)
 
-    # Load font
+    # Create circular mask for avatar
+    mask = Image.new('L', avatar.size, 0)
+    mask_draw = ImageDraw.Draw(mask)
+    mask_draw.ellipse([(0, 0), avatar.size], fill=255)
+
+    # Apply circular mask to avatar
+    avatar.putalpha(mask)
+
+    # Paste avatar onto base image
+    img.paste(avatar, (30, 50), avatar)
+
+    # Load and paste badge icon if available
+    if badge_path:
+        try:
+            badge = Image.open(badge_path).convert("RGBA")
+            badge = badge.resize((80, 80))
+            img.paste(badge, (590, 20), badge)
+        except Exception as e:
+            print(f"Error loading badge: {e}")
+
+    # Load fonts
     try:
-        font = ImageFont.truetype("arial.ttf", 20)
+        font_large = ImageFont.truetype("fonts/OpenSans-Bold.ttf", 36)
+        font_medium = ImageFont.truetype("fonts/OpenSans-Regular.ttf", 28)
+        font_small = ImageFont.truetype("fonts/OpenSans-Regular.ttf", 24)
     except:
-        font = ImageFont.load_default()
-
-    # Paste avatar
-    img.paste(avatar, (20, 50), avatar)
+        font_large = ImageFont.load_default()
+        font_medium = ImageFont.load_default()
+        font_small = ImageFont.load_default()
 
     # Write text
-    draw.text((140, 50), f"Username: {interaction.user.name}", font=font, fill=(255,255,255))
-    draw.text((140, 80), f"Global Rank: {global_rank if global_rank else 'N/A'}", font=font, fill=(255,255,255))
-    draw.text((140, 110), f"Global Messages: {global_message_count}", font=font, fill=(255,255,255))
+    text_color = (255, 255, 255)
+    draw.text((200, 40), f"{interaction.user.name}#{interaction.user.discriminator}", font=font_large, fill=text_color)
+    draw.text((200, 90), f"Global Rank: {global_rank}", font=font_medium, fill=text_color)
+    draw.text((200, 125), f"Global Messages: {global_message_count}", font=font_medium, fill=text_color)
     if guild_id:
-        draw.text((140, 140), f"Server Rank: {server_rank if server_rank else 'N/A'}", font=font, fill=(255,255,255))
-        draw.text((140, 170), f"Server Messages: {server_message_count}", font=font, fill=(255,255,255))
+        draw.text((200, 160), f"Server Rank: {server_rank}", font=font_medium, fill=text_color)
+        draw.text((200, 195), f"Server Messages: {server_message_count}", font=font_medium, fill=text_color)
     else:
-        draw.text((140, 140), f"Server Rank: N/A", font=font, fill=(255,255,255))
+        draw.text((200, 160), "Server Rank: N/A", font=font_medium, fill=text_color)
 
     # Save image to BytesIO and send
     with BytesIO() as image_binary:

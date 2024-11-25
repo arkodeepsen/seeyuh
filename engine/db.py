@@ -3,6 +3,9 @@ from supabase import create_client, Client
 from dotenv import load_dotenv
 from datetime import datetime, timedelta, timezone as dt_timezone
 import logging, os, httpx, asyncio
+from concurrent.futures import ThreadPoolExecutor
+from more_itertools import chunked
+executor = ThreadPoolExecutor()
 
 # Load environment variables
 load_dotenv()
@@ -20,26 +23,136 @@ logging.basicConfig(
     ]
 )
 
+def fetch_existing_guild_invites():
+    response = supabase.table('guild_invites').select('guild_id').execute()
+    if response.data:
+        return {invite['guild_id'] for invite in response.data}
+    return set()
+
+def insert_guild_invites(invites):
+    supabase.table('guild_invites').insert(invites).execute()
+
 async def generate_and_cache_invites(bot):
+    loop = asyncio.get_event_loop()
+    
+    # Fetch existing guild invites in a separate thread
+    existing_guild_invites = await loop.run_in_executor(executor, fetch_existing_guild_invites)
+    
+    new_invites = []
+    
     for guild in bot.guilds:
         guild_id = str(guild.id)
         
-        # Check if an invite already exists for this guild
-        response = supabase.table('guild_invites').select('invite_url').eq('guild_id', guild_id).execute()
-        if response.data:
-            continue  # Invite already exists, skip to the next guild
+        # Skip guilds that already have invites
+        if guild_id in existing_guild_invites:
+            continue
         
-        # Create an invite link
-        try:
-            invite = await guild.text_channels[0].create_invite(max_age=0, max_uses=0, unique=False)
-            invite_url = invite.url
+        invite_created = False
+        
+        # Iterate over the guild's text channels to find one where the bot has permission
+        for channel in guild.text_channels:
+            permissions = channel.permissions_for(guild.me)
+            if permissions.create_instant_invite:
+                try:
+                    # Create an invite link
+                    invite = await channel.create_invite(max_age=0, max_uses=0, unique=False)
+                    invite_url = invite.url
+                    
+                    # Collect the invite link for batch insertion
+                    new_invites.append({'guild_id': guild_id, 'invite_url': invite_url})
+                    print(f"Created invite for guild '{guild.name}': {invite_url}")
+                    invite_created = True
+                    break  # Exit after creating an invite
+                except Exception as e:
+                    print(f"Failed to create invite in channel '{channel.name}' of guild '{guild.name}': {e}")
+        
+        if not invite_created:
+            print(f"No permission to create invites in any channel of guild '{guild.name}'.")
+    
+    # Batch insert new invites in a separate thread
+    if new_invites:
+        await loop.run_in_executor(executor, insert_guild_invites, new_invites)
+        
+def fetch_existing_guilds():
+    response = supabase.table('guilds').select('guild_id').execute()
+    if response.data:
+        return {guild['guild_id'] for guild in response.data}
+    return set()
+
+def fetch_existing_users():
+    response = supabase.table('users').select('user_id').execute()
+    if response.data:
+        return {user['user_id'] for user in response.data}
+    return set()
+
+def upsert_guilds(guilds):
+    supabase.table('guilds').upsert(guilds, on_conflict=['guild_id']).execute()
+
+def upsert_users(users):
+    supabase.table('users').upsert(users, on_conflict=['user_id']).execute()
+
+async def sync_guilds_and_users(bot):
+    loop = asyncio.get_event_loop()
+    
+    # Fetch existing guilds and users in separate threads
+    existing_guilds = await loop.run_in_executor(executor, fetch_existing_guilds)
+    existing_users = await loop.run_in_executor(executor, fetch_existing_users)
+    
+    new_guilds = []
+    new_users = []
+    
+    for guild in bot.guilds:
+        guild_id = str(guild.id)
+        
+        # Check if the guild is already in the database
+        if guild_id not in existing_guilds:
+            new_guilds.append({
+                'guild_id': guild_id,
+                'guild_name': guild.name,
+                'owner_id': str(guild.owner_id),
+                'member_count': guild.member_count
+            })
+        else:
+            # Update existing guild details
+            new_guilds.append({
+                'guild_id': guild_id,
+                'guild_name': guild.name,
+                'owner_id': str(guild.owner_id),
+                'member_count': guild.member_count
+            })
+        
+        for member in guild.members:
+            user_id = str(member.id)
             
-            # Cache the invite link in the database
-            supabase.table('guild_invites').insert({'guild_id': guild_id, 'invite_url': invite_url}).execute()
-            print(f"Created invite for guild {guild.name}: {invite_url}")
-        except Exception as e:
-            print(f"Failed to create invite for guild {guild.name}: {e}")
-            
+            # Check if the user is already in the database
+            if user_id not in existing_users:
+                new_users.append({
+                    'user_id': user_id,
+                    'username': member.name,
+                    'discriminator': member.discriminator,
+                    'guild_id': guild_id,
+                    'avatar_url': str(member.display_avatar.url) if member.display_avatar else ''
+                })
+            else:
+                # Update existing user details
+                new_users.append({
+                    'user_id': user_id,
+                    'username': member.name,
+                    'discriminator': member.discriminator,
+                    'guild_id': guild_id,
+                    'avatar_url': str(member.display_avatar.url) if member.display_avatar else ''
+                })
+    
+    # Ensure unique entries in new_users
+    unique_new_users = {user['user_id']: user for user in new_users}.values()
+    
+    # Batch upsert new guilds and users in separate threads
+    if new_guilds:
+        await loop.run_in_executor(executor, upsert_guilds, new_guilds)
+    if unique_new_users:
+        for chunk in chunked(unique_new_users, 500):
+            await loop.run_in_executor(executor, upsert_users, list(chunk))
+                
 def check_and_update_guild_entry(supabase, guild_id, guild_name):
     try:
         # Check if the guild entry exists
