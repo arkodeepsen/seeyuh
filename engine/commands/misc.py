@@ -350,16 +350,30 @@ async def rank(interaction: discord.Interaction):
         font_medium = ImageFont.load_default()
         font_small = ImageFont.load_default()
 
-    # Write text
+    # Function to draw text with outline
+    def draw_text_with_outline(draw, position, text, font, text_color, outline_color, outline_width):
+        x, y = position
+        # Draw outline
+        for dx in range(-outline_width, outline_width + 1):
+            for dy in range(-outline_width, outline_width + 1):
+                if dx != 0 or dy != 0:
+                    draw.text((x + dx, y + dy), text, font=font, fill=outline_color)
+        # Draw main text
+        draw.text(position, text, font=font, fill=text_color)
+
+    # Write text with outline
     text_color = (255, 255, 255)
-    draw.text((200, 40), f"{interaction.user.name}#{interaction.user.discriminator}", font=font_large, fill=text_color)
-    draw.text((200, 90), f"Global Rank: {global_rank}", font=font_medium, fill=text_color)
-    draw.text((200, 125), f"Global Messages: {global_message_count}", font=font_medium, fill=text_color)
+    outline_color = (0, 0, 0)
+    outline_width = 1
+
+    draw_text_with_outline(draw, (200, 40), f"{interaction.user.name}#{interaction.user.discriminator}", font_large, text_color, outline_color, outline_width)
+    draw_text_with_outline(draw, (200, 90), f"Global Rank: {global_rank}", font_large, text_color, outline_color, outline_width)
+    draw_text_with_outline(draw, (200, 125), f"Global Messages: {global_message_count}", font_large, text_color, outline_color, outline_width)
     if guild_id:
-        draw.text((200, 160), f"Server Rank: {server_rank}", font=font_medium, fill=text_color)
-        draw.text((200, 195), f"Server Messages: {server_message_count}", font=font_medium, fill=text_color)
+        draw_text_with_outline(draw, (200, 160), f"Server Rank: {server_rank}", font_large, text_color, outline_color, outline_width)
+        draw_text_with_outline(draw, (200, 195), f"Server Messages: {server_message_count}", font_large, text_color, outline_color, outline_width)
     else:
-        draw.text((200, 160), "Server Rank: N/A", font=font_medium, fill=text_color)
+        draw_text_with_outline(draw, (200, 160), "Server Rank: N/A", font_large, text_color, outline_color, outline_width)
 
     # Save image to BytesIO and send
     with BytesIO() as image_binary:
