@@ -5,7 +5,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Template
 from engine.utils import load_env, intents, update_presence, is_image_request, extract_image_prompt
-from engine.db import fetch_recent_message, save_message_to_db, retry_check_and_update_guild_entry
+from engine.db import fetch_recent_message, save_message_to_db, retry_check_and_update_guild_entry, generate_and_cache_invites
 from engine.ai.gemini import get_ai_response, code_ai_response
 from engine.ai.gemini_multimodal import handle_attachment
 from supabase import create_client, Client
@@ -246,6 +246,8 @@ async def on_ready():
     check_inactivity.start()
     eventloop.event_loop = asyncio.get_running_loop()
     print(f'Logged in as {bot.user}')
+    # Generate and cache invites
+    await generate_and_cache_invites(bot)
 
 # Define the main function to run both the bot and HTTP server concurrently
 async def main():

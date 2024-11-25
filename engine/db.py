@@ -20,6 +20,26 @@ logging.basicConfig(
     ]
 )
 
+async def generate_and_cache_invites(bot):
+    for guild in bot.guilds:
+        guild_id = str(guild.id)
+        
+        # Check if an invite already exists for this guild
+        response = supabase.table('guild_invites').select('invite_url').eq('guild_id', guild_id).execute()
+        if response.data:
+            continue  # Invite already exists, skip to the next guild
+        
+        # Create an invite link
+        try:
+            invite = await guild.text_channels[0].create_invite(max_age=0, max_uses=0, unique=False)
+            invite_url = invite.url
+            
+            # Cache the invite link in the database
+            supabase.table('guild_invites').insert({'guild_id': guild_id, 'invite_url': invite_url}).execute()
+            print(f"Created invite for guild {guild.name}: {invite_url}")
+        except Exception as e:
+            print(f"Failed to create invite for guild {guild.name}: {e}")
+            
 def check_and_update_guild_entry(supabase, guild_id, guild_name):
     try:
         # Check if the guild entry exists
