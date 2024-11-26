@@ -1,6 +1,6 @@
 import discord, requests, asyncio, os, re, aiohttp
 from discord import app_commands
-from discord.ext import commands
+from bs4 import BeautifulSoup
 from supabase import Client, create_client
 from io import BytesIO
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
@@ -68,6 +68,24 @@ async def steam(interaction: discord.Interaction, user: discord.User = None, ste
             f"{interaction.user.mention}, you have not linked your Steam account. Use `/steamlink` to link your Steam account.",
             ephemeral=True
         )
+
+@app_commands.command(name='steamunlink', description='Unlink your Steam account from your Discord account.')
+async def steamunlink(interaction: discord.Interaction):
+    user = interaction.user
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        # Check if the user has linked their Steam account
+        cached = supabase.table('steam_cache').select('*').eq('user_id', str(user.id)).execute()
+        if not cached.data:
+            await interaction.followup.send("❌ You have not linked your Steam account.", ephemeral=True)
+            return
+
+        # Unlink the Steam account
+        supabase.table('steam_cache').delete().eq('user_id', str(user.id)).execute()
+        await interaction.followup.send("✅ Steam account unlinked successfully.", ephemeral=True)
+    except Exception as e:
+        await interaction.followup.send(f"❌ An error occurred: {str(e)}", ephemeral=True)
 
 # Define the 'steamlink' command
 @app_commands.command(name='steamlink', description='Link your Steam account to your Discord account.')
@@ -189,6 +207,134 @@ def get_persona_state(state_code):
         6: "🎮 Looking to Play"
     }
     return states.get(state_code, "❓ Unknown")
+
+@app_commands.command(name='steamgame', description='Lookup a game on Steam.')
+@app_commands.describe(game='The name of the game to lookup.')
+async def steamgame(interaction: discord.Interaction, game: str):
+    """Lookup a game on Steam."""
+    game = game.lower()
+    await interaction.response.defer(ephemeral=False)
+    
+    api_url = "https://api.steampowered.com/ISteamApps/GetAppList/v2/"
+    response = requests.get(api_url)
+    data = response.json()
+    apps = data['applist']['apps']
+    
+    app_id = None
+    for app in apps:
+        if game in app['name'].lower():
+            app_id = app['appid']
+            break
+    
+    if app_id is None:
+        await interaction.followup.send("❌ Game not found.", ephemeral=True)
+        return
+    
+    api_url = f"https://store.steampowered.com/api/appdetails?appids={app_id}"
+    response = requests.get(api_url)
+    data = response.json()
+    
+    if not data[str(app_id)]['success']:
+        await interaction.followup.send("❌ Failed to retrieve game details.", ephemeral=True)
+        return
+    
+    app_data = data[str(app_id)]['data']
+    # Clean the detailed description using BeautifulSoup
+    raw_description = app_data.get('detailed_description', 'No description available.')
+    soup = BeautifulSoup(raw_description, 'html.parser')
+    clean_description = soup.get_text(separator='\n')
+
+    # Truncate the description if it's too long
+    if len(clean_description) > 2048:
+        clean_description = clean_description[:2045] + '...'
+
+    embed = discord.Embed(
+        title=app_data['name'],
+        description=clean_description,
+        color=discord.Color.blue()
+    )
+    embed.set_thumbnail(url=app_data.get('header_image', ''))
+    embed.add_field(name="📊 Price", value=app_data.get('price_overview', {}).get('final_formatted', 'Free'), inline=True)
+    embed.add_field(name="📊 Release Date", value=app_data.get('release_date', {}).get('date', 'Unknown'), inline=True)
+    embed.add_field(name="📊 Developer", value=', '.join(app_data.get('developers', ['Unknown'])), inline=True)
+    embed.add_field(name="📊 Publisher", value=', '.join(app_data.get('publishers', ['Unknown'])), inline=True)
+    embed.add_field(
+        name="📊 Genre",
+        value=', '.join(genre['description'] for genre in app_data.get('genres', [{'description': 'Unknown'}])),
+        inline=True
+    )
+    tags = app_data.get('tags', [])
+    if tags:
+        embed.add_field(
+            name="📊 Tags",
+            value=', '.join(tags),
+            inline=True
+        )
+    embed.set_footer(text="Steam API • Powered by discord.py", icon_url="https://media.discordapp.net/attachments/533926025747234838/1309933897315913830/steam.png")
+    
+    await interaction.followup.send(embed=embed)
+    
+@app_commands.command(name='steamnews', description='Get the latest news for a game on Steam.')
+@app_commands.describe(game='The name of the game to get news for.')
+async def steamnews(interaction: discord.Interaction, game: str):
+    """Get the latest news for a game on Steam."""
+    game = game.lower()
+    await interaction.response.defer(ephemeral=False)
+    
+    # Get the app list from Steam
+    api_url = "https://api.steampowered.com/ISteamApps/GetAppList/v2/"
+    response = requests.get(api_url)
+    if response.status_code != 200:
+        await interaction.followup.send("❌ Failed to retrieve app list from Steam.", ephemeral=True)
+        return
+    data = response.json()
+    apps = data['applist']['apps']
+    
+    # Find the app ID and name
+    app_id = None
+    app_name = None
+    for app in apps:
+        if game in app['name'].lower():
+            app_id = app['appid']
+            app_name = app['name']
+            break
+    
+    if app_id is None:
+        await interaction.followup.send("❌ Game not found.", ephemeral=True)
+        return
+    
+    # Get the news for the app
+    api_url = f"https://api.steampowered.com/ISteamNews/GetNewsForApp/v0002/?appid={app_id}&count=5&maxlength=300&format=json"
+    response = requests.get(api_url)
+    if response.status_code != 200:
+        await interaction.followup.send("❌ Failed to retrieve news from Steam.", ephemeral=True)
+        return
+    data = response.json()
+    
+    # Check if 'appnews' and 'newsitems' exist in the response
+    if 'appnews' not in data or not data['appnews'].get('newsitems'):
+        await interaction.followup.send("❌ No news available for this game.", ephemeral=True)
+        return
+    
+    news_items = data['appnews']['newsitems']
+    if not news_items:
+        await interaction.followup.send("❌ No news available for this game.", ephemeral=True)
+        return
+
+    # Create the embed
+    embed = discord.Embed(title=f"📰 Latest News for {app_name}", color=discord.Color.blue())
+    for news in news_items:
+        # Clean the contents
+        raw_contents = news.get('contents', '')
+        soup = BeautifulSoup(raw_contents, 'html.parser')
+        clean_contents = soup.get_text(separator='\n')
+        # Truncate if necessary
+        if len(clean_contents) > 1024:
+            clean_contents = clean_contents[:1021] + '...'
+        embed.add_field(name=news['title'], value=f"{clean_contents}\n[Read more]({news['url']})", inline=False)
+    
+    embed.set_footer(text="Steam API • Powered by discord.py", icon_url="https://media.discordapp.net/attachments/533926025747234838/1309933897315913830/steam.png")
+    await interaction.followup.send(embed=embed)
 
 @app_commands.command(name='leaderboard', description='Get the top seeyuh users.')
 @app_commands.describe(scope='Choose the leaderboard scope.')

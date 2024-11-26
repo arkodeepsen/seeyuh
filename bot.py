@@ -398,10 +398,16 @@ bot.tree.add_command(music.clear_filters)
 # Register the commands from misc.py
 misc.steam.category = "Misc"
 misc.steamlink.category = "Misc"
+misc.steamunlink.category = "Misc"
+misc.steamgame.category = "Misc"
+misc.steamnews.category = "Misc"
 misc.leaderboard.category = "Misc"
 misc.rank.category = "Misc"
 bot.tree.add_command(misc.steam)
 bot.tree.add_command(misc.steamlink)
+bot.tree.add_command(misc.steamunlink)
+bot.tree.add_command(misc.steamgame)
+bot.tree.add_command(misc.steamnews)
 bot.tree.add_command(misc.leaderboard)
 bot.tree.add_command(misc.rank)
 
