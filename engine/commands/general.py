@@ -44,7 +44,7 @@ class HelpView(discord.ui.View):
             color=discord.Color.blue()
         )
         embed.set_thumbnail(url=interaction.user.display_avatar.url)  # Replace with your thumbnail URL
-        embed.set_image(url="https://media.discordapp.net/attachments/533926025747234838/1304110671469875260/banner1.gif")  # Replace with your image URL
+        embed.set_image(url="https://media.discordapp.net/attachments/533926025747234838/1304110671469875260/banner2.gif")  # Replace with your image URL
         embed.set_footer(text=f"{interaction.client.user.name}", icon_url=interaction.client.user.display_avatar.url)
         await interaction.response.edit_message(embed=embed, view=self)
 

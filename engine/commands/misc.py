@@ -1,4 +1,4 @@
-import discord, requests, asyncio, os, re, aiohttp
+import discord, requests, asyncio, os, re, aiohttp, random
 from discord import app_commands
 from bs4 import BeautifulSoup
 from supabase import Client, create_client
@@ -395,7 +395,7 @@ async def leaderboard(interaction: discord.Interaction, scope: str):
     embed.set_footer(text="Leaderboard • Powered by Supabase", icon_url=interaction.client.user.display_avatar.url)
 
     await interaction.followup.send(embed=embed, ephemeral=False)
-    
+
 @app_commands.command(name='rank', description='Get your seeyuh rank.')
 async def rank(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=False)
@@ -446,18 +446,30 @@ async def rank(interaction: discord.Interaction):
     base_width, base_height = 800, 300
     img = Image.new('RGBA', (base_width, base_height), color=(255, 255, 255, 0))
 
-    # Create background with glass effect
-    background = Image.new('RGBA', img.size, color=(40, 40, 40, 200))
-    draw = ImageDraw.Draw(background)
+    # Create background with random colors and glass effect
+    background_color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255), 200)
+    background = Image.new('RGBA', img.size, color=background_color)
     background = background.filter(ImageFilter.GaussianBlur(radius=10))
     img.paste(background, (0, 0))
 
-    # Add gradient overlay
+    # Add random gradient overlay
     gradient = Image.new('L', (1, base_height), color=0xFF)
     for y in range(base_height):
         gradient.putpixel((0, y), int(255 * (1 - y / base_height)))
     gradient = gradient.resize(img.size)
     img.putalpha(gradient)
+
+    # Add random decorative elements
+    draw = ImageDraw.Draw(img)
+    for _ in range(5):
+        shape = random.choice(['circle', 'square'])
+        size = random.randint(20, 50)
+        position = (random.randint(0, base_width - size), random.randint(0, base_height - size))
+        color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255), 128)
+        if shape == 'circle':
+            draw.ellipse([position, (position[0] + size, position[1] + size)], fill=color)
+        else:
+            draw.rectangle([position, (position[0] + size, position[1] + size)], fill=color)
 
     # Create rounded corners
     radius = 25
@@ -490,8 +502,8 @@ async def rank(interaction: discord.Interaction):
 
     # Load fonts
     try:
-        font_large = ImageFont.truetype("fonts/SF-Pro-Display-Bold.otf", 48)
-        font_medium = ImageFont.truetype("fonts/SF-Pro-Display-Regular.otf", 36)
+        font_large = ImageFont.truetype("arial.ttf", 40)  
+        font_medium = ImageFont.truetype("arial.ttf", 20)  
     except:
         font_large = ImageFont.load_default()
         font_medium = ImageFont.load_default()
@@ -499,8 +511,8 @@ async def rank(interaction: discord.Interaction):
     # Function to draw text with shadow
     def draw_text_with_shadow(draw, position, text, font, text_color, shadow_color):
         x, y = position
-        # Draw shadow
-        draw.text((x + 2, y + 2), text, font=font, fill=shadow_color)
+        # Draw shadow with larger offset
+        draw.text((x + 4, y + 4), text, font=font, fill=shadow_color)  # Increased from 2 to 4
         # Draw main text
         draw.text((x, y), text, font=font, fill=text_color)
 
