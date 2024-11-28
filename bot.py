@@ -305,6 +305,8 @@ utility.caption_command.category = "Utility"
 utility.variation_command.category = "Utility"
 utility.refine_command.category = "Utility"
 utility.modify_command.category = "Utility"
+utility.analyze_command.category = "Utility"
+utility.youtube_command.category = "Utility"
 bot.tree.add_command(utility.say_command)
 bot.tree.add_command(utility.emoji_command)
 bot.tree.add_command(utility.avatar_command)
@@ -324,6 +326,8 @@ bot.tree.add_command(utility.caption_command)
 bot.tree.add_command(utility.variation_command)
 bot.tree.add_command(utility.refine_command)
 bot.tree.add_command(utility.modify_command)
+bot.tree.add_command(utility.analyze_command)
+bot.tree.add_command(utility.youtube_command)
 
 # Register the commands from fun.py
 fun.roast_command.category = "Fun"
@@ -403,6 +407,10 @@ misc.steamgame.category = "Misc"
 misc.steamnews.category = "Misc"
 misc.leaderboard.category = "Misc"
 misc.rank.category = "Misc"
+misc.itunes.category = "Misc"
+misc.cat.category = "Misc"
+misc.dog.category = "Misc"
+misc.dogfact.category = "Misc"
 bot.tree.add_command(misc.steam)
 bot.tree.add_command(misc.steamlink)
 bot.tree.add_command(misc.steamunlink)
@@ -410,6 +418,10 @@ bot.tree.add_command(misc.steamgame)
 bot.tree.add_command(misc.steamnews)
 bot.tree.add_command(misc.leaderboard)
 bot.tree.add_command(misc.rank)
+bot.tree.add_command(misc.itunes)
+bot.tree.add_command(misc.cat)
+bot.tree.add_command(misc.dog)
+bot.tree.add_command(misc.dogfact)
 
 @bot.event
 async def on_guild_join(guild):
@@ -456,7 +468,7 @@ async def on_message(message):
     # Check if the bot is mentioned or its name is used
     if bot.user.mentioned_in(message) or "seeyuh" in message.content.lower():
         # Check if there is no other content in the message
-        if message.content.strip() == f"<@{bot.user.id}>" or message.content.strip().lower() == "seeyuh":
+        if message.content.strip() == f"<@{bot.user.id}>" or message.content.strip().lower() == "seeyuh" and not message.attachments:
             # React with a random greeting emoji
             await message.add_reaction(random.choice(greeting_emojis))
             return
@@ -470,42 +482,110 @@ async def on_message(message):
     if (bot.user.mentioned_in(message) or "seeyuh" in message.content.lower()) and not is_image_request(message.content):
         if message.attachments:
             async with message.channel.typing():  # Show typing indicator
+                responses = []
                 for attachment in message.attachments:
                     if attachment.size > 10 * 1024 * 1024:  # Check if the attachment size exceeds 10 MB
-                        await message.reply(f"Attachment size exceeds 10 MB limit. Please upload a smaller file.")
-                        return # Stop further processing if this condition is met
-                    if attachment.content_type and (attachment.content_type.startswith("image/") or attachment.content_type == "application/pdf" or attachment.content_type.startswith("text/")):
+                        error_message = "Attachment size exceeds 10 MB limit. Please upload a smaller file."
+                        await message.reply(error_message)
+                        responses.append(error_message)
+                        continue  # Skip to the next attachment
+                    if attachment.content_type and (
+                        attachment.content_type.startswith("image/") or
+                        attachment.content_type == "application/pdf" or
+                        attachment.content_type.startswith("text/")
+                    ):
                         if attachment.content_type == "image/bmp" or attachment.content_type == "text/csv":
-                            await message.reply(f"Unsupported file type. {attachment.content_type} files are not supported. Please try different file types.")
+                            error_message = (
+                                f"Unsupported file type '{attachment.content_type}'. "
+                                "These files are not supported. Please try different file types."
+                            )
+                            await message.reply(error_message)
+                            responses.append(error_message)
                         else:
-                            await handle_attachment(bot, message, attachment)
+                            resp = await handle_attachment(bot, message, attachment)
+                            responses.append(resp)
                     else:
-                        await message.reply(f"Unsupported file type {attachment.content_type}. Please upload an image, pdf, plain text or text based code file.")
-            return  # Stop further processing if this condition is met
-
+                        error_message = (
+                            f"Unsupported file type '{attachment.content_type}'. "
+                            "Please upload an image, PDF, plain text, or text-based code file."
+                        )
+                        await message.reply(error_message)
+                        responses.append(error_message)
+    
+            # Start the background task to retry the entry update
+            bot.loop.create_task(retry_check_and_update_guild_entry(
+                supabase,
+                str(message.guild.id),
+                message.guild.name
+            ))
+    
+            # Save the user message and bot responses
+            current_query = message.content.strip().replace(f"<@{bot.user.id}>", "").replace("seeyuh", "").strip()
+            combined_response = '\n'.join(responses)
+            bot.loop.create_task(save_message_to_db(
+                str(message.guild.id),
+                message.author,
+                current_query,
+                combined_response
+            ))
+            return  # Stop further processing
+    
         # Check if the message is a reply to another message that has attachments
         if message.reference:
             try:
                 original_message = await message.channel.fetch_message(message.reference.message_id)
                 if original_message.attachments:
                     async with message.channel.typing():  # Show typing indicator
+                        responses = []
                         for attachment in original_message.attachments:
                             if attachment.size > 10 * 1024 * 1024:  # Check if the attachment size exceeds 10 MB
-                                await message.reply(f"Attachment size exceeds 10 MB limit. Please upload a smaller file.")
-                                return  # Stop further processing if this condition is met
-                            if attachment.content_type and (attachment.content_type.startswith("image/") or attachment.content_type == "application/pdf" or attachment.content_type.startswith("text/")):
+                                error_message = "Attachment size exceeds 10 MB limit. Please upload a smaller file."
+                                await message.reply(error_message)
+                                responses.append(error_message)
+                                continue  # Skip to the next attachment
+                            if attachment.content_type and (
+                                attachment.content_type.startswith("image/") or
+                                attachment.content_type == "application/pdf" or
+                                attachment.content_type.startswith("text/")
+                            ):
                                 if attachment.content_type == "image/bmp" or attachment.content_type == "text/csv":
-                                    await message.reply(f"Unsupported file type. {attachment.content_type} files are not supported. Please try different file types.")
+                                    error_message = (
+                                        f"Unsupported file type '{attachment.content_type}'. "
+                                        "These files are not supported. Please try different file types."
+                                    )
+                                    await message.reply(error_message)
+                                    responses.append(error_message)
                                 else:
-                                    await handle_attachment(bot, message, attachment)
-                            elif attachment.content_type == "text/plain":
-                                await handle_attachment(bot, message, attachment)
+                                    resp = await handle_attachment(bot, message, attachment)
+                                    responses.append(resp)
                             else:
-                                await message.reply(f"Unsupported file type {attachment.content_type}. Please upload an image, pdf, plain text or text based code file.")
-                    return  # Stop further processing if this condition is met
+                                error_message = (
+                                    f"Unsupported file type '{attachment.content_type}'. "
+                                    "Please upload an image, PDF, plain text, or text-based code file."
+                                )
+                                await message.reply(error_message)
+                                responses.append(error_message)
+    
+                    # Start the background task to retry the entry update
+                    bot.loop.create_task(retry_check_and_update_guild_entry(
+                        supabase,
+                        str(message.guild.id),
+                        message.guild.name
+                    ))
+    
+                    # Save the user message and bot responses
+                    current_query = message.content.strip().replace(f"<@{bot.user.id}>", "").replace("seeyuh", "").strip()
+                    combined_response = '\n'.join(responses)
+                    bot.loop.create_task(save_message_to_db(
+                        str(message.guild.id),
+                        message.author,
+                        current_query,
+                        combined_response
+                    ))
+                    return  # Stop further processing
             except discord.NotFound:
                 await message.reply("The original message could not be found.")
-                return  # Stop further processing if this condition is met
+                return  # Stop further processing
 
     if message.content.lower().startswith("say") or (("seeyuh" in message.content.lower() or bot.user.mentioned_in(message)) and "say" in message.content.lower()):
         content = message.content.strip()

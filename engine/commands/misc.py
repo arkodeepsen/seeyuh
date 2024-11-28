@@ -543,3 +543,110 @@ async def rank(interaction: discord.Interaction):
         image_binary.seek(0)
         file = discord.File(fp=image_binary, filename='rank.png')
         await interaction.followup.send(file=file)
+        
+@app_commands.command(name='itunes', description="Search the iTunes Store's catalog of music, movies, TV shows, podcasts, and audiobooks.")
+@app_commands.describe(
+    term='The search term or keyword(s) you want to search for.',
+    media='The type of media you want to search for (e.g. music, movie, tvShow, podcast, audiobook).',
+    entity='The type of entity you want to search for (e.g. album, song, movie, tvSeason, podcast, audiobook).',
+    attribute='The attribute you want to search for (e.g. actorTerm, genreIndex, languageTerm).',
+    limit='The maximum number of results to return.'
+)
+@app_commands.choices(
+    media=[
+        app_commands.Choice(name='Music', value='music'),
+        app_commands.Choice(name='Movie', value='movie'),
+        app_commands.Choice(name='TV Show', value='tvShow'),
+        app_commands.Choice(name='Podcast', value='podcast'),
+        app_commands.Choice(name='Audiobook', value='audiobook')
+    ],
+    entity=[
+        app_commands.Choice(name='Album', value='album'),
+        app_commands.Choice(name='Song', value='song'),
+        app_commands.Choice(name='Movie', value='movie'),
+        app_commands.Choice(name='TV Season', value='tvSeason'),
+        app_commands.Choice(name='Podcast', value='podcast'),
+        app_commands.Choice(name='Audiobook', value='audiobook')
+    ]
+)
+async def itunes(interaction: discord.Interaction, term: str, media: str, entity: str, attribute: str = None, limit: int = 5):
+    """Search the iTunes Store's catalog."""
+    await interaction.response.defer(ephemeral=False)
+
+    params = {
+        'term': term,
+        'limit': limit,
+        'media': media,
+        'entity': entity,
+        'attribute': attribute
+    }
+
+    api_url = "https://itunes.apple.com/search"
+    response = requests.get(api_url, params=params)
+    if response.status_code != 200:
+        await interaction.followup.send("❌ Failed to retrieve data from iTunes.", ephemeral=True)
+        return
+
+    data = response.json()
+    results = data.get('results', [])
+    if not results:
+        await interaction.followup.send("❌ No results found.", ephemeral=True)
+        return
+
+    embed = discord.Embed(
+        title=f"iTunes Search Results for '{term}'",
+        color=discord.Color.blue()
+    )
+
+    for result in results:
+        name = result.get('trackName') or result.get('collectionName') or result.get('artistName')
+        kind = result.get('kind') or result.get('collectionType') or result.get('wrapperType')
+        url = result.get('trackViewUrl') or result.get('collectionViewUrl') or result.get('artistViewUrl')
+        embed.add_field(name=f"{name} ({kind})", value=f"[View on iTunes]({url})", inline=False)
+
+    await interaction.followup.send(embed=embed)
+    
+@app_commands.command(name='cat', description='Get a random cat image.')
+async def cat(interaction: discord.Interaction):
+    """Get a random cat image."""
+    await interaction.response.defer(ephemeral=False)
+    async with aiohttp.ClientSession() as session:
+        async with session.get('https://cataas.com/cat') as resp:
+            if resp.status != 200:
+                await interaction.followup.send("❌ Failed to fetch cat image.", ephemeral=True)
+                return
+            image_data = await resp.read()
+            file = discord.File(BytesIO(image_data), filename="cat.png")
+            await interaction.followup.send(file=file)
+
+@app_commands.command(name='dog', description='Get a random dog image.')
+@app_commands.describe(breed='Optional breed of the dog.')
+async def dog(interaction: discord.Interaction, breed: str = None):
+    """Get a random dog image."""
+    await interaction.response.defer(ephemeral=False)
+    url = f'https://dog.ceo/api/breed/{breed}/images/random' if breed else 'https://dog.ceo/api/breeds/image/random'
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            if resp.status != 200:
+                await interaction.followup.send("❌ Failed to fetch dog image.", ephemeral=True)
+                return
+            data = await resp.json()
+            if data['status'] == 'success':
+                await interaction.followup.send(data['message'])
+            else:
+                await interaction.followup.send("❌ Failed to fetch dog image.", ephemeral=True)
+            
+@app_commands.command(name='dogfact', description='Get a random dog fact.')
+async def dogfact(interaction: discord.Interaction):
+    """Get a random dog fact."""
+    await interaction.response.defer(ephemeral=False)
+    async with aiohttp.ClientSession() as session:
+        async with session.get('https://dog-api.kinduff.com/api/facts') as resp:
+            if resp.status != 200:
+                await interaction.followup.send("❌ Failed to fetch dog fact.", ephemeral=True)
+                return
+            data = await resp.json()
+            if data['success']:
+                await interaction.followup.send(data['facts'][0])
+            else:
+                await interaction.followup.send("❌ Failed to fetch dog fact.", ephemeral=True)

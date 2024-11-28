@@ -1,9 +1,12 @@
 import discord, asyncio, aiohttp, random, httpx, re, json, io, base64
 from discord import app_commands
+from typing import Optional
+from pytube import Search
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from PIL import Image
 from engine.utils import load_env, get_reddit_access_token, unsplash_env, hf_env
+from engine.ai.gemini_multimodal import handle_interaction
 from engine.ai.gemini import code_ai_response, explain_ai_response, ask_ai_response, translate, prompt_ai_response
 from engine.ai.gemini_models import (
     pro10creative,
@@ -110,6 +113,43 @@ async def avatar_command(interaction: discord.Interaction, user: discord.User = 
     if user is None:
         user = interaction.user
     await interaction.response.send_message(user.display_avatar.url)
+
+@app_commands.command(
+    name='analyze',
+    description='Analyze the content of an image, PDF, or text file.'
+)
+async def analyze_command(
+    interaction: discord.Interaction,
+    file: discord.Attachment,
+    prompt: Optional[str] = None
+):
+    await interaction.response.defer()
+
+    # Check if the file size exceeds 10 MB
+    if file.size > 10 * 1024 * 1024:  # 10 MB limit
+        await interaction.followup.send(
+            "Attachment size exceeds 10 MB limit. Please upload a smaller file."
+        )
+        return  # Stop further processing
+
+    # Check if the file is an image, PDF, or text file
+    if file.content_type and (
+        file.content_type.startswith("image/") or
+        file.content_type == "application/pdf" or
+        file.content_type.startswith("text/")
+    ):
+        if file.content_type == "image/bmp" or file.content_type == "text/csv":
+            await interaction.followup.send(
+                f"Unsupported file type. {file.content_type} files are not supported. Please try different file types."
+            )
+            return  # Stop further processing
+        else:
+            # Use the handle_attachment function
+            await handle_interaction(interaction, file, prompt)
+    else:
+        await interaction.followup.send(
+            f"Unsupported file type {file.content_type}. Please upload an image, PDF, plain text, or text-based code file."
+        )
 
 @app_commands.command(name='poll', description='[MOD ONLY] Usage: /poll "Question" "Option 1, Option 2, Option 3" [duration in minutes]')
 async def poll_command(interaction: discord.Interaction, question: str, options: str, duration: int = 60):
@@ -1292,3 +1332,52 @@ async def modify_command(
         await interaction.followup.send(
             "An error occurred while processing your request."
         )
+
+async def search_youtube(query):
+    search = Search(query)
+    results = []
+    for video in search.results:
+        results.append((video.title, video.description, video.watch_url, video.thumbnail_url))
+    return results
+
+@app_commands.command(name="youtube", description="Search for videos on YouTube.")
+@app_commands.describe(
+    query="The search query for YouTube."
+)
+async def youtube_command(interaction: discord.Interaction, query: str):
+    await interaction.response.defer()
+    try:
+        results = await search_youtube(query)
+        if results:
+            embed = discord.Embed(
+                title=f"Search Results for '{query}'",
+                color=discord.Color.red()
+            )
+            embed.set_author(
+                name=f"Requested by {interaction.user}",
+                icon_url=interaction.user.display_avatar.url
+            )
+            embed.set_footer(
+                text=interaction.client.user.name,
+                icon_url=interaction.client.user.display_avatar.url
+            )
+            for title, description, source, thumbnail in results:
+                # Handle None values and truncate long descriptions
+                safe_title = title if title else "No title available"
+                safe_description = description[:200] + "..." if description and len(description) > 200 else description if description else "No description available"
+                safe_source = source if source else "#"
+                
+                embed.add_field(
+                    name=safe_title[:256],  # Discord embed title limit
+                    value=f"{safe_description}\n{safe_source}",
+                    inline=False
+                )
+                embed.set_thumbnail(url=thumbnail)
+            await interaction.followup.send(embed=embed)
+        else:
+            await interaction.followup.send("No results found for the search query.")
+    except Exception as e:
+        print(f"Error: {e}")
+        await interaction.followup.send("An error occurred while processing your request.")
+
+        

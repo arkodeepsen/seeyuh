@@ -2,6 +2,7 @@ import discord, random, httpx, aiohttp, asyncio
 from discord import app_commands
 from engine.ai.gemini import slash_ai_response, slash_ai8b_response, mystery
 from engine.utils import load_env, giphy_env, get_reddit_access_token
+from html import unescape
 # Load environment variables
 DISCORD_TOKEN, OWNER, url, key = load_env()
 # Your bot's token and Giphy API key
@@ -48,17 +49,25 @@ async def compliment_command(interaction: discord.Interaction, user: discord.Use
     
 @app_commands.command(name="joke", description="Get a light-hearted joke from the bot!")
 async def joke_command(interaction: discord.Interaction):
-    # Acknowledge the interaction immediately to prevent timeouts
     await interaction.response.defer()
 
-    # Create a joke prompt
-    joke_prompt = "Tell a light-hearted, funny joke that will make the user laugh."
+    url = "https://official-joke-api.appspot.com/jokes/random"
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            joke_data = response.json()
+            setup = joke_data["setup"]
+            punchline = joke_data["punchline"]
+            joke = f"{setup}\n\n{punchline}"
+    except httpx.HTTPStatusError as e:
+        joke = "There was an error fetching a joke. Please try again later."
+        print(f"HTTP error: {e}")
+    except Exception as e:
+        joke = "An unexpected error occurred. Please try again later."
+        print(f"Unexpected error: {e}")
 
-    # Get the AI response for the joke
-    response = await slash_ai8b_response(joke_prompt)
-    
-    # Send the joke as a reply after deferring
-    await interaction.followup.send(f"{response}")
+    await interaction.followup.send(joke)
     
 @app_commands.command(name="fact", description="Get a random interesting fact from the bot!")
 async def fact_command(interaction: discord.Interaction):
@@ -362,11 +371,30 @@ class TicTacToeView(discord.ui.View):
 async def tictactoe_command(interaction: discord.Interaction):
     view = TicTacToeView()
     await interaction.response.send_message("X's turn", view=view)
-    
+
 @app_commands.command(name="trivia", description="Play a fun trivia quiz with the bot!")
 async def trivia_command(interaction: discord.Interaction):
-    # Create a list of trivia questions and answers
-    trivia = {
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get('https://opentdb.com/api.php?amount=1&type=multiple') as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    if data['response_code'] == 0:
+                        question_data = data['results'][0]
+                        # Decode HTML entities in the question and answers
+                        question = unescape(question_data['question'])
+                        correct_answer = unescape(question_data['correct_answer'])
+                        incorrect_answers = [unescape(ans) for ans in question_data['incorrect_answers']]
+                        all_answers = incorrect_answers + [correct_answer]
+                        random.shuffle(all_answers)
+                    else:
+                        raise ValueError("No trivia questions available.")
+                else:
+                    raise ConnectionError("Failed to fetch trivia question.")
+    except Exception as e:
+        # Use the fallback trivia dictionary (same as before)
+        # ... [previous trivia dictionary remains unchanged]
+        trivia = {
         "What is the capital of France?": "Paris",
         "What is the largest planet in our solar system?": "Jupiter",
         "Who painted the Mona Lisa?": "Leonardo da Vinci",
@@ -437,29 +465,39 @@ async def trivia_command(interaction: discord.Interaction):
         "What is the national animal of India?": "Bengal Tiger",
         "Who is known as the father of modern philosophy?": "René Descartes",
         "What is the national sport of France?": "Football"
-    }
-    
-    # Choose a random question from the trivia list
-    question = random.choice(list(trivia.keys()))
-    correct_answer = trivia[question]
-    
-    # Send the trivia question as a reply
-    await interaction.response.send_message(f"**Trivia Question:** {question}")
+        }
+        question, correct_answer = random.choice(list(trivia.items()))
+        all_answers = [correct_answer]
+        random.shuffle(all_answers)
 
-    def check(m):
-        return m.author == interaction.user and m.channel == interaction.channel
+    # Create buttons for answers
+    class TriviaView(discord.ui.View):
+        def __init__(self, answers, correct):
+            super().__init__(timeout=30)
+            self.correct = correct
+            for idx, answer in enumerate(answers):
+                self.add_item(TriviaButton(answer, idx))
 
-    try:
-        # Wait for the user's response
-        user_response = await interaction.client.wait_for('message', check=check, timeout=30.0)
-        
-        # Check if the answer is correct
-        if correct_answer.lower() in user_response.content.strip().lower():
-            await interaction.followup.send(f"Correct! 🎉 The answer is indeed {correct_answer}.")
-        else:
-            await interaction.followup.send(f"Sorry, that's incorrect. The correct answer is {correct_answer}.")
-    except asyncio.TimeoutError:
-        await interaction.followup.send(f"You took too long to respond! The correct answer was {correct_answer}.")
+    class TriviaButton(discord.ui.Button):
+        def __init__(self, answer, idx):
+            super().__init__(style=discord.ButtonStyle.primary, label=answer, custom_id=str(idx))
+
+        async def callback(self, interaction: discord.Interaction):
+            if self.label == self.view.correct:
+                await interaction.response.send_message("Correct! 🎉")
+            else:
+                await interaction.response.send_message(f"Wrong! The correct answer was: {self.view.correct}")
+            self.view.stop()
+
+    # Create and send the view with buttons
+    view = TriviaView(all_answers, correct_answer)
+    embed = discord.Embed(title="Trivia Question", description=question, color=discord.Color.blue())
+    await interaction.response.send_message(embed=embed, view=view)
+
+    # Handle timeout
+    await view.wait()
+    if not view.is_finished():
+        await interaction.followup.send(f"Time's up! The correct answer was: {correct_answer}")
 
 # Define the choices with emojis
 rpsls_choices = [
@@ -609,38 +647,44 @@ async def meme_command(interaction: discord.Interaction):
         await interaction.followup.send("An unexpected error occurred. Please try again later.")
         print(f"Unexpected error: {e}")
         
-@app_commands.command(name="dadjoke", description="Get a random dad joke from r/dadjokes.")
-async def dadjoke_command(interaction: discord.Interaction):
+@app_commands.command(name="dadjoke", description="Get a random dad joke!")
+async def dadjoke_command(interaction: discord.Interaction, search: str = None):
     await interaction.response.defer()
-    access_token = await get_reddit_access_token()
-    url = "https://oauth.reddit.com/r/dadjokes/hot.json?limit=50"
+    
     headers = {
-        "Authorization": f"Bearer {access_token}",
-        "User-Agent": "seeyuh/0.1.0 (by u/drgamerarko)"
+        'Accept': 'application/json',
     }
+    
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.get(url, headers=headers)
-            response.raise_for_status()
-            data = response.json()
-            
-        # Extract dad jokes from the response
-        jokes = data["data"]["children"]
-        random_joke = random.choice(jokes)["data"]
-        
+            # Use base URL if no search term
+            url = 'https://icanhazdadjoke.com/'
+            if search:
+                url += '/search'
+                params = {'term': search, 'limit': 1}
+                response = await client.get(url, headers=headers, params=params)
+                data = response.json()
+                if not data['results']:
+                    await interaction.followup.send("No dad jokes found with that search term! Try another one.")
+                    return
+                joke = data['results'][0]['joke']
+            else:
+                response = await client.get(url, headers=headers)
+                data = response.json()
+                joke = data['joke']
+                
         # Create and send the embed with the dad joke
-        embed = discord.Embed(title="Dad Joke", description=random_joke["title"], color=discord.Color.random())
-        embed.add_field(name="Joke", value=random_joke["selftext"], inline=False)
-        embed.set_footer(text=f"👍 {random_joke['score']} | 💬 {random_joke['num_comments']} comments", icon_url=interaction.client.user.avatar.url)
-        
+        embed = discord.Embed(
+            title="Dad Joke", 
+            description=joke, 
+            color=discord.Color.random()
+        )
+        embed.set_footer(text=interaction.client.user.name, icon_url=interaction.client.user.display_avatar.url)
         await interaction.followup.send(embed=embed)
     
-    except httpx.HTTPStatusError as e:
-        await interaction.followup.send("There was an error fetching dad jokes from Reddit. Please try again later.")
-        print(f"HTTP error: {e}")
     except Exception as e:
-        await interaction.followup.send("An unexpected error occurred. Please try again later.")
-        print(f"Unexpected error: {e}")
+        await interaction.followup.send("Failed to fetch a dad joke. Please try again later.")
+        print(f"Error fetching dad joke: {e}")
         
 COW_TYPES = {
     "default": """
