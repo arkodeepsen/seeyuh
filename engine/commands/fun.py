@@ -1,5 +1,7 @@
-import discord, random, httpx, aiohttp, asyncio
+import discord, random, httpx, aiohttp, asyncio, urllib.parse
 from discord import app_commands
+from difflib import get_close_matches
+from typing import Optional
 from engine.ai.gemini import slash_ai_response, slash_ai8b_response, mystery
 from engine.utils import load_env, giphy_env, get_reddit_access_token
 from html import unescape
@@ -774,3 +776,101 @@ async def mystery_command(interaction: discord.Interaction):
     await interaction.response.defer()  # Defer the interaction response
     response = await mystery("Give a mysterious, cryptic response that will intrigue the user.")
     await interaction.followup.send(response)  # Use followup.send instead of response.send_message
+    
+# Load all meme templates from file
+with open('engine/meme-templates.txt', 'r') as f:
+    MEME_TEMPLATES = [line.strip() for line in f if line.strip()]
+
+# Manually map common keywords to specific templates
+MANUAL_TEMPLATE_MAP = {
+    "drake": ["Drake Bad Good"],
+    "10 guy": ["10 Guy"],
+    "grumpy cat": ["Grumpy Cat"],
+    "y u no": ["Y U No"],
+    "futurama fry": ["Futurama Fry"],
+    "chemistry cat": ["Chemistry Cat"],
+    "condescending wonka": ["Condescending Wonka"]
+}
+
+def clean_template_name(name):
+    """Convert template name to API format"""
+    return name.replace(" ", "-")
+
+def find_template(user_input, templates):
+    """Find closest matching template using manual and fuzzy matching"""
+    # Convert input to lowercase for comparison
+    user_input = user_input.lower()
+    
+    # Check manual map first
+    for keyword, template_list in MANUAL_TEMPLATE_MAP.items():
+        if keyword in user_input:
+            return template_list[0]  # Return the first match from the list
+    
+    # Create map of lowercase names to original names
+    template_map = {t.lower(): t for t in templates}
+    
+    # Direct match
+    if user_input in template_map:
+        return template_map[user_input]
+    
+    # Check if user input contains any part of the template names
+    for template in template_map.keys():
+        if user_input in template:
+            return template_map[template]
+    
+    # Fuzzy match with a higher cutoff value
+    matches = get_close_matches(user_input, template_map.keys(), n=1, cutoff=0.8)
+    if matches:
+        return template_map[matches[0]]
+    
+    return None
+
+@app_commands.command(
+    name="memegen",
+    description="Generate a custom meme with top and bottom text"
+)
+@app_commands.describe(
+    top_text="Text for top of meme",
+    bottom_text="Text for bottom of meme", 
+    template="Optional: Specific meme template name",
+    custom_url="Optional: Custom image URL to create meme from"
+)
+async def memegen_command(
+    interaction: discord.Interaction,
+    top_text: str,
+    bottom_text: str,
+    template: Optional[str] = None,
+    custom_url: Optional[str] = None
+):
+    await interaction.response.defer()
+
+    try:
+        if custom_url:
+            url = f"http://apimeme.com/meme?url={urllib.parse.quote(custom_url)}&top={urllib.parse.quote(top_text)}&bottom={urllib.parse.quote(bottom_text)}"
+        else:
+            # Find matching template
+            if template:
+                meme_template = find_template(template, MEME_TEMPLATES)
+                if not meme_template:
+                    await interaction.followup.send(f"❌ Template not found: {template}")
+                    return
+            else:
+                meme_template = random.choice(MEME_TEMPLATES)
+            
+            # Convert template name to URL format
+            meme_template = clean_template_name(meme_template)
+            url = f"http://apimeme.com/meme?meme={meme_template}&top={urllib.parse.quote(top_text)}&bottom={urllib.parse.quote(bottom_text)}"
+
+        embed = discord.Embed(
+            title="Generated Meme",
+            description=f"Template: {template or 'Random' if not custom_url else 'Custom URL'}"
+        )
+        embed.set_image(url=url)
+        
+        await interaction.followup.send(embed=embed)
+
+    except Exception as e:
+        await interaction.followup.send(
+            f"❌ Failed to generate meme: {str(e)}",
+            ephemeral=True
+        )

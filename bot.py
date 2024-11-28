@@ -352,6 +352,7 @@ fun.wordle_command.category = "Fun"
 fun.trivia_command.category = "Fun"
 fun.rpsls_command.category = "Fun"
 fun.mystery_command.category = "Fun"
+fun.memegen_command.category = "Fun"
 bot.tree.add_command(fun.roast_command)
 bot.tree.add_command(fun.compliment_command)
 bot.tree.add_command(fun.joke_command)
@@ -374,6 +375,7 @@ bot.tree.add_command(fun.wordle_command)
 bot.tree.add_command(fun.trivia_command)
 bot.tree.add_command(fun.rpsls_command)
 bot.tree.add_command(fun.mystery_command)
+bot.tree.add_command(fun.memegen_command)
 
 # Register the commands from music.py
 music.join.category = "Music"

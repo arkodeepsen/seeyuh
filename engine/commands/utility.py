@@ -971,23 +971,33 @@ async def imagine_command(
     interaction: discord.Interaction,
     prompt: str,
     model: str = "stable-diffusion-3.5-turbo",
-    negative_prompt: str = "(deformed iris, deformed pupils, semi-realistic, cgi, 3d, render, sketch, cartoon, drawing, anime:1.4), text, close up, cropped, out of frame, worst quality, low quality, jpeg artifacts, ugly, duplicate, morbid, mutilated, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, dehydrated, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, too many fingers, long neck",
-    width: int = None,
-    height: int = None,
-    steps: int = None,
-    seed: int = random.randint(0, 3999999999)
+    negative_prompt: Optional[str] = None,  # Changed to Optional
+    width: Optional[int] = None,
+    height: Optional[int] = None,
+    steps: Optional[int] = None,
+    seed: Optional[int] = None  # Changed to Optional
 ):
-    await interaction.response.defer()  # Show processing indicator
+    await interaction.response.defer()
 
-    image_data = await generate_image(
-        prompt,
-        negative_prompt=negative_prompt,
-        width=width,
-        height=height,
-        steps=steps,
-        model=model,
-        seed=seed
-    )
+    # Only pass non-None values
+    kwargs = {
+        "prompt": prompt,
+        "model": model
+    }
+    
+    # Add optional parameters only if they're provided
+    if negative_prompt is not None:
+        kwargs["negative_prompt"] = negative_prompt
+    if width is not None:
+        kwargs["width"] = width
+    if height is not None:
+        kwargs["height"] = height
+    if steps is not None:
+        kwargs["steps"] = steps
+    if seed is not None:
+        kwargs["seed"] = seed
+
+    image_data = await generate_image(**kwargs)
 
     if image_data:
         try:
@@ -1379,5 +1389,4 @@ async def youtube_command(interaction: discord.Interaction, query: str):
     except Exception as e:
         print(f"Error: {e}")
         await interaction.followup.send("An error occurred while processing your request.")
-
         
