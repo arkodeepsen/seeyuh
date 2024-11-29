@@ -1045,7 +1045,7 @@ async def generate_caption(image_bytes):
 
     async with aiohttp.ClientSession() as session:
         async with session.post(
-            "https://api-inference.huggingface.co/models/nlpconnect/vit-gpt2-image-captioning",
+            "https://api-inference.huggingface.co/models/Salesforce/blip-image-captioning-large",
             headers=headers,
             json=payload,
             timeout=120
