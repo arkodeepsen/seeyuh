@@ -1,6 +1,7 @@
-import discord, random, httpx, aiohttp, asyncio, urllib.parse
+import discord, random, httpx, aiohttp, asyncio, urllib.parse, textwrap, io
 from discord import app_commands
 from difflib import get_close_matches
+from PIL import Image, ImageDraw, ImageFont
 from typing import Optional
 from engine.ai.gemini import slash_ai_response, slash_ai8b_response, mystery
 from engine.utils import load_env, giphy_env, get_reddit_access_token
@@ -776,6 +777,64 @@ async def mystery_command(interaction: discord.Interaction):
     await interaction.response.defer()  # Defer the interaction response
     response = await mystery("Give a mysterious, cryptic response that will intrigue the user.")
     await interaction.followup.send(response)  # Use followup.send instead of response.send_message
+
+async def download_image(url: str) -> Image.Image:
+    """Download image from URL and return PIL Image object"""
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            if response.status == 200:
+                image_data = await response.read()
+                return Image.open(io.BytesIO(image_data))
+            raise Exception(f"Failed to download image: {response.status}")
+
+def add_text_to_image(image: Image.Image, top_text: str, bottom_text: str) -> Image.Image:
+    """Add top and bottom text to image in meme style"""
+    # Convert image to RGB mode if needed
+    if image.mode not in ('RGB', 'RGBA'):
+        image = image.convert('RGB')
+        
+    # Create drawing context
+    draw = ImageDraw.Draw(image)
+    width, height = image.size
+    
+    # Load font and calculate size (proportional to image width)
+    font_size = int(width/10)
+    try:
+        font = ImageFont.truetype("impact.ttf", font_size)
+    except:
+        font = ImageFont.load_default()
+    
+    # Wrap text
+    margin = 20
+    char_width = int(width/font_size)
+    top_lines = textwrap.wrap(top_text.upper(), width=char_width)
+    bottom_lines = textwrap.wrap(bottom_text.upper(), width=char_width)
+    
+    # Draw top text with outline
+    y = margin
+    for line in top_lines:
+        text_width = draw.textlength(line, font=font)
+        x = (width - text_width) / 2
+        # Draw text outline
+        for adj in range(-2, 3):
+            for adj2 in range(-2, 3):
+                draw.text((x+adj, y+adj2), line, font=font, fill='black')
+        draw.text((x, y), line, font=font, fill='white')
+        y += font_size
+    
+    # Draw bottom text with outline
+    y = height - margin - font_size * len(bottom_lines)
+    for line in bottom_lines:
+        text_width = draw.textlength(line, font=font)
+        x = (width - text_width) / 2
+        # Draw text outline
+        for adj in range(-2, 3):
+            for adj2 in range(-2, 3):
+                draw.text((x+adj, y+adj2), line, font=font, fill='black')
+        draw.text((x, y), line, font=font, fill='white')
+        y += font_size
+    
+    return image
     
 # Load all meme templates from file
 with open('engine/meme-templates.txt', 'r') as f:
@@ -792,19 +851,29 @@ MANUAL_TEMPLATE_MAP = {
     "condescending wonka": ["Condescending Wonka"]
 }
 
-def clean_template_name(name):
+def is_valid_image_url(url: str) -> bool:
+    """Check if URL is a valid image URL"""
+    return any(ext in url.lower() for ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp'])
+
+def clean_discord_url(url: str) -> str:
+    """Clean Discord CDN URLs by removing query parameters"""
+    base_url = url.split('?')[0]
+    base_url = base_url.split('&format')[0]
+    base_url = base_url.split('&width')[0]
+    return base_url
+
+def clean_template_name(name: str) -> str:
     """Convert template name to API format"""
     return name.replace(" ", "-")
 
-def find_template(user_input, templates):
+def find_template(user_input: str, templates: list) -> Optional[str]:
     """Find closest matching template using manual and fuzzy matching"""
-    # Convert input to lowercase for comparison
     user_input = user_input.lower()
     
     # Check manual map first
     for keyword, template_list in MANUAL_TEMPLATE_MAP.items():
         if keyword in user_input:
-            return template_list[0]  # Return the first match from the list
+            return template_list[0]
     
     # Create map of lowercase names to original names
     template_map = {t.lower(): t for t in templates}
@@ -846,31 +915,63 @@ async def memegen_command(
 
     try:
         if custom_url:
-            url = f"http://apimeme.com/meme?url={urllib.parse.quote(custom_url)}&top={urllib.parse.quote(top_text)}&bottom={urllib.parse.quote(bottom_text)}"
+            try:
+                # Download and process image
+                image = await download_image(custom_url)
+                image = add_text_to_image(image, top_text, bottom_text)
+                
+                # Convert to bytes for Discord upload
+                with io.BytesIO() as image_binary:
+                    image.save(image_binary, 'PNG')
+                    image_binary.seek(0)
+                    
+                    # Send as Discord attachment
+                    file = discord.File(fp=image_binary, filename='meme.png')
+                    embed = discord.Embed(title="Generated Meme", color=discord.Color.blue())
+                    embed.set_image(url="attachment://meme.png")
+                    await interaction.followup.send(embed=embed, file=file)
+                    
+            except Exception as e:
+                print(f"Error generating custom meme: {str(e)}")
+                await interaction.followup.send(
+                    "❌ Failed to generate meme. Make sure the image URL is valid.",
+                    ephemeral=True
+                )
+            return
+        
+        # Template-based meme generation
+        if template:
+            meme_template = find_template(template, MEME_TEMPLATES)
+            if not meme_template:
+                await interaction.followup.send(f"❌ Template not found: {template}")
+                return
         else:
-            # Find matching template
-            if template:
-                meme_template = find_template(template, MEME_TEMPLATES)
-                if not meme_template:
-                    await interaction.followup.send(f"❌ Template not found: {template}")
-                    return
-            else:
-                meme_template = random.choice(MEME_TEMPLATES)
-            
-            # Convert template name to URL format
-            meme_template = clean_template_name(meme_template)
-            url = f"http://apimeme.com/meme?meme={meme_template}&top={urllib.parse.quote(top_text)}&bottom={urllib.parse.quote(bottom_text)}"
+            meme_template = random.choice(MEME_TEMPLATES)
+        
+        # Convert template name to URL format and encode text
+        meme_template = clean_template_name(meme_template)
+        encoded_top = urllib.parse.quote(top_text)
+        encoded_bottom = urllib.parse.quote(bottom_text)
+        
+        url = f"http://apimeme.com/meme?meme={meme_template}&top={encoded_top}&bottom={encoded_bottom}"
 
         embed = discord.Embed(
             title="Generated Meme",
-            description=f"Template: {template or 'Random' if not custom_url else 'Custom URL'}"
+            description=f"Template: {template or 'Random'}",
+            color=discord.Color.blue()
         )
         embed.set_image(url=url)
+        embed.set_footer(
+            text=f"Requested by {interaction.user}",
+            icon_url=interaction.user.display_avatar.url
+        )
         
         await interaction.followup.send(embed=embed)
 
     except Exception as e:
+        print(f"Error generating meme: {str(e)}")
         await interaction.followup.send(
-            f"❌ Failed to generate meme: {str(e)}",
+            "❌ Failed to generate meme. Please try again later.",
             ephemeral=True
         )
+        
