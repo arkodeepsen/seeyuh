@@ -116,7 +116,7 @@ async def avatar_command(interaction: discord.Interaction, user: discord.User = 
 
 @app_commands.command(
     name='analyze',
-    description='Analyze the content of an image, PDF, or text file.'
+    description='Analyze the content of an image, video, PDF, text/code or text/plain.'
 )
 async def analyze_command(
     interaction: discord.Interaction,
@@ -135,7 +135,10 @@ async def analyze_command(
     # Check if the file is an image, PDF, or text file
     if file.content_type and (
         file.content_type.startswith("image/") or
+        file.content_type.startswith("video/") or
         file.content_type == "application/pdf" or
+        file.content_type == "application/javascript" or
+        file.content_type == "application/java" or
         file.content_type.startswith("text/")
     ):
         if file.content_type == "image/bmp" or file.content_type == "text/csv":
@@ -148,10 +151,10 @@ async def analyze_command(
             await handle_interaction(interaction, file, prompt)
     else:
         await interaction.followup.send(
-            f"Unsupported file type {file.content_type}. Please upload an image, PDF, plain text, or text-based code file."
+            f"Unsupported file type {file.content_type}. Please upload an image, video, PDF, plain text, or text-based code file."
         )
 
-@app_commands.command(name='poll', description='[MOD ONLY] Usage: /poll "Question" "Option 1, Option 2, Option 3" [duration in minutes]')
+@app_commands.command(name='poll', description='Usage: /poll "Question" "Option 1, Option 2, Option 3" [duration in minutes]')
 async def poll_command(interaction: discord.Interaction, question: str, options: str, duration: int = 60):
     # Check permissions
     if not interaction.user.guild_permissions.manage_channels:

@@ -44,11 +44,11 @@ async def handle_attachment(bot, message, attachment):
         logging.info(f"Content Type: {content_type}")
 
         # Define supported content types
-        supported_types = ['image/', 'application/', 'text/']
+        supported_types = ['image/', 'application/', 'text/', 'video/']
         is_supported = any(content_type.startswith(supported) for supported in supported_types)
 
         if not is_supported:
-            await message.reply("Unsupported file type. Please upload an image, PDF, or text file.")
+            await message.reply("Unsupported file type. Please upload an image, PDF, video, code or text file.")
             return
 
         # Set the local file path
@@ -85,6 +85,8 @@ async def handle_attachment(bot, message, attachment):
                 prompt = "Provide a summary of the document."
             elif content_type.startswith('text/'):
                 prompt = "Provide an analysis of the text file."
+            elif content_type.startswith('video/'):
+                prompt = "Provide a summary of the video."    
             else:
                 prompt = "Analyze the content of the file."
         prompt = f"You are a chill discord bot with multimodal AI features. Your responses are genz style.\n{context_message} \nCurrent query: {prompt}"
@@ -123,7 +125,7 @@ async def handle_interaction(
         logging.info(f"Content Type: {content_type}")
 
         # Define supported content types
-        supported_types = ['image/', 'application/', 'text/']
+        supported_types = ['image/', 'application/', 'text/', 'video/']
         is_supported = any(content_type.startswith(supported) for supported in supported_types)
 
         if not is_supported:
@@ -156,6 +158,8 @@ async def handle_interaction(
                 prompt = "Provide a summary of the document."
             elif content_type.startswith('text/'):
                 prompt = "Provide an analysis of the text file."
+            elif content_type.startswith('video/'):
+                prompt = "Provide a summary of the video."    
             else:
                 prompt = "Analyze the content of the file."
         prompt = f"Generate a response to the following prompt under 4096 characters: {prompt}"
@@ -169,21 +173,28 @@ async def handle_interaction(
 
             for chunk in content_chunks:
                 embed = discord.Embed(
-                    title="Image Analysis" if content_type.startswith('image/') else "File Analysis",
+                    title="Image Analysis" if content_type.startswith('image/') else "Video Analysis" if content_type.startswith('video/') else "File Analysis",
                     description=chunk,
                     color=0x00ff00
                 )
                 if content_type.startswith('image/'):
                     embed.set_thumbnail(url=file.url)
                     icon_url = (
-                        str(interaction.client.user.avatar.url)
-                        if interaction.client.user.avatar
-                        else str(interaction.client.user.default_avatar.url)
+                    str(interaction.client.user.avatar.url)
+                    if interaction.client.user.avatar
+                    else str(interaction.client.user.default_avatar.url)
                     )
-                    embed.set_footer(
-                        text=interaction.client.user.name,
-                        icon_url=icon_url
+                elif content_type.startswith('video/'):
+                    embed.set_image(url=file.url)
+                    icon_url = (
+                    str(interaction.client.user.avatar.url)
+                    if interaction.client.user.avatar
+                    else str(interaction.client.user.default_avatar.url)
                     )
+                embed.set_footer(
+                    text=interaction.client.user.name,
+                    icon_url=icon_url
+                )
                 await interaction.followup.send(embed=embed)
         else:
             await interaction.followup.send("Failed to extract content from the file.")

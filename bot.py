@@ -470,7 +470,7 @@ async def on_message(message):
     # Check if the bot is mentioned or its name is used
     if bot.user.mentioned_in(message) or "seeyuh" in message.content.lower():
         # Check if there is no other content in the message
-        if message.content.strip() == f"<@{bot.user.id}>" or message.content.strip().lower() == "seeyuh" and not message.attachments:
+        if (message.content.strip() == f"<@{bot.user.id}>" or message.content.strip().lower() == "seeyuh") and not message.attachments and not message.reference:
             # React with a random greeting emoji
             await message.add_reaction(random.choice(greeting_emojis))
             return
@@ -493,7 +493,10 @@ async def on_message(message):
                         continue  # Skip to the next attachment
                     if attachment.content_type and (
                         attachment.content_type.startswith("image/") or
+                        attachment.content_type.startswith("video/") or
                         attachment.content_type == "application/pdf" or
+                        attachment.content_type == "application/javascript" or
+                        attachment.content_type == "application/java" or
                         attachment.content_type.startswith("text/")
                     ):
                         if attachment.content_type == "image/bmp" or attachment.content_type == "text/csv":
@@ -509,7 +512,7 @@ async def on_message(message):
                     else:
                         error_message = (
                             f"Unsupported file type '{attachment.content_type}'. "
-                            "Please upload an image, PDF, plain text, or text-based code file."
+                            "Please upload an image, video, PDF, plain text, or text-based code file."
                         )
                         await message.reply(error_message)
                         responses.append(error_message)
@@ -547,7 +550,10 @@ async def on_message(message):
                                 continue  # Skip to the next attachment
                             if attachment.content_type and (
                                 attachment.content_type.startswith("image/") or
+                                attachment.content_type.startswith("video/") or
                                 attachment.content_type == "application/pdf" or
+                                attachment.content_type == "application/javascript" or
+                                attachment.content_type == "application/java" or
                                 attachment.content_type.startswith("text/")
                             ):
                                 if attachment.content_type == "image/bmp" or attachment.content_type == "text/csv":
@@ -563,7 +569,7 @@ async def on_message(message):
                             else:
                                 error_message = (
                                     f"Unsupported file type '{attachment.content_type}'. "
-                                    "Please upload an image, PDF, plain text, or text-based code file."
+                                    "Please upload an image, video, PDF, plain text, or text-based code file."
                                 )
                                 await message.reply(error_message)
                                 responses.append(error_message)
