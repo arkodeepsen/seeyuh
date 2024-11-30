@@ -289,6 +289,7 @@ bot.tree.add_command(moderation.timeout)
 utility.say_command.category = "Utility"
 utility.emoji_command.category = "Utility"
 utility.avatar_command.category = "Utility"
+utility.banner_command.category = "Utility"
 utility.code_command.category = "Utility"
 utility.explain_command.category = "Utility"
 utility.ask_command.category = "Utility"
@@ -310,6 +311,7 @@ utility.youtube_command.category = "Utility"
 bot.tree.add_command(utility.say_command)
 bot.tree.add_command(utility.emoji_command)
 bot.tree.add_command(utility.avatar_command)
+bot.tree.add_command(utility.banner_command)
 bot.tree.add_command(utility.code_command)
 bot.tree.add_command(utility.explain_command)
 bot.tree.add_command(utility.ask_command)

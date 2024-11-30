@@ -113,6 +113,15 @@ async def avatar_command(interaction: discord.Interaction, user: discord.User = 
     if user is None:
         user = interaction.user
     await interaction.response.send_message(user.display_avatar.url)
+    
+@app_commands.command(name='banner', description='Get the banner of a user.')
+async def banner_command(interaction: discord.Interaction, user: discord.User = None):
+    if user is None:
+        user = interaction.user
+    if user.banner:
+        await interaction.response.send_message(user.banner.url)
+    else:
+        await interaction.response.send_message("This user does not have a banner.")
 
 @app_commands.command(
     name='analyze',

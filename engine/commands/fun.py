@@ -894,6 +894,32 @@ def find_template(user_input: str, templates: list) -> Optional[str]:
     
     return None
 
+async def find_imgflip_template(session, template_name):
+    """Find matching template on Imgflip"""
+    async with session.get('https://api.imgflip.com/get_memes') as resp:
+        data = await resp.json()
+        if not data['success']:
+            return None
+            
+        memes = data['data']['memes']
+        # Clean template name for matching
+        clean_search = template_name.lower().replace('-', ' ')
+        
+        # Try direct match first
+        for meme in memes:
+            if clean_search in meme['name'].lower():
+                return meme
+                
+        # Fallback to fuzzy match
+        matches = get_close_matches(clean_search, 
+                                  [m['name'].lower() for m in memes],
+                                  n=1, cutoff=0.6)
+        if matches:
+            for meme in memes:
+                if meme['name'].lower() == matches[0]:
+                    return meme
+    return None
+
 IMGFLIP_USERNAME, IMGFLIP_PASSWORD = imgflip_env()
 
 @app_commands.command(
@@ -943,10 +969,38 @@ async def memegen_command(
         
         # Template-based meme generation
         if template:
-            meme_template = find_template(template, MEME_TEMPLATES)
-            if not meme_template:
-                await interaction.followup.send(f"❌ Template not found: {template}")
-                return
+            # Try finding template on Imgflip first
+            async with aiohttp.ClientSession() as session:
+                imgflip_template = await find_imgflip_template(session, template)
+                if imgflip_template:
+                    # Generate meme using Imgflip template
+                    params = {
+                        'template_id': imgflip_template['id'],
+                        'username': IMGFLIP_USERNAME,
+                        'password': IMGFLIP_PASSWORD,
+                        'text0': top_text,
+                        'text1': bottom_text
+                    }
+                    
+                    async with session.post('https://api.imgflip.com/caption_image', data=params) as resp:
+                        data = await resp.json()
+                        if not data['success']:
+                            await interaction.followup.send("Failed to generate meme.", ephemeral=True)
+                            return
+                            
+                        embed = discord.Embed(
+                            title="Generated Meme",
+                            description=f"Template: {imgflip_template['name']}",
+                            color=discord.Color.blue()
+                        )
+                        embed.set_image(url=data['data']['url'])
+                        await interaction.followup.send(embed=embed)
+                        return
+                # If not found on Imgflip, try local templates
+                meme_template = find_template(template, MEME_TEMPLATES)
+                if not meme_template:
+                    await interaction.followup.send(f"❌ Template not found: {template}")
+                    return
         else:
             # Use Imgflip API to generate a meme with a random template
             try:
