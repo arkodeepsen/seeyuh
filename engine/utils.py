@@ -14,6 +14,12 @@ def unsplash_env():
     UNSPLASH_ACCESS_KEY = os.getenv('UNSPLASH_ACCESS_KEY')
     return UNSPLASH_ACCESS_KEY
 
+def imgflip_env():
+    load_dotenv()  # Load environment variables from a .env file
+    IMGFLIP_USERNAME = os.getenv('IMGFLIP_USERNAME')
+    IMGFLIP_PASSWORD = os.getenv('IMGFLIP_PASSWORD')
+    return IMGFLIP_USERNAME, IMGFLIP_PASSWORD
+
 def hf_env():
     load_dotenv()  # Load environment variables from a .env file
     HF_API_KEY = os.getenv('HF_API_KEY')

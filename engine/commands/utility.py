@@ -702,7 +702,7 @@ async def generate_image(
     steps=None,
     model="stable-diffusion-3.5-turbo",
     seed=random.randint(0, 3999999999),
-    retries=3,
+    retries=10,
     backoff_factor=2
 ):
     # Retrieve the model information

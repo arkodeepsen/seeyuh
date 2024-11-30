@@ -4,7 +4,7 @@ from difflib import get_close_matches
 from PIL import Image, ImageDraw, ImageFont
 from typing import Optional
 from engine.ai.gemini import slash_ai_response, slash_ai8b_response, mystery
-from engine.utils import load_env, giphy_env, get_reddit_access_token
+from engine.utils import load_env, giphy_env, get_reddit_access_token, imgflip_env, hf_env
 from html import unescape
 # Load environment variables
 DISCORD_TOKEN, OWNER, url, key = load_env()
@@ -798,7 +798,7 @@ def add_text_to_image(image: Image.Image, top_text: str, bottom_text: str) -> Im
     width, height = image.size
     
     # Load font and calculate size (proportional to image width)
-    font_size = int(width/10)
+    font_size = int(height/5) if height < width else int(width/5)
     try:
         font = ImageFont.truetype("impact.ttf", font_size)
     except:
@@ -894,6 +894,8 @@ def find_template(user_input: str, templates: list) -> Optional[str]:
     
     return None
 
+IMGFLIP_USERNAME, IMGFLIP_PASSWORD = imgflip_env()
+
 @app_commands.command(
     name="memegen",
     description="Generate a custom meme with top and bottom text"
@@ -946,7 +948,51 @@ async def memegen_command(
                 await interaction.followup.send(f"❌ Template not found: {template}")
                 return
         else:
-            meme_template = random.choice(MEME_TEMPLATES)
+            # Use Imgflip API to generate a meme with a random template
+            try:
+                async with aiohttp.ClientSession() as session:
+                    # Fetch list of memes from Imgflip
+                    async with session.get('https://api.imgflip.com/get_memes') as resp:
+                        data = await resp.json()
+                        if not data['success']:
+                            await interaction.followup.send("Failed to fetch memes from Imgflip.", ephemeral=True)
+                            return
+                        memes = data['data']['memes']
+                        # Select a random meme template
+                        meme_template = random.choice(memes)
+                        template_id = meme_template['id']
+                        template_name = meme_template['name']
+
+                    # Generate meme using the selected template
+                    params = {
+                        'template_id': template_id,
+                        'username': IMGFLIP_USERNAME,
+                        'password': IMGFLIP_PASSWORD,
+                        'text0': top_text,
+                        'text1': bottom_text
+                    }
+                    async with session.post('https://api.imgflip.com/caption_image', data=params) as resp:
+                        data = await resp.json()
+                        if not data['success']:
+                            await interaction.followup.send("Failed to generate meme with Imgflip.", ephemeral=True)
+                            return
+                        meme_url = data['data']['url']
+
+                    embed = discord.Embed(
+                        title="Generated Meme",
+                        description=f"Template: {template_name}",
+                        color=discord.Color.blue()
+                    )
+                    embed.set_image(url=meme_url)
+                    await interaction.followup.send(embed=embed)
+
+            except Exception as e:
+                print(f"Error generating meme: {str(e)}")
+                await interaction.followup.send(
+                    "❌ Failed to generate meme. Please try again later.",
+                    ephemeral=True
+                )
+            return
         
         # Convert template name to URL format and encode text
         meme_template = clean_template_name(meme_template)
