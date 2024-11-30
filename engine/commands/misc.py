@@ -506,8 +506,8 @@ async def rank(interaction: discord.Interaction, user: Optional[discord.Member] 
 
     # Load fonts
     try:
-        font_large = ImageFont.truetype("arial.ttf", 40)  
-        font_medium = ImageFont.truetype("arial.ttf", 20)  
+        font_large = ImageFont.truetype("assets/fonts/arial.ttf", 40)  
+        font_medium = ImageFont.truetype("assets/fonts/arial.ttf", 20)
     except:
         font_large = ImageFont.load_default()
         font_medium = ImageFont.load_default()

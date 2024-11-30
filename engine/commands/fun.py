@@ -800,7 +800,7 @@ def add_text_to_image(image: Image.Image, top_text: str, bottom_text: str) -> Im
     # Load font and calculate size (proportional to image width)
     font_size = int(height/5) if height < width else int(width/5)
     try:
-        font = ImageFont.truetype("impact.ttf", font_size)
+        font = ImageFont.truetype("assets/fonts/impact.ttf", font_size)
     except:
         font = ImageFont.load_default()
     
