@@ -1020,4 +1020,3 @@ async def memegen_command(
             "❌ Failed to generate meme. Please try again later.",
             ephemeral=True
         )
-        
