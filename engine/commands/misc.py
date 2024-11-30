@@ -508,11 +508,9 @@ async def rank(interaction: discord.Interaction, user: Optional[discord.Member] 
     try:
         font_large = ImageFont.truetype("assets/fonts/arial.ttf", 40)  
         font_medium = ImageFont.truetype("assets/fonts/arial.ttf", 20)
-        print("loaded truetype font")
     except:
         font_large = ImageFont.load_default()
         font_medium = ImageFont.load_default()
-        print("loaded default font")
 
     # Function to draw text with shadow
     def draw_text_with_shadow(draw, position, text, font, text_color, shadow_color):
