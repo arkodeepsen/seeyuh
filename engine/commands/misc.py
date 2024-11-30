@@ -1,5 +1,6 @@
 import discord, requests, asyncio, os, re, aiohttp, random
 from discord import app_commands
+from typing import Optional
 from bs4 import BeautifulSoup
 from supabase import Client, create_client
 from io import BytesIO
@@ -396,11 +397,14 @@ async def leaderboard(interaction: discord.Interaction, scope: str):
 
     await interaction.followup.send(embed=embed, ephemeral=False)
 
-@app_commands.command(name='rank', description='Get your seeyuh rank.')
-async def rank(interaction: discord.Interaction):
+@app_commands.command(name='rank', description="Get your rank or someone else's rank.")
+@app_commands.describe(user="The user to check the rank for (optional).")
+async def rank(interaction: discord.Interaction, user: Optional[discord.Member] = None):
     await interaction.response.defer(ephemeral=False)
     
-    user_id = str(interaction.user.id)
+    # Use the provided user or default to the command invoker
+    target_user = user or interaction.user
+    user_id = str(target_user.id)
     guild_id = str(interaction.guild.id) if interaction.guild else None
 
     # Prepare parameters for the RPC call
@@ -412,7 +416,7 @@ async def rank(interaction: discord.Interaction):
     try:
         response = supabase.rpc('get_rank', params).execute()
     except Exception as e:
-        await interaction.followup.send(f"⚠️ An error occurred while fetching your rank: {e}", ephemeral=True)
+        await interaction.followup.send(f"⚠️ An error occurred while fetching the rank: {e}", ephemeral=True)
         return
 
     rank_data = response.data
@@ -429,12 +433,12 @@ async def rank(interaction: discord.Interaction):
     server_rank = rank_info.get('server_rank', 0) if guild_id else 0
 
     # Fetch user avatar
-    avatar_url = interaction.user.display_avatar.replace(size=256).url
+    avatar_url = target_user.display_avatar.replace(size=256).url
 
     async with aiohttp.ClientSession() as session:
         async with session.get(avatar_url) as resp:
             if resp.status != 200:
-                await interaction.followup.send("⚠️ Failed to fetch your avatar.", ephemeral=True)
+                await interaction.followup.send("⚠️ Failed to fetch the avatar.", ephemeral=True)
                 return
             avatar_bytes = await resp.read()
 
@@ -522,8 +526,8 @@ async def rank(interaction: discord.Interaction):
     text_color = (255, 255, 255)
     shadow_color = (0, 0, 0, 128)
 
-    # User Name
-    user_name = f"{interaction.user.name}#{interaction.user.discriminator}"
+    # Update the user_name variable
+    user_name = f"{target_user.name}#{target_user.discriminator}"
     draw_text_with_shadow(draw, (260, 50), user_name, font_large, text_color, shadow_color)
 
     # Global Rank and Messages

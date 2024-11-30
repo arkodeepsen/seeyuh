@@ -70,8 +70,9 @@ async def warn(interaction: discord.Interaction, member: discord.Member, reason:
 )
 @app_commands.checks.has_permissions(manage_messages=True)
 async def purge(interaction: discord.Interaction, amount: int):
-    await interaction.channel.purge(limit=amount)
-    await interaction.response.send_message(f"Deleted {amount} messages.", ephemeral=True)
+    await interaction.response.defer(ephemeral=True)  # Defer the response
+    deleted = await interaction.channel.purge(limit=amount)
+    await interaction.followup.send(f"Deleted {len(deleted)} messages.", ephemeral=True)
 
 # Timeout command
 @app_commands.command(name="timeout", description="Timeout a member.")
