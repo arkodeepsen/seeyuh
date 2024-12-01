@@ -1,7 +1,8 @@
 import google.generativeai as genai
-import os, discord, logging, aiohttp
+import os, discord, logging, aiohttp, time, asyncio
+from engine.db import fetch_recent_message, supabase
 from dotenv import load_dotenv
-from typing import Optional
+from typing import Optional, Tuple
 
 load_dotenv()
 
@@ -18,19 +19,41 @@ logging.basicConfig(
 GOOGLE_API_KEY = os.getenv('GEMINI_PRO_API_KEY')
 genai.configure(api_key=GOOGLE_API_KEY)
 
-# Function to upload and retrieve the file
-def prep_file(file_path, display_name):
+# Modify prep_file to handle videos differently
+def prep_file(file_path, display_name, is_video=False):
     sample_file = genai.upload_file(path=file_path, display_name=display_name)
     logging.info(f"Uploaded file '{sample_file.display_name}' as: {sample_file.uri}")
-    return sample_file  # Return the sample file object
+    
+    if is_video:
+        # Add initial delay for video uploads
+        time.sleep(2)
+    
+    return sample_file
 
-# Extract content from the file using the URI and a prompt
-def extract_content_from_file(sample_file, prompt):
+# Modify extract_content_from_file to handle videos
+async def extract_content_from_file(sample_file, prompt, is_video=False):
     try:
-        model = genai.GenerativeModel("models/gemini-1.5-flash")
-        # Use the sample file object directly
-        response = model.generate_content([sample_file, prompt])
-        return response.text
+        if is_video:
+            # Add fixed delay for videos
+            await asyncio.sleep(5)  # 5 second delay
+            
+            # Try up to 3 times with fixed delay
+            for attempt in range(3):
+                try:
+                    model = genai.GenerativeModel("models/gemini-1.5-flash")
+                    response = model.generate_content([sample_file, prompt])
+                    return response.text
+                except Exception as e:
+                    if attempt < 2:  # Don't sleep on last attempt
+                        await asyncio.sleep(3)
+                    continue
+            return None
+        else:
+            # Non-video files - original logic
+            model = genai.GenerativeModel("models/gemini-1.5-flash")
+            response = model.generate_content([sample_file, prompt])
+            return response.text
+            
     except Exception as e:
         logging.error(f"Error extracting content: {e}")
         return None
@@ -41,7 +64,10 @@ async def handle_attachment(bot, message, attachment):
         # Determine the content type of the file
         content_type = attachment.content_type
         logging.info(f"Content Type: {content_type}")
-
+        
+        # Check if file is video
+        is_video = content_type.startswith('video/')
+        
         # Define supported content types
         supported_types = ['image/', 'application/', 'text/', 'video/']
         is_supported = any(content_type.startswith(supported) for supported in supported_types)
@@ -65,8 +91,17 @@ async def handle_attachment(bot, message, attachment):
                     await message.reply("Failed to download the file.")
                     return
 
-        # Upload the downloaded file and prepare it for analysis
-        sample_file = prep_file(file_path, attachment.filename)
+        # Upload file with video flag
+        sample_file = prep_file(file_path, attachment.filename, is_video=is_video)
+        
+        # Retrieve the last relevant message, prioritizing the user’s recent message
+        last_message = fetch_recent_message(supabase, guild_id=str(message.guild.id), user_id=str(message.author.id))
+
+        if last_message:
+            context_message = f"Last relevant message in the guild: {last_message['content']}\n"
+            context_message += f"Bot response to that message: {last_message['response']}\n"
+        else:
+            context_message = ""
         # Determine the prompt
         prompt = message.content.strip().replace(f"<@{bot.user.id}>", "").replace("seeyuh", "").strip()
         if not prompt:
@@ -80,8 +115,8 @@ async def handle_attachment(bot, message, attachment):
                 prompt = "Provide a summary of the video."    
             else:
                 prompt = "Analyze the content of the file."
-        prompt = f"You are a chill discord bot with multimodal AI features. Your responses are genz style.\nCurrent query: {prompt}"
-        extracted_content = extract_content_from_file(sample_file, prompt)
+        prompt = f"You are a chill discord bot with multimodal AI features. Your responses are genz style.\n{context_message} \nCurrent query: {prompt}"
+        extracted_content = await extract_content_from_file(sample_file, prompt, is_video=is_video)
 
         # Reply with extracted content
         if extracted_content:
@@ -114,6 +149,8 @@ async def handle_interaction(
         # Determine the content type of the file
         content_type = file.content_type
         logging.info(f"Content Type: {content_type}")
+        is_video = file.content_type.startswith('video/')
+        sample_file = prep_file(file_path, file.filename, is_video=is_video)
 
         # Define supported content types
         supported_types = ['image/', 'application/', 'text/', 'video/']
@@ -139,7 +176,8 @@ async def handle_interaction(
                     return
 
         # Upload the downloaded file and prepare it for analysis
-        sample_file = prep_file(file_path, file.filename)
+        is_video = file.content_type.startswith('video/')
+        sample_file = prep_file(file_path, file.filename, is_video=is_video)
 
         # Determine the prompt
         if not prompt:
@@ -154,7 +192,7 @@ async def handle_interaction(
             else:
                 prompt = "Analyze the content of the file."
         prompt = f"Generate a response to the following prompt under 4096 characters: {prompt}"
-        extracted_content = extract_content_from_file(sample_file, prompt)
+        extracted_content = await extract_content_from_file(sample_file, prompt, is_video=is_video)
 
         # Reply with extracted content
         if extracted_content:
