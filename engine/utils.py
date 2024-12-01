@@ -47,6 +47,11 @@ def giphy_env():
     GIPHY_API_KEY = os.getenv('GIPHY_API_KEY')
     return GIPHY_API_KEY
 
+def pexels_env():
+    load_dotenv()  # Load environment variables from a .env file
+    PEXELS_API_KEY = os.getenv('PEXELS_API_KEY')
+    return PEXELS_API_KEY
+
 def intents():
     # Define the bot with intents
     intents = discord.Intents.default()

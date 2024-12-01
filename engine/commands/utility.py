@@ -1,11 +1,11 @@
-import discord, asyncio, aiohttp, random, httpx, re, json, io, base64
+import discord, asyncio, aiohttp, random, httpx, re, json, io, base64, requests, os
 from discord import app_commands
 from typing import Optional
 from pytube import Search
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from PIL import Image
-from engine.utils import load_env, get_reddit_access_token, unsplash_env, hf_env
+from engine.utils import load_env, get_reddit_access_token, unsplash_env, hf_env, pexels_env
 from engine.ai.gemini_multimodal import handle_interaction
 from engine.ai.gemini import code_ai_response, explain_ai_response, ask_ai_response, translate, prompt_ai_response
 from engine.ai.gemini_models import (
@@ -697,6 +697,95 @@ async def image_command(interaction: discord.Interaction, query: str, orientatio
         await interaction.followup.send(embed=embed)
     else:
         await interaction.followup.send("Sorry, I couldn't find any images for that query.")
+
+API_KEY = pexels_env()
+BASE_URL = 'https://api.pexels.com/videos/search'
+
+def search_videos(query, per_page=10):
+    headers = {
+        'Authorization': API_KEY
+    }
+    params = {
+        'query': query,
+        'per_page': per_page,
+        'page': random.randint(1, 50)  # Randomize page number
+    }
+    try:
+        response = requests.get(BASE_URL, headers=headers, params=params)
+        response.raise_for_status()
+        return response.json().get('videos', [])
+    except Exception as err:
+        print(f"Error occurred: {err}")
+    return []
+
+def get_popular_videos():
+    headers = {
+        'Authorization': API_KEY
+    }
+    params = {
+        'per_page': 10,
+        'page': random.randint(1, 50)
+    }
+    try:
+        response = requests.get('https://api.pexels.com/videos/popular', headers=headers, params=params)
+        response.raise_for_status()
+        return response.json().get('videos', [])
+    except Exception as e:
+        print(f"Error fetching popular videos: {e}")
+    return []
+
+@app_commands.command(name='video', description='Search for a video using Pexels.')
+async def video(interaction: discord.Interaction, query: str):
+    await interaction.response.defer()
+    videos = search_videos(query)
+    if not videos:
+        await interaction.followup.send(
+            f"No videos found for your query. Trying popular videos instead.")
+        videos = get_popular_videos()
+        if not videos:
+            await interaction.followup.send("No videos found.")
+            return
+
+    success = await send_video(interaction, videos)
+    if not success:
+        await interaction.followup.send("Could not find a suitable video to send.")
+
+async def send_video(interaction, videos):
+    tried_videos = set()
+    max_retries = 15
+
+    for _ in range(max_retries):
+        if not videos:
+            return False
+        video = random.choice(videos)
+        video_url = video['video_files'][0]['link']
+        video_id = video['id']
+
+        if video_id in tried_videos:
+            continue  # Skip if already tried
+        tried_videos.add(video_id)
+
+        # Download the video file
+        async with aiohttp.ClientSession() as session:
+            try:
+                async with session.get(video_url) as resp:
+                    if resp.status == 200:
+                        video_data = await resp.read()
+                        video_size = len(video_data)
+                        if video_size > 8 * 1024 * 1024:  # Discord limit is 8 MB
+                            continue  # Try another video
+                        video_filename = f"video_{video_id}.mp4"
+                        with open(video_filename, "wb") as f:
+                            f.write(video_data)
+                        try:
+                            await interaction.followup.send(file=discord.File(video_filename))
+                        finally:
+                            os.remove(video_filename)
+                        return True  # Video sent successfully
+            except Exception as e:
+                print(f"Error downloading video: {e}")
+                continue  # Try next video
+    return False  # Failed to send a video after retries
                 
 # Hugging Face API Key
 HF_API_KEY = hf_env()

@@ -301,6 +301,7 @@ utility.weather_command.category = "Utility"
 utility.search_command.category = "Utility"
 utility.meaning_command.category = "Utility"
 utility.image_command.category = "Utility"
+utility.video.category = "Utility"
 utility.imagine_command.category = "Utility"
 utility.caption_command.category = "Utility"
 utility.variation_command.category = "Utility"
@@ -323,6 +324,7 @@ bot.tree.add_command(utility.weather_command)
 bot.tree.add_command(utility.search_command)
 bot.tree.add_command(utility.meaning_command)
 bot.tree.add_command(utility.image_command)
+bot.tree.add_command(utility.video)
 bot.tree.add_command(utility.imagine_command)
 bot.tree.add_command(utility.caption_command)
 bot.tree.add_command(utility.variation_command)
