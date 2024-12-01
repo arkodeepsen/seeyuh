@@ -993,124 +993,126 @@ async def on_message(message):
             bot.loop.create_task(save_message_to_db(str(message.guild.id), message.author, current_query, response))
             return  # Exit early to avoid command processing
     
-    command_content = message.content.strip()
-    words = command_content.split()
-    if len(words) <= 2 and message.content.startswith("$") and not bot.user.mentioned_in(message) and "seeyuh" not in message.content.lower():
-        # Check for mentioned users
-        mentioned_users = [user for user in message.mentions if user != bot.user]
-        # Proceed with command processing if message has three or fewer words
-        command_found = False
-        command_list = ["play", "pause", "resume", "stop", "skip", "queue", "np", "filters", "filters_clear", "join", "leave", "ask"]
-        for word in words:
-            # Check if the command exists
-            command = bot.tree.get_command(word) if word not in command_list else None
-            if command:
-                command_found = True
-                command_name = word
-                # Start the background task to retry the entry update
-                bot.loop.create_task(retry_check_and_update_guild_entry(supabase, str(message.guild.id), message.guild.name))
-                
-                class MockInteraction:
-                    def __init__(self, message, bot, mentioned_user=None, content=None, embed=None):
-                        self.channel = message.channel
-                        self.guild = message.guild
-                        self.user = message.author
-                        self.id = message.id
-                        self.mentioned_user = mentioned_user
-                        self._original_response = None  # Store original response if needed
-                        self.content = content
-                        self.embed = embed
-                        self.client = bot  # Add the client attribute
-                
-                    async def send_message(self, content=None, embed=None):
-                        # Send the message and store it as the original response
-                        if embed:
-                            self._original_response = await self.channel.send(embed=embed)
-                        else:
-                            self._original_response = await self.channel.send(content)
-                        return self._original_response
-                
-                    async def original_response(self):
-                        # Return the original response if it exists
-                        return self._original_response
-                
-                    async def defer(self):
-                        pass  # Placeholder for deferring a response if needed
-                
-                    class Response:
-                        def __init__(self, interaction):
-                            self.interaction = interaction
-                
+    if message.content.startswith("$"):
+        # Get the command content without the $ prefix
+        command_content = message.content[1:].strip()
+        words = command_content.split()
+        if len(words) <= 2:
+            # Check for mentioned users
+            mentioned_users = [user for user in message.mentions if user != bot.user]
+            # Proceed with command processing if message has three or fewer words
+            command_found = False
+            command_list = ["play", "pause", "resume", "stop", "skip", "queue", "np", "filters", "filters_clear", "join", "leave", "ask"]
+            for word in words:
+                # Check if the command exists
+                command = bot.tree.get_command(word) if word not in command_list else None
+                if command:
+                    command_found = True
+                    command_name = word
+                    # Start the background task to retry the entry update
+                    bot.loop.create_task(retry_check_and_update_guild_entry(supabase, str(message.guild.id), message.guild.name))
+                    
+                    class MockInteraction:
+                        def __init__(self, message, bot, mentioned_user=None, content=None, embed=None):
+                            self.channel = message.channel
+                            self.guild = message.guild
+                            self.user = message.author
+                            self.id = message.id
+                            self.mentioned_user = mentioned_user
+                            self._original_response = None  # Store original response if needed
+                            self.content = content
+                            self.embed = embed
+                            self.client = bot  # Add the client attribute
+                    
                         async def send_message(self, content=None, embed=None):
-                            # Ensure we send either content or embed properly
+                            # Send the message and store it as the original response
                             if embed:
-                                self.interaction._original_response = await self.interaction.channel.send(embed=embed)
+                                self._original_response = await self.channel.send(embed=embed)
                             else:
-                                self.interaction._original_response = await self.interaction.channel.send(content)
-                            return self.interaction._original_response
-                
+                                self._original_response = await self.channel.send(content)
+                            return self._original_response
+                    
+                        async def original_response(self):
+                            # Return the original response if it exists
+                            return self._original_response
+                    
                         async def defer(self):
-                            pass  # Placeholder defer
-                
-                    class Followup:
-                        def __init__(self, interaction):
-                            self.interaction = interaction
-                
-                        async def send(self, content=None, embed=None):
-                            if embed:
-                                await self.interaction.channel.send(embed=embed)
-                            else:
-                                await self.interaction.channel.send(content)
-                
-                    @property
-                    def response(self):
-                        return self.Response(self)
-                
-                    @property
-                    def followup(self):
-                        return self.Followup(self)
-                
-                # If a specific user was mentioned, pass them into the command
-                target_user = mentioned_users[0] if mentioned_users else None
-                mock_interaction = MockInteraction(message, bot, target_user)
-                
-                # Inside the command execution section
-                if target_user:
-                    async with message.channel.typing():  # Show typing indicator
-                        response = await command.callback(mock_interaction, target_user)  # Include the user argument
-                else:
-                    try:
+                            pass  # Placeholder for deferring a response if needed
+                    
+                        class Response:
+                            def __init__(self, interaction):
+                                self.interaction = interaction
+                    
+                            async def send_message(self, content=None, embed=None):
+                                # Ensure we send either content or embed properly
+                                if embed:
+                                    self.interaction._original_response = await self.interaction.channel.send(embed=embed)
+                                else:
+                                    self.interaction._original_response = await self.interaction.channel.send(content)
+                                return self.interaction._original_response
+                    
+                            async def defer(self):
+                                pass  # Placeholder defer
+                    
+                        class Followup:
+                            def __init__(self, interaction):
+                                self.interaction = interaction
+                    
+                            async def send(self, content=None, embed=None):
+                                if embed:
+                                    await self.interaction.channel.send(embed=embed)
+                                else:
+                                    await self.interaction.channel.send(content)
+                    
+                        @property
+                        def response(self):
+                            return self.Response(self)
+                    
+                        @property
+                        def followup(self):
+                            return self.Followup(self)
+                    
+                    # If a specific user was mentioned, pass them into the command
+                    target_user = mentioned_users[0] if mentioned_users else None
+                    mock_interaction = MockInteraction(message, bot, target_user)
+                    
+                    # Inside the command execution section
+                    if target_user:
                         async with message.channel.typing():  # Show typing indicator
-                            response = await command.callback(mock_interaction)
-                    except TypeError as e:
-                        if "missing 1 required positional argument: 'user'" in str(e):
-                            response = f"User not mentioned, unreadable or you mentioned me. Please mention a user or try `/{word}` if issue persists."
-                            await message.reply(response)  # Send the error message to the channel
-                        elif "missing 1 required positional argument: 'content' in str(e)":
-                            response = f"Use `/{word}` for the command.\n Use `/help` to know more."
-                            await message.reply(response)  # Send the error message to the channel
-                        elif "missing 2 required positional arguments: 'content' and 'embed'" in str(e):
-                            response = f"Content or embed not provided. Please use `/{word}` if issue persists."
-                            await message.reply(response)  # Send the error message to the channel
-                        else:
-                            raise e
-                
-                # After the command execution, capture the response
-                if isinstance(response, str):
-                    bot_response = response  # If the command returns a string directly
-                elif isinstance(response, discord.Message):
-                    bot_response = response.content  # Capture the content of the message
-                elif isinstance(response, discord.Embed):
-                    bot_response = response.description  # Capture the description of the embed
-                else:
-                    # Ensure response is handled appropriately
-                    bot_response = f"Response generated by bot for /{command_name}"  # Adjust as necessary
-                
-                # Save the user message and bot response
-                bot.loop.create_task(save_message_to_db(str(message.guild.id), message.author, command_content, bot_response))
+                            response = await command.callback(mock_interaction, target_user)  # Include the user argument
+                    else:
+                        try:
+                            async with message.channel.typing():  # Show typing indicator
+                                response = await command.callback(mock_interaction)
+                        except TypeError as e:
+                            if "missing 1 required positional argument: 'user'" in str(e):
+                                response = f"User not mentioned, unreadable or you mentioned me. Please mention a user or try `/{word}` if issue persists."
+                                await message.reply(response)  # Send the error message to the channel
+                            elif "missing 1 required positional argument: 'content' in str(e)":
+                                response = f"Use `/{word}` for the command.\n Use `/help` to know more."
+                                await message.reply(response)  # Send the error message to the channel
+                            elif "missing 2 required positional arguments: 'content' and 'embed'" in str(e):
+                                response = f"Content or embed not provided. Please use `/{word}` if issue persists."
+                                await message.reply(response)  # Send the error message to the channel
+                            else:
+                                raise e
+                    
+                    # After the command execution, capture the response
+                    if isinstance(response, str):
+                        bot_response = response  # If the command returns a string directly
+                    elif isinstance(response, discord.Message):
+                        bot_response = response.content  # Capture the content of the message
+                    elif isinstance(response, discord.Embed):
+                        bot_response = response.description  # Capture the description of the embed
+                    else:
+                        # Ensure response is handled appropriately
+                        bot_response = f"Response generated by bot for /{command_name}"  # Adjust as necessary
+                    
+                    # Save the user message and bot response
+                    bot.loop.create_task(save_message_to_db(str(message.guild.id), message.author, command_content, bot_response))
 
-                break
-    
+                    break
+        
         # 10% chance to respond to the message
     if random.random() < 0.001:
         command_content = message.content.strip()
