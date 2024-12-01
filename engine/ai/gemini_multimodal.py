@@ -1,6 +1,5 @@
 import google.generativeai as genai
 import os, discord, logging, aiohttp
-from engine.db import fetch_recent_message, supabase
 from dotenv import load_dotenv
 from typing import Optional
 
@@ -68,14 +67,6 @@ async def handle_attachment(bot, message, attachment):
 
         # Upload the downloaded file and prepare it for analysis
         sample_file = prep_file(file_path, attachment.filename)
-        # Retrieve the last relevant message, prioritizing the user’s recent message
-        last_message = fetch_recent_message(supabase, guild_id=str(message.guild.id), user_id=str(message.author.id))
-
-        if last_message:
-            context_message = f"Last relevant message in the guild: {last_message['content']}\n"
-            context_message += f"Bot response to that message: {last_message['response']}\n"
-        else:
-            context_message = ""
         # Determine the prompt
         prompt = message.content.strip().replace(f"<@{bot.user.id}>", "").replace("seeyuh", "").strip()
         if not prompt:
@@ -89,7 +80,7 @@ async def handle_attachment(bot, message, attachment):
                 prompt = "Provide a summary of the video."    
             else:
                 prompt = "Analyze the content of the file."
-        prompt = f"You are a chill discord bot with multimodal AI features. Your responses are genz style.\n{context_message} \nCurrent query: {prompt}"
+        prompt = f"You are a chill discord bot with multimodal AI features. Your responses are genz style.\nCurrent query: {prompt}"
         extracted_content = extract_content_from_file(sample_file, prompt)
 
         # Reply with extracted content
