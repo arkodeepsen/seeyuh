@@ -1,4 +1,4 @@
-import discord, time, uvicorn, asyncio, requests, os, aiohttp, random, engine.commands.general as general, engine.commands.utility as utility, engine.commands.fun as fun, engine.commands.music as music, engine.commands.moderation as moderation, engine.commands.misc as misc, engine.eventloop as eventloop
+import discord, time, uvicorn, asyncio, requests, os, aiohttp, random, engine.commands.general as general, engine.commands.utility as utility, engine.commands.fun as fun, engine.commands.music as music, engine.commands.moderation as moderation, engine.commands.misc as misc, engine.commands.rpg as rpg, engine.eventloop as eventloop
 from discord.ext import commands, tasks
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import HTMLResponse
@@ -427,6 +427,27 @@ bot.tree.add_command(misc.cat)
 bot.tree.add_command(misc.dog)
 bot.tree.add_command(misc.dogfact)
 
+"""
+rpg.create_character.category = "RP/Economy"
+rpg.stats.category = "RP/Economy"
+rpg.inventory.category = "RP/Economy"
+rpg.equip.category = "RP/Economy"
+rpg.unequip.category = "RP/Economy"
+rpg.use.category = "RP/Economy"
+rpg.battle.category = "RP/Economy"
+rpg.gift.category = "RP/Economy"
+rpg.work.category = "RP/Economy"
+bot.tree.add_command(rpg.create_character)
+bot.tree.add_command(rpg.stats)
+bot.tree.add_command(rpg.inventory)
+bot.tree.add_command(rpg.equip)
+bot.tree.add_command(rpg.unequip)
+bot.tree.add_command(rpg.use)
+bot.tree.add_command(rpg.battle)
+bot.tree.add_command(rpg.gift)
+bot.tree.add_command(rpg.work)
+"""
+
 @bot.event
 async def on_guild_join(guild):
     """
@@ -462,7 +483,7 @@ greeting_emojis = ["👋", "😊", "😃", "🙌", "🤗"]
 
 @bot.event
 async def on_message(message):
-    if message.author == bot.user:
+    if message.author.bot:
         return
     
     # Ignore messages that mention @everyone or @here
@@ -974,7 +995,7 @@ async def on_message(message):
     
     command_content = message.content.strip()
     words = command_content.split()
-    if 0 < len(words) <= 2 and not bot.user.mentioned_in(message) and "seeyuh" not in message.content.lower():
+    if len(words) <= 2 and message.content.startswith("$") and not bot.user.mentioned_in(message) and "seeyuh" not in message.content.lower():
         # Check for mentioned users
         mentioned_users = [user for user in message.mentions if user != bot.user]
         # Proceed with command processing if message has three or fewer words

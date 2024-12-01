@@ -654,3 +654,10 @@ async def dogfact(interaction: discord.Interaction):
                 await interaction.followup.send(data['facts'][0])
             else:
                 await interaction.followup.send("❌ Failed to fetch dog fact.", ephemeral=True)
+
+@app_commands.command(name='donate', description='Get the donation link for the bot.')
+async def donate(interaction: discord.Interaction):
+    """Get the donation link for the bot."""
+    await interaction.response.defer(ephemeral=False)
+    await interaction.followup.send("🎉 **Support the bot development by donating here:** https://paypal.me/arkodeepsen") 
+               
