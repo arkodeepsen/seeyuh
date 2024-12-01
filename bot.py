@@ -517,6 +517,7 @@ async def on_message(message):
                     if attachment.content_type and (
                         attachment.content_type.startswith("image/") or
                         attachment.content_type.startswith("video/") or
+                        attachment.content_type.startswith("audio/") or
                         attachment.content_type == "application/pdf" or
                         attachment.content_type == "application/javascript" or
                         attachment.content_type == "application/java" or
@@ -535,7 +536,7 @@ async def on_message(message):
                     else:
                         error_message = (
                             f"Unsupported file type '{attachment.content_type}'. "
-                            "Please upload an image, video, PDF, plain text, or text-based code file."
+                            "Please upload an image, video, audio, PDF, plain text, or text-based code file."
                         )
                         await message.reply(error_message)
                         responses.append(error_message)
@@ -574,6 +575,7 @@ async def on_message(message):
                             if attachment.content_type and (
                                 attachment.content_type.startswith("image/") or
                                 attachment.content_type.startswith("video/") or
+                                attachment.content_type.startswith("audio/") or
                                 attachment.content_type == "application/pdf" or
                                 attachment.content_type == "application/javascript" or
                                 attachment.content_type == "application/java" or
@@ -592,7 +594,7 @@ async def on_message(message):
                             else:
                                 error_message = (
                                     f"Unsupported file type '{attachment.content_type}'. "
-                                    "Please upload an image, video, PDF, plain text, or text-based code file."
+                                    "Please upload an image, video, audio, PDF, plain text, or text-based code file."
                                 )
                                 await message.reply(error_message)
                                 responses.append(error_message)

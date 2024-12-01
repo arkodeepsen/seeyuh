@@ -146,9 +146,9 @@ async def analyze_command(
         file.content_type.startswith("image/") or
         file.content_type.startswith("video/") or
         file.content_type == "application/pdf" or
-        file.content_type == "application/javascript" or
-        file.content_type == "application/java" or
-        file.content_type.startswith("text/")
+        file.content_type.startswith("application/java") or
+        file.content_type.startswith("text/") or
+        file.content_type.startswith("audio/")
     ):
         if file.content_type == "image/bmp" or file.content_type == "text/csv":
             await interaction.followup.send(
