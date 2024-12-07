@@ -1,10 +1,11 @@
-from datetime import datetime, timezone as dt_timezone
 from supabase import create_client, Client
 from dotenv import load_dotenv
 from datetime import datetime, timedelta, timezone as dt_timezone
-import logging, os, httpx, asyncio
+from pathlib import Path
+import logging, os, httpx, asyncio, json
 from concurrent.futures import ThreadPoolExecutor
 from more_itertools import chunked
+from filelock import FileLock
 executor = ThreadPoolExecutor()
 
 # Load environment variables
@@ -23,6 +24,50 @@ logging.basicConfig(
     ]
 )
 
+BACKUP_DIR = Path("backups")
+MESSAGES_FILE = BACKUP_DIR / "messages.json"
+LOCK_FILE = BACKUP_DIR / "messages.json.lock"
+MAX_MESSAGES = 1000  # Limit number of stored messages
+
+def save_to_json(data):
+    # Ensure backup directory exists
+    BACKUP_DIR.mkdir(exist_ok=True)
+    
+    # Create lock file if it doesn't exist
+    if not LOCK_FILE.exists():
+        LOCK_FILE.touch()
+        
+    with FileLock(LOCK_FILE):
+        try:
+            # Load existing messages or create new list
+            messages = []
+            if MESSAGES_FILE.exists():
+                try:
+                    with open(MESSAGES_FILE, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                        if content.strip():  # Check if file is not empty
+                            messages = json.loads(content)
+                except json.JSONDecodeError:
+                    logging.warning("Corrupted JSON file, starting fresh")
+                    messages = []
+            
+            # Add new message
+            messages.append(data)
+            
+            # Keep only latest messages
+            if len(messages) > MAX_MESSAGES:
+                messages = messages[-MAX_MESSAGES:]
+            
+            # Write updated messages
+            with open(MESSAGES_FILE, 'w', encoding='utf-8') as f:
+                json.dump(messages, f, indent=2, ensure_ascii=False)
+                
+            logging.info(f"Successfully saved message to JSON, total messages: {len(messages)}")
+            
+        except Exception as e:
+            logging.error(f"Error in save_to_json: {str(e)}")
+            raise
+        
 def fetch_existing_guild_invites():
     response = supabase.table('guild_invites').select('guild_id').execute()
     if response.data:
@@ -193,9 +238,35 @@ async def retry_check_and_update_guild_entry(supabase, guild_id, guild_name, ret
     logging.error(f"Failed to update guild entry after {retries} attempts")
     return False
 
+def init_json_file():
+    """Initialize JSON file with empty array if not exists or empty"""
+    BACKUP_DIR.mkdir(exist_ok=True)
+    if not MESSAGES_FILE.exists() or MESSAGES_FILE.stat().st_size == 0:
+        with open(MESSAGES_FILE, 'w', encoding='utf-8') as f:
+            json.dump([], f)
+        logging.info("Initialized empty JSON file")
+
 # Define the function outside of on_message
 def fetch_recent_message(supabase, guild_id, user_id):
     recent_threshold = datetime.now(dt_timezone.utc) - timedelta(seconds=300)
+
+    # Try JSON cache first
+    try:
+        init_json_file()  # Ensure valid JSON exists
+        with open(MESSAGES_FILE, 'r', encoding='utf-8') as f:
+            messages = json.load(f)
+            
+        # Search recent messages in reverse (newest first)
+        for message in reversed(messages):
+            if (message['guild_id'] == guild_id and 
+                message['user_id'] == user_id):
+                msg_time = datetime.strptime(message['created_at'], '%Y-%m-%dT%H:%M:%S.%f%z')
+                if msg_time > recent_threshold:
+                    logging.info("Found recent message in JSON cache")
+                    return message
+    except Exception as e:
+        logging.error(f"Error reading JSON cache: {e}")
+        # Continue to Supabase fallback
 
     try:
         # Fetch the last message from the user within the recent threshold
@@ -232,6 +303,25 @@ def fetch_recent_message(supabase, guild_id, user_id):
     return None  # No recent messages found
 
 async def save_message_to_db(guild_id, author, user_message, bot_response, retries=5, delay=5):
+    created_at = datetime.now(dt_timezone.utc).isoformat()
+    
+    # Prepare message data
+    message_data = {
+        'content': user_message,
+        'user_id': str(author.id),
+        'username': author.name,
+        'guild_id': guild_id,
+        'response': bot_response,
+        'created_at': created_at
+    }
+    
+    # Save to JSON locally
+    try:
+        save_to_json(message_data)
+        logging.info("Saved message to local JSON")
+    except Exception as e:
+        logging.error(f"Error saving to JSON: {e}")
+    
     for attempt in range(retries):
         try:
             # Upsert user entry

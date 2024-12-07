@@ -740,27 +740,26 @@ async def on_message(message):
         command_content = content.replace(f"<@{bot.user.id}>", "").strip()
         command_content = command_content.replace("seeyuh", "").strip()
         words = command_content.split()
+    
+        # Retrieve the last relevant message, prioritizing the user’s recent message
+        last_message = fetch_recent_message(supabase, guild_id=str(message.guild.id), user_id=str(message.author.id))
 
+        if last_message:
+            context_message = f"Last relevant message in the guild: {last_message['content']}\n"
+            context_message += f"Bot response to that message: {last_message['response']}\n"
+        else:
+            context_message = ""
+            
         # Check if the message is a reply to another message
         if message.reference:
             try:
                 original_message = await message.channel.fetch_message(message.reference.message_id)
                 original_author = original_message.author.name
                 original_content = original_message.content
-                context_message = f"\nLast relevant message in the guild: {original_author} said: {original_content}"
+                context_message += f"\nUser replied to {original_author}'s message: {original_content}"
 
             except discord.NotFound:
                 print("Original message not found.")
-                context_message = ""
-        else:    
-            # Retrieve the last relevant message, prioritizing the user’s recent message
-            last_message = fetch_recent_message(supabase, guild_id=str(message.guild.id), user_id=str(message.author.id))
-
-            if last_message:
-                context_message = f"Last relevant message in the guild: {last_message['content']}\n"
-                context_message += f"Bot response to that message: {last_message['response']}\n"
-            else:
-                context_message = ""
 
         # Check for mentioned users
         mentioned_users = [user for user in message.mentions if user != bot.user]
@@ -781,7 +780,7 @@ async def on_message(message):
                     mentioned_user_names = [name for name in mentioned_user_names if name != original_author_name]
                 user_names_str = ", ".join(mentioned_user_names)
                 current_query = f"from user {author_name} about users {user_names_str} : {command_content}."
-                ai_prompt = context_message + "\nCurrent query: " + current_query
+                ai_prompt = context_message + "\nCurrent query " + current_query
 
             # Initialize image generation variables
             image_data = None
@@ -950,7 +949,7 @@ async def on_message(message):
                     mentioned_user_names = [name for name in mentioned_user_names if name != original_author_name]
                 user_names_str = ", ".join(mentioned_user_names)
                 current_query = f"from user {author_name} about users {user_names_str} : {command_content}."
-                ai_prompt = context_message + "Current query:" + current_query
+                ai_prompt = context_message + "Current query " + current_query
             
             # Initialize image generation variables
             image_data = None
