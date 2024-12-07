@@ -1,7 +1,6 @@
-import discord, re, aiohttp, yt_dlp as youtube_dl, asyncio, engine.eventloop as eventloop
+import discord, yt_dlp as youtube_dl, asyncio, engine.eventloop as eventloop
 from discord import app_commands
-from discord.ext import commands
-from engine.utils import load_env, intents
+from engine.utils import load_env
 
 # Load environment variables
 DISCORD_TOKEN, OWNER, url, key = load_env()
@@ -107,6 +106,8 @@ class MusicView(discord.ui.View):
         loop_song = not loop_song
         status = "enabled" if loop_song else "disabled"
         await interaction.response.send_message(f"Looping is now {status}.", ephemeral=True)
+        channel = interaction.channel
+        await channel.send(f"Looping is now {status}.")
 
 # Join a voice channel
 @app_commands.command(name="join", description="Join your voice channel.")
@@ -422,3 +423,4 @@ async def clear_filters(interaction: discord.Interaction):
         await interaction.response.send_message("All audio filters have been cleared.", ephemeral=True)
     else:
         await interaction.response.send_message("No active filters to clear.", ephemeral=True)
+        

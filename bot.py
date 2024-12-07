@@ -309,6 +309,7 @@ utility.refine_command.category = "Utility"
 utility.modify_command.category = "Utility"
 utility.analyze_command.category = "Utility"
 utility.youtube_command.category = "Utility"
+utility.text_to_speech.category = "Utility"
 bot.tree.add_command(utility.say_command)
 bot.tree.add_command(utility.emoji_command)
 bot.tree.add_command(utility.avatar_command)
@@ -332,6 +333,7 @@ bot.tree.add_command(utility.refine_command)
 bot.tree.add_command(utility.modify_command)
 bot.tree.add_command(utility.analyze_command)
 bot.tree.add_command(utility.youtube_command)
+bot.tree.add_command(utility.text_to_speech)
 
 # Register the commands from fun.py
 fun.roast_command.category = "Fun"

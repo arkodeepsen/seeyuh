@@ -11,8 +11,17 @@ import aiohttp
 )
 @app_commands.checks.has_permissions(kick_members=True)
 async def kick(interaction: discord.Interaction, member: discord.Member, reason: str = None):
-    await member.kick(reason=reason)
-    await interaction.response.send_message(f"{member} has been kicked.", ephemeral=True)
+    try:
+        if member.top_role >= interaction.user.top_role:
+            await interaction.response.send_message("You cannot kick this member due to role hierarchy.", ephemeral=True)
+            return
+            
+        await member.kick(reason=reason)
+        await interaction.response.send_message(f"{member} has been kicked. Reason: {reason or 'No reason provided'}", ephemeral=True)
+    except discord.Forbidden:
+        await interaction.response.send_message("I don't have permission to kick this member.", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"An error occurred: {str(e)}", ephemeral=True)
 
 # Ban command
 @app_commands.command(name="ban", description="Ban a member from the server.")
@@ -22,8 +31,17 @@ async def kick(interaction: discord.Interaction, member: discord.Member, reason:
 )
 @app_commands.checks.has_permissions(ban_members=True)
 async def ban(interaction: discord.Interaction, member: discord.Member, reason: str = None):
-    await member.ban(reason=reason)
-    await interaction.response.send_message(f"{member} has been banned.", ephemeral=True)
+    try:
+        if member.top_role >= interaction.user.top_role:
+            await interaction.response.send_message("You cannot ban this member due to role hierarchy.", ephemeral=True)
+            return
+            
+        await member.ban(reason=reason)
+        await interaction.response.send_message(f"{member} has been banned. Reason: {reason or 'No reason provided'}", ephemeral=True)
+    except discord.Forbidden:
+        await interaction.response.send_message("I don't have permission to ban this member.", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"An error occurred: {str(e)}", ephemeral=True)
 
 # Mute command
 @app_commands.command(name="mute", description="Mute a member.")

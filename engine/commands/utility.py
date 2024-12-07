@@ -1491,3 +1491,57 @@ async def youtube_command(interaction: discord.Interaction, query: str):
         print(f"Error: {e}")
         await interaction.followup.send("An error occurred while processing your request.")
         
+@app_commands.command(name="tts", description="Convert text to speech.")
+@app_commands.describe(text="The text to convert to speech.")
+async def text_to_speech(interaction: discord.Interaction, text: str):
+    try:
+        await interaction.response.defer()
+
+        # Check if user is in voice channel
+        if interaction.user.voice:
+            if not interaction.guild.voice_client:
+                await interaction.user.voice.channel.connect()
+            
+            # Google Chrome TTS URL
+            tts_url = f"https://translate.google.com/translate_tts?ie=UTF-8&tl=en-US&client=tw-ob&q={text}"
+            
+            # Save audio temporarily
+            temp_file = f'temp_{interaction.guild.id}.mp3'
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(tts_url) as response:
+                    if response.status == 200:
+                        with open(temp_file, 'wb') as f:
+                            f.write(await response.read())
+
+                        # Play in voice channel
+                        source = await discord.FFmpegOpusAudio.from_probe(temp_file)
+                        interaction.guild.voice_client.play(source)
+                        
+                        embed = discord.Embed(
+                            title="Text to Speech",
+                            description="Now playing TTS message",
+                            color=discord.Color.green()
+                        )
+                        await interaction.followup.send(embed=embed)
+                        
+                        # Clean up temp file
+                        os.remove(temp_file)
+                    else:
+                        raise Exception(f"TTS service returned status code {response.status}")
+
+        else:
+            embed = discord.Embed(
+                title="Error",
+                description="You need to be in a voice channel to use this command!",
+                color=discord.Color.red()
+            )
+            await interaction.followup.send(embed=embed)
+
+    except Exception as e:
+        embed = discord.Embed(
+            title="Error", 
+            description=f"An error occurred: {str(e)}", 
+            color=discord.Color.red()
+        )
+        await interaction.followup.send(embed=embed)
