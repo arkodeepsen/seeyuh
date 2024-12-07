@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 from PIL import Image
 from engine.utils import load_env, get_reddit_access_token, unsplash_env, hf_env, pexels_env
 from engine.ai.gemini_multimodal import handle_interaction
-from engine.ai.gemini import code_ai_response, explain_ai_response, ask_ai_response, translate, prompt_ai_response
+from engine.ai.gemini import code_ai_response, explain_ai_response, ask_ai_response, translate, prompt_ai_response, get_tts_text
 from engine.ai.gemini_models import (
     pro10creative,
     pro15creative,
@@ -1490,22 +1490,70 @@ async def youtube_command(interaction: discord.Interaction, query: str):
     except Exception as e:
         print(f"Error: {e}")
         await interaction.followup.send("An error occurred while processing your request.")
-        
-@app_commands.command(name="tts", description="Convert text to speech.")
-@app_commands.describe(text="The text to convert to speech.")
-async def text_to_speech(interaction: discord.Interaction, text: str):
-    try:
-        await interaction.response.defer()
 
-        # Check if user is in voice channel
+# Define the language choices for TTS
+tts_language_choices = [
+    app_commands.Choice(name="English (US)", value="en-US"),
+    app_commands.Choice(name="English (UK)", value="en-GB"),
+    app_commands.Choice(name="Spanish", value="es"),
+    app_commands.Choice(name="French", value="fr"),
+    app_commands.Choice(name="German", value="de"),
+    app_commands.Choice(name="Italian", value="it"),
+    app_commands.Choice(name="Portuguese", value="pt"),
+    app_commands.Choice(name="Russian", value="ru"),
+    app_commands.Choice(name="Japanese", value="ja"),
+    app_commands.Choice(name="Korean", value="ko"),
+    app_commands.Choice(name="Chinese (Mandarin)", value="zh"),
+    app_commands.Choice(name="Hindi", value="hi"),
+    app_commands.Choice(name="Arabic", value="ar"),
+    app_commands.Choice(name="Dutch", value="nl"),
+    app_commands.Choice(name="Polish", value="pl"),
+    app_commands.Choice(name="Turkish", value="tr"),
+    app_commands.Choice(name="Vietnamese", value="vi"),
+    app_commands.Choice(name="Thai", value="th"),
+    app_commands.Choice(name="Greek", value="el"),
+    app_commands.Choice(name="Swedish", value="sv"),
+    app_commands.Choice(name="Danish", value="da"),
+    app_commands.Choice(name="Finnish", value="fi"),
+    app_commands.Choice(name="Norwegian", value="no"),
+    app_commands.Choice(name="Czech", value="cs"),
+    app_commands.Choice(name="Bengali", value="bn")
+]
+
+@app_commands.command(name="tts", description="Convert text or AI response to speech.")
+@app_commands.describe(
+    text="Direct text to convert to speech",
+    prompt="Get AI response for this prompt and convert to speech",
+    language="The language to use for text-to-speech."
+)
+@app_commands.choices(language=tts_language_choices)
+async def text_to_speech(
+    interaction: discord.Interaction,
+    text: str = None,
+    prompt: str = None,
+    language: app_commands.Choice[str] = None
+):
+    try:
+        await interaction.response.defer(ephemeral=True)
+
+        if not text and not prompt:
+            raise ValueError("Please provide either text or prompt")
+
+        if text and prompt:
+            raise ValueError("Please provide either text or prompt, not both")
+
+        if prompt:
+            # Get AI response in specified language
+            text = await get_tts_text(prompt, language.name if language else "English")
+
         if interaction.user.voice:
             if not interaction.guild.voice_client:
                 await interaction.user.voice.channel.connect()
             
-            # Google Chrome TTS URL
-            tts_url = f"https://translate.google.com/translate_tts?ie=UTF-8&tl=en-US&client=tw-ob&q={text}"
+            # Use selected language or default to en-US
+            lang_code = language.value if language else "en-US"
+            tts_url = f"https://translate.google.com/translate_tts?ie=UTF-8&tl={lang_code}&client=tw-ob&q={text}"
             
-            # Save audio temporarily
             temp_file = f'temp_{interaction.guild.id}.mp3'
             
             async with aiohttp.ClientSession() as session:
@@ -1514,29 +1562,26 @@ async def text_to_speech(interaction: discord.Interaction, text: str):
                         with open(temp_file, 'wb') as f:
                             f.write(await response.read())
 
-                        # Play in voice channel
                         source = await discord.FFmpegOpusAudio.from_probe(temp_file)
                         interaction.guild.voice_client.play(source)
                         
                         embed = discord.Embed(
                             title="Text to Speech",
-                            description="Now playing TTS message",
+                            description=f"Now playing TTS message in {language.name if language else 'English (US)'}",
                             color=discord.Color.green()
                         )
-                        await interaction.followup.send(embed=embed)
+                        await interaction.followup.send(embed=embed, ephemeral=True)
                         
-                        # Clean up temp file
                         os.remove(temp_file)
                     else:
                         raise Exception(f"TTS service returned status code {response.status}")
-
         else:
             embed = discord.Embed(
                 title="Error",
                 description="You need to be in a voice channel to use this command!",
                 color=discord.Color.red()
             )
-            await interaction.followup.send(embed=embed)
+            await interaction.followup.send(embed=embed, ephemeral=True)
 
     except Exception as e:
         embed = discord.Embed(
@@ -1544,91 +1589,4 @@ async def text_to_speech(interaction: discord.Interaction, text: str):
             description=f"An error occurred: {str(e)}", 
             color=discord.Color.red()
         )
-        await interaction.followup.send(embed=embed)
-        # Define the language choices for TTS
-        tts_language_choices = [
-            app_commands.Choice(name="English (US)", value="en-US"),
-            app_commands.Choice(name="English (UK)", value="en-GB"),
-            app_commands.Choice(name="Spanish", value="es"),
-            app_commands.Choice(name="French", value="fr"),
-            app_commands.Choice(name="German", value="de"),
-            app_commands.Choice(name="Italian", value="it"),
-            app_commands.Choice(name="Portuguese", value="pt"),
-            app_commands.Choice(name="Russian", value="ru"),
-            app_commands.Choice(name="Japanese", value="ja"),
-            app_commands.Choice(name="Korean", value="ko"),
-            app_commands.Choice(name="Chinese (Mandarin)", value="zh"),
-            app_commands.Choice(name="Hindi", value="hi"),
-            app_commands.Choice(name="Arabic", value="ar"),
-            app_commands.Choice(name="Dutch", value="nl"),
-            app_commands.Choice(name="Polish", value="pl"),
-            app_commands.Choice(name="Turkish", value="tr"),
-            app_commands.Choice(name="Vietnamese", value="vi"),
-            app_commands.Choice(name="Thai", value="th"),
-            app_commands.Choice(name="Greek", value="el"),
-            app_commands.Choice(name="Swedish", value="sv"),
-            app_commands.Choice(name="Danish", value="da"),
-            app_commands.Choice(name="Finnish", value="fi"),
-            app_commands.Choice(name="Norwegian", value="no"),
-            app_commands.Choice(name="Czech", value="cs"),
-            app_commands.Choice(name="Bengali", value="bn")
-        ]
-
-        @app_commands.command(name="tts", description="Convert text to speech.")
-        @app_commands.describe(
-            text="The text to convert to speech.",
-            language="The language to use for text-to-speech."
-        )
-        @app_commands.choices(language=tts_language_choices)
-        async def text_to_speech(
-            interaction: discord.Interaction, 
-            text: str, 
-            language: app_commands.Choice[str] = None
-        ):
-            try:
-                await interaction.response.defer(ephemeral=True)
-
-                if interaction.user.voice:
-                    if not interaction.guild.voice_client:
-                        await interaction.user.voice.channel.connect()
-                    
-                    # Use selected language or default to en-US
-                    lang_code = language.value if language else "en-US"
-                    tts_url = f"https://translate.google.com/translate_tts?ie=UTF-8&tl={lang_code}&client=tw-ob&q={text}"
-                    
-                    temp_file = f'temp_{interaction.guild.id}.mp3'
-                    
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(tts_url) as response:
-                            if response.status == 200:
-                                with open(temp_file, 'wb') as f:
-                                    f.write(await response.read())
-
-                                source = await discord.FFmpegOpusAudio.from_probe(temp_file)
-                                interaction.guild.voice_client.play(source)
-                                
-                                embed = discord.Embed(
-                                    title="Text to Speech",
-                                    description=f"Now playing TTS message in {language.name if language else 'English (US)'}",
-                                    color=discord.Color.green()
-                                )
-                                await interaction.followup.send(embed=embed, ephemeral=True)
-                                
-                                os.remove(temp_file)
-                            else:
-                                raise Exception(f"TTS service returned status code {response.status}")
-                else:
-                    embed = discord.Embed(
-                        title="Error",
-                        description="You need to be in a voice channel to use this command!",
-                        color=discord.Color.red()
-                    )
-                    await interaction.followup.send(embed=embed, ephemeral=True)
-
-            except Exception as e:
-                embed = discord.Embed(
-                    title="Error", 
-                    description=f"An error occurred: {str(e)}", 
-                    color=discord.Color.red()
-                )
-                await interaction.followup.send(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)

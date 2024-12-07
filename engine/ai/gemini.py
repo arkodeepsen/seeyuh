@@ -231,3 +231,20 @@ async def prompt_ai_response(prompt, model):
     except Exception as e:
         print(f"Error generating response: {e}")
         return "Sorry, I could not process that."
+    
+async def get_tts_text(prompt: str, language: str) -> str:
+    """Generate AI response for TTS in specified language"""
+    system_instruction = (
+        f"You are a discord bot named seeyuh. Your responses should be casual and "
+        f"gen-z style. Generate a SHORT response (max 100 characters) in {language} "
+        f"language that would sound natural when spoken."
+    )
+    query = f"\n{system_instruction}", f"\n{prompt}"
+    
+    try:
+        response = flash15creative.generate_content(query)
+        text = response.text or "I'm not sure how to respond to that."
+        return text[:100]  # Limit length for TTS
+    except Exception as e:
+        logging.error(f"Error generating TTS response: {e}")
+        return "Sorry, I could not process that."
