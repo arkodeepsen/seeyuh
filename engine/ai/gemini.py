@@ -33,30 +33,54 @@ from engine.ai.gemini_models import (
 def extract_current_query(prompt: str) -> str:
     """Extract clean search query from bot prompt format."""
     if "Current query: from user" in prompt:
-        # Get text after "Current query: from user" pattern
+        # Get text after pattern
         query = prompt.split("Current query: from user", 1)[1]
-        # Get actual message after last colon
         query = query.split(":")[-1].strip()
-        # Remove trailing punctuation and clean whitespace
+        
+        # Clean and limit query length
         query = query.rstrip('.!?')
         query = ' '.join(query.split())
-        return query
-    return prompt.strip()
-    
+        words = query.split()
+        if len(words) > 15:  # Limit to 15 words
+            query = ' '.join(words[:15])
+        return query[:150]  # Limit to 150 chars
+    return prompt.strip()[:150]
+
 def needs_realtime_data(query: str) -> bool:
     """Check if query needs real-time data."""
-    # Keywords that suggest need for current info
-    time_keywords = ['now', 'today', 'current', 'latest', 'recent']
-    topic_keywords = ['president', 'weather', 'news', 'price', 'score', 
-                     'stock', 'match', 'game', 'election']
+    # Time-related keywords
+    time_keywords = [
+        'now', 'today', 'current', 'latest', 'recent',
+        'yesterday', 'tomorrow', 'tonight', 'morning',
+        'week', 'month', 'year', 'time', 'schedule'
+    ]
     
-    query_lower = query.lower()
+    # Topic keywords needing real-time data
+    topic_keywords = [
+        # News & Current Events
+        'president', 'news', 'breaking', 'happening',
+        # Weather & Natural Events
+        'weather', 'temperature', 'forecast', 'climate',
+        # Sports & Games  
+        'score', 'match', 'game', 'playing', 'tournament',
+        # Finance & Markets
+        'price', 'stock', 'market', 'trading', 'worth',
+        # Entertainment & Media
+        'trending', 'streaming', 'watching', 'airing',
+        # Tech & Updates
+        'version', 'update', 'release', 'launch',
+        # Status & Availability  
+        'open', 'closed', 'available', 'status'
+    ]
+
+    # Clean and normalize query
+    query_lower = ' '.join(query.lower().split())
+    
     # Check for time indicators
     has_time = any(keyword in query_lower for keyword in time_keywords)
-    # Check for topics that need current data
+    # Check for topics needing current data  
     has_topic = any(keyword in query_lower for keyword in topic_keywords)
     
-    # Return True if query contains time indicator OR topic needing current data
     return has_time or has_topic
 
 async def get_search_results(query: str, num_results: int = 3) -> str:
