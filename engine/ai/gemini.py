@@ -1,6 +1,7 @@
-import os, logging, requests, random, time, aiohttp, asyncio, google.generativeai as genai
+import os, logging, sys, random, re, aiohttp, asyncio, google.generativeai as genai
 from datetime import datetime
 from bs4 import BeautifulSoup
+from functools import lru_cache
 from typing import List
 from dotenv import load_dotenv
 from urllib.parse import quote_plus, urlparse
@@ -21,6 +22,7 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
+
 from engine.ai.gemini_models import (
     pro10creative,
     pro15creative,
@@ -37,52 +39,141 @@ def extract_current_query(prompt: str) -> str:
         query = prompt.split("Current query: from user", 1)[1]
         query = query.split(":")[-1].strip()
         
-        # Clean and limit query length
-        query = query.rstrip('.!?')
-        query = ' '.join(query.split())
-        words = query.split()
-        if len(words) > 15:  # Limit to 15 words
-            query = ' '.join(words[:15])
-        return query[:150]  # Limit to 150 chars
+        # Check for URLs before cleaning
+        urls = URL_PATTERN.findall(query)
+        
+        # Clean and limit query length, preserving URLs
+        if not urls:
+            query = query.rstrip('.!?')
+            query = ' '.join(query.split())
+            words = query.split()
+            if len(words) > 15:
+                query = ' '.join(words[:15])
+            return query[:150]
+        
+        # Return query with URL intact
+        return urls[0] if urls else query[:150]
+        
     return prompt.strip()[:150]
 
+# Pre-compile regex patterns
+PATTERNS = {
+    'position': [
+        re.compile(r"(?:who|what).+?(?:is|are).+?(?:the|current|new).+?(?:minister|president|ceo|leader|owner)"),
+        re.compile(r"who.+?(?:leads|runs|heads|owns).+?(?:now|currently)")
+    ],
+    'media': [
+        re.compile(r"(?:new|latest)?.+?(?:album|song|movie|show|release)"),
+        re.compile(r"(?:tracklist|tracks|songs|discography)"),
+        re.compile(r"what.+?(?:trending|popular|viral)")
+    ],
+    'status': [
+        re.compile(r"(?:current|latest).+?(?:version|update|status)"),
+        re.compile(r"(?:weather|temperature|forecast).+?(?:in|at|for)"),
+        re.compile(r"(?:price|cost|worth|value).+?(?:of|for|now)")
+    ],
+    'events': [
+        re.compile(r"what.+?(?:happened|going|occurred|done).+?(?:to|with)"),
+        re.compile(r"(?:news|latest|update|story).+?(?:about|on|regarding)")
+    ]
+}
+
+# Enhanced keywords with weights
+KEYWORDS = {
+    'media': {
+        'high': set(['tracklist', 'album', 'song', 'release']),  # Added media-specific high priority
+        'medium': set(['track', 'music', 'artist']),
+        'low': set(['listen', 'hear', 'play'])
+    },
+    'time': {
+        'high': set(['today', 'now', 'current', 'latest']),
+        'medium': set(['recent', 'upcoming', 'this']),
+        'low': set(['soon', 'later', 'next'])
+    },
+    'query': {
+        'high': set(['what', 'who', 'where', 'when', 'how', 'tell', 'about']),
+        'medium': set(['tell', 'show', 'give', 'find']),
+        'low': set(['know', 'get', 'see'])
+    },
+    'topic': {
+        'high': set(['weather', 'price', 'score', 'news', 'happened', 'owner', 'update']),
+        'medium': set(['president', 'minister', 'leader']),
+        'low': set(['about', 'info', 'details'])
+    }
+}
+
+@lru_cache(maxsize=1000)
 def needs_realtime_data(query: str) -> bool:
-    """Check if query needs real-time data."""
-    # Time-related keywords
-    time_keywords = [
-        'now', 'today', 'current', 'latest', 'recent',
-        'yesterday', 'tomorrow', 'tonight', 'morning',
-        'week', 'month', 'year', 'time', 'schedule'
-    ]
+    query = ' '.join(query.lower().split())
     
-    # Topic keywords needing real-time data
-    topic_keywords = [
-        # News & Current Events
-        'president', 'news', 'breaking', 'happening',
-        # Weather & Natural Events
-        'weather', 'temperature', 'forecast', 'climate',
-        # Sports & Games  
-        'score', 'match', 'game', 'playing', 'tournament',
-        # Finance & Markets
-        'price', 'stock', 'market', 'trading', 'worth',
-        # Entertainment & Media
-        'trending', 'streaming', 'watching', 'airing',
-        # Tech & Updates
-        'version', 'update', 'release', 'launch',
-        # Status & Availability  
-        'open', 'closed', 'available', 'status'
-    ]
+    # Quick checks for common real-time queries
+    if any(word in query for word in ('happened', 'owner', 'news', 'who', 'what')):
+        return True
+        
+    # Pattern matching with expanded patterns
+    for patterns in PATTERNS.values():
+        if any(pattern.search(query) for pattern in patterns):
+            return True
+            
+    # Lower threshold for scoring
+    score = 0
+    words = set(query.split())
+    
+    for category in KEYWORDS.values():
+        if words & category['high']:
+            score += 5
+        if words & category['medium']:
+            score += 3
+        if words & category['low']:
+            score += 1
+            
+    if 'today' in query or 'now' in query:
+        score += 3
+    if any(term in query for term in ('latest', 'current', 'new')):
+        score += 2
+        
+    return score >= 4  # Lowered threshold from 6 to 4
 
-    # Clean and normalize query
-    query_lower = ' '.join(query.lower().split())
-    
-    # Check for time indicators
-    has_time = any(keyword in query_lower for keyword in time_keywords)
-    # Check for topics needing current data  
-    has_topic = any(keyword in query_lower for keyword in topic_keywords)
-    
-    return has_time or has_topic
+# Add link detection regex with enhanced pattern
+URL_PATTERN = re.compile(
+    r'(?:(?:https?:)?\/\/)?'  # Protocol (optional)
+    r'(?:(?:[\w-]+\.)+[\w-]+)'  # Domain
+    r'(?:\/[^\s]*)?'  # Path (optional)
+    r'(?:\?[^\s]*)?'  # Query parameters (optional)
+    r'(?:\#[^\s]*)?'  # Fragment (optional)
+    r'(?:https?:)?\/\/(?:(?:www\.)?(?:youtube\.com|youtu\.be))\/[a-zA-Z0-9_-]+|'  # YouTube URLs
+    r'(?:https?:)?\/\/(?:[\w-]+\.)+[\w-]+(?:\/[^\s]*)?'  # Other URLs
+)
 
+@lru_cache(maxsize=50)
+async def scrape_url(url: str) -> str:
+    """Scrape content from specific URL"""
+    # Add protocol if missing
+    if not url.startswith('http'):
+        url = 'https:' + url if url.startswith('//') else 'https://' + url
+        
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers) as resp:
+                if resp.status == 200:
+                    html = await resp.text()
+                    soup = BeautifulSoup(html, 'html.parser')
+                    
+                    # Remove scripts, styles
+                    for script in soup(["script", "style"]):
+                        script.decompose()
+                        
+                    text = soup.get_text()
+                    lines = [line.strip() for line in text.splitlines() if line.strip()]
+                    return "\n".join(lines)[:1000]
+    except Exception as e:
+        logging.error(f"Failed to scrape {url}: {e}")
+        return None
+    
 async def get_search_results(query: str, num_results: int = 3) -> str:
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
@@ -110,18 +201,28 @@ async def get_search_results(query: str, num_results: int = 3) -> str:
                     
     return "No results found."
 
+@lru_cache(maxsize=100) 
 async def get_ai_response(prompt):
-    # Extract the current query from the prompt
     current_query = extract_current_query(prompt)
     logging.info(f"Extracted query: {current_query}")
     
-    # Check if we need real-time data
-    if needs_realtime_data(current_query):
-        logging.info("Real-time data needed, fetching search results")
-        search_results = await get_search_results(current_query)  # Added await here
+    # Check for URLs first
+    urls = URL_PATTERN.findall(current_query)
+    if urls:
+        content = await scrape_url(urls[0])
+        if content:
+            domain = urlparse(urls[0]).netloc.replace("www.", "")
+            prompt = (
+                f"Content from {domain}:\n{content[:1000]}...\n\n"
+                f"{prompt}"
+            )
+    # Only check realtime data if no URLs found
+    elif needs_realtime_data(current_query):
+        logging.info(f"Real-time data needed (query: {current_query})")
+        search_results = await get_search_results(current_query)
         if search_results:
             prompt = (
-                f"Google search results based on {current_query}:\n\n"
+                f"Based on current data for '{current_query}':\n\n"
                 f"{search_results}\n\n"
                 f"{prompt}"
             )
@@ -136,10 +237,18 @@ async def get_ai_response(prompt):
     model = flash15normal
     try:
         response = model.generate_content(query)
+        # Safely log response
+        if response.text:
+            try:
+                logging.info(f"AI response: {response.text}")
+            except UnicodeEncodeError:
+                # Fallback to ASCII if Unicode fails
+                logging.info(f"AI response: {response.text.encode('ascii', 'ignore').decode()}")
+                
         return response.text or "I'm not sure how to respond to that."
-        logging.info(f"AI response: {response.text}")
+        
     except Exception as e:
-        print(f"Error generating response: {e}")
+        logging.error(f"Error generating response: {str(e)}")
         return "Sorry, I could not process that."
 
 # Function to get AI response

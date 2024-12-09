@@ -7,3 +7,5 @@ downloaded_image.png
 ffmpeg/
 test.py
 tempCodeRunnerFile.py
+backups/
+messages.json
