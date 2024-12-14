@@ -1,8 +1,8 @@
-import discord, asyncio, aiohttp, random, httpx, re, json, io, base64, requests, os
+import discord, asyncio, aiohttp, random, httpx, re, json, io, base64, requests, os, logging
 from discord import app_commands
 from typing import Optional
 from pytube import Search
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 from bs4 import BeautifulSoup
 from PIL import Image
 from engine.utils import load_env, get_reddit_access_token, unsplash_env, hf_env, pexels_env
@@ -15,10 +15,21 @@ from engine.ai.gemini_models import (
     flash15normal,
     flash15creative,
     flash158bn,
-    flash158bc
+    flash158bc,
+    flash2
 )
 # Load environment variables
 DISCORD_TOKEN, OWNER, url, key = load_env()
+
+# Configure logging for Unicode
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("bot.log", encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
 
 # Define the say command
 @app_commands.command(name='say', description='Make the bot say something.')
@@ -57,7 +68,7 @@ async def explain_command(interaction: discord.Interaction, prompt: str):
     for sentence in response.split('. '):
         if len(current_part) + len(sentence) + 1 <= max_length:  # +1 for the '.'
             if current_part:
-                current_part += '. ' + sentence
+                current_part += ' ' + sentence
             else:
                 current_part = sentence
         else:
@@ -262,7 +273,8 @@ model_choices = [
     app_commands.Choice(name="gemini-1.5-flash", value="flash15normal"),
     app_commands.Choice(name="gemini-1.5-flash-exp", value="flash15creative"),
     app_commands.Choice(name="gemini-1.5-flash8b", value="flash158bn"),
-    app_commands.Choice(name="gemini-1.5-flash8b-exp", value="flash158bc")
+    app_commands.Choice(name="gemini-1.5-flash8b-exp", value="flash158bc"),
+    app_commands.Choice(name="gemini-2.0-flash-exp (advanced)", value="flash2")
 ]
 
 # Map model values to actual model objects
@@ -273,7 +285,8 @@ model_map = {
     "flash15normal": flash15normal,
     "flash15creative": flash15creative,
     "flash158bn": flash158bn,
-    "flash158bc": flash158bc
+    "flash158bc": flash158bc,
+    "flash2": flash2
 }
 
 @app_commands.command(name='prompt', description='Prompt for a specific AI model to generate a response.')
@@ -439,17 +452,17 @@ async def reddit_command(interaction: discord.Interaction, subreddit: str, sort:
             await interaction.followup.send(f"The subreddit '{subreddit}' does not exist. Please try a different subreddit.")
         else:
             await interaction.followup.send("There was an error fetching posts from Reddit. Please try again later.")
-        print(f"HTTP error: {e}")
+        logging.error(f"HTTP error: {e}")
     except Exception as e:
         await interaction.followup.send("An unexpected error occurred. Please try again later.")
-        print(f"Unexpected error: {e}")
+        logging.error(f"Unexpected error: {e}")
         
 # Define the choices for search engines
 search_engine_choices = [
     app_commands.Choice(name="Google", value="google"),
     app_commands.Choice(name="Bing", value="bing"),
+    app_commands.Choice(name="Yahoo", value="yahoo"),
     app_commands.Choice(name="DuckDuckGo (DEPRECATED)", value="duckduckgo"),
-    app_commands.Choice(name="Yahoo (DEPRECATED)", value="yahoo"),
     app_commands.Choice(name="Ask.com (DEPRECATED)", value="ask")
 ]
 
@@ -461,10 +474,17 @@ search_engine_icons = {
     "yahoo": "https://media.discordapp.net/attachments/533926025747234838/1303799820292460554/yahoo.gif",
     "ask": "https://media.discordapp.net/attachments/533926025747234838/1303799822431817800/Ask.com.png"
 }
-
+# Map of search engine icons (high resolution, official logos)
+SEARCH_ENGINE_AUTHOR_ICONS = {
+    "google": "https://media.discordapp.net/attachments/533926025747234838/1316108610111279195/google.png",  # Google 'G' logo
+    "bing": "https://media.discordapp.net/attachments/533926025747234838/1316108609305968791/bing.png",    # Bing 'b' logo
+    "duckduckgo": "https://media.discordapp.net/attachments/533926025747234838/1316108610329120838/ddg.png", # DuckDuckGo duck logo
+    "yahoo": "https://media.discordapp.net/attachments/533926025747234838/1316108609586724864/yahoo.png",   # Yahoo '!' logo
+    "ask": "https://media.discordapp.net/attachments/533926025747234838/1316108609863553085/ask.png"      # Ask.com logo
+}
 @app_commands.command(name="search", description="Search for a query on the web.")
 @app_commands.choices(engine=search_engine_choices)
-async def search_command(interaction: discord.Interaction, query: str, engine: app_commands.Choice[str] = None, safesearch: bool = True):
+async def search_command(interaction: discord.Interaction, query: str, engine: app_commands.Choice[str] = None, safesearch: bool = True, image_search: bool = False):
     await interaction.response.defer()
 
     # Force SafeSearch if the channel is not NSFW
@@ -475,15 +495,30 @@ async def search_command(interaction: discord.Interaction, query: str, engine: a
     if engine is None:
         engine = app_commands.Choice(name="Google", value="google")
 
-    # Map engine names to URLs and SafeSearch options
+    # Map engine names to URLs with image search options
     search_urls = {
-        "google": f"https://www.google.com/search?q={query.replace(' ', '+')}" + ("&safe=active" if safesearch else ""),
-        "bing": f"https://www.bing.com/search?q={query.replace(' ', '+')}" + ("&adlt=strict" if safesearch else ""),
-        "duckduckgo": f"https://duckduckgo.com/?q={query.replace(' ', '+')}" + ("&kp=1" if safesearch else ""),
-        "yahoo": f"https://search.yahoo.com/search?p={query.replace(' ', '+')}",
-        "ask": f"https://www.ask.com/web?q={query.replace(' ', '+')}"
+        "google": {
+            "web": f"https://www.google.com/search?q={query.replace(' ', '+')}" + ("&safe=active" if safesearch else ""),
+            "image": f"https://www.google.com/search?q={query.replace(' ', '+')}&tbm=isch" + ("&safe=active" if safesearch else "")
+        },
+        "bing": {
+            "web": f"https://www.bing.com/search?q={query.replace(' ', '+')}" + ("&adlt=strict" if safesearch else ""),
+            "image": f"https://www.bing.com/images/search?q={query.replace(' ', '+')}" + ("&adlt=strict" if safesearch else "")
+        },
+        "duckduckgo": {
+            "web": f"https://duckduckgo.com/?q={query.replace(' ', '+')}" + ("&kp=1" if safesearch else ""),
+            "image": f"https://duckduckgo.com/?q={query.replace(' ', '+')}&ia=images&iax=images" + ("&kp=1" if safesearch else "")
+        },
+        "yahoo": {
+            "web": f"https://search.yahoo.com/search?p={query.replace(' ', '+')}",
+            "image": f"https://images.search.yahoo.com/search/images?p={query.replace(' ', '+')}"
+        },
+        "ask": {
+            "web": f"https://www.ask.com/web?q={query.replace(' ', '+')}",
+            "image": f"https://www.ask.com/images?q={query.replace(' ', '+')}"
+        }
     }
-    search_url = search_urls.get(engine.value)
+    search_url = search_urls.get(engine.value)["image" if image_search else "web"]
     
     # Custom headers
     headers = {
@@ -499,11 +534,122 @@ async def search_command(interaction: discord.Interaction, query: str, engine: a
             html = await resp.text()
             soup = BeautifulSoup(html, 'html.parser')
 
-            # Parse search results based on the selected engine
-            results = extract_search_results(soup, engine.value)
+            if image_search:
+                # Image search mode
+                results = []
+                try:
+                    if engine.value == "google":
+                        # Try multiple selectors for Google Images
+                        for img in soup.find_all(['div', 'img'], class_=['isv-r', 'rg_i', 'Q4LuWd']):
+                            try:
+                                # First try direct image tag
+                                image = img.find('img')
+                                if image:
+                                    image_url = (
+                                        image.get('src') or 
+                                        image.get('data-src') or 
+                                        image.get('data-iurl')
+                                    )
+                                
+                                # Fallback to container metadata
+                                if not image_url:
+                                    metadata = img.get('metadata', '')
+                                    if metadata:
+                                        try:
+                                            metadata = json.loads(metadata)
+                                            image_url = metadata.get('ou', '')
+                                        except:
+                                            continue
+                    
+                                if image_url and not image_url.startswith('data:'):
+                                    title = img.get('title', 'Image result')
+                                    source = img.find('a', href=True)
+                                    source_url = source['href'] if source else None
+                                    
+                                    logging.info(f"Found Google image: {image_url}")
+                                    embed = discord.Embed(title=f"Image search: {query}", color=discord.Color.blue())
+                                    embed.set_image(url=image_url)
+                                    if source_url:
+                                        embed.add_field(name="Source", value=source_url, inline=False)
+                                    embed.set_author(
+                                        name=f"{engine.name} Image Search",
+                                        icon_url=SEARCH_ENGINE_AUTHOR_ICONS[engine.value],
+                                        url=search_url
+                                    )
+                                    await interaction.followup.send(embed=embed)
+                                    return
+                                    
+                            except Exception as e:
+                                logging.error(f"Error parsing Google image: {str(e)}")
+                                continue
+                                
+                    elif engine.value == "yahoo":
+                        for img in soup.find_all(['li', 'div'], class_=['ld', 'img']):
+                            try:
+                                image = img.find('img')
+                                image_url = image.get('data-src') or image.get('src')
+                                if image_url and not image_url.startswith('data:'):
+                                    embed = discord.Embed(title=f"Image search: {query}", color=discord.Color.blue())
+                                    embed.set_image(url=image_url)
+                                    embed.set_author(
+                                        name=f"{engine.name} Image Search",
+                                        icon_url=SEARCH_ENGINE_AUTHOR_ICONS[engine.value],
+                                        url=search_url
+                                    )
+                                    await interaction.followup.send(embed=embed)
+                                    return
+                            except Exception as e:
+                                logging.error(f"Error parsing Yahoo image: {e}")
+                                continue
+                                
+                    elif engine.value == "bing":
+                        for img in soup.find_all('div', class_='imgpt'):
+                            try:
+                                image = img.find('img')
+                                if image and 'src' in image.attrs:
+                                    image_url = image['src']
+                                    embed = discord.Embed(title=f"Image search: {query}", color=discord.Color.blue())
+                                    embed.set_image(url=image_url)
+                                    embed.set_author(
+                                        name=f"{engine.name} Image Search",
+                                        icon_url=SEARCH_ENGINE_AUTHOR_ICONS[engine.value],
+                                        url=search_url
+                                    )
+                                    await interaction.followup.send(embed=embed)
+                                    return
+                            except Exception as e:
+                                logging.error(f"Error parsing Bing image: {e}")
+                                continue
+                                
+                    await interaction.followup.send("❌ No image results found.")
+                    return
+                    
+                except Exception as e:
+                    logging.error(f"Image search error: {e}")
+                    await interaction.followup.send("❌ Error processing image search.")
+                    return
+
+            else:
+                # Normal web search
+                results = extract_search_results(soup, engine.value)
+    
 
             # Build and send the embed
             embed = discord.Embed(title=f"Search results for '{query}'", color=discord.Color.blue())
+
+            # Add author with search engine icon
+            search_urls_base = {
+                "google": "https://www.google.com",
+                "bing": "https://www.bing.com",
+                "duckduckgo": "https://duckduckgo.com",
+                "yahoo": "https://search.yahoo.com",
+                "ask": "https://www.ask.com"
+            }
+            embed.set_author(
+                name=f"{engine.name} Search", 
+                icon_url=SEARCH_ENGINE_AUTHOR_ICONS[engine.value],
+                url=search_urls_base[engine.value]
+            )
             embed.set_thumbnail(url=search_engine_icons[engine.value])
             if results:
                 for title, description, source, image in results[:5]:  # Limit to top 5 results
@@ -513,71 +659,122 @@ async def search_command(interaction: discord.Interaction, query: str, engine: a
             else:
                 embed.description = "No results found."
 
-            embed.set_footer(text=interaction.client.user.name, icon_url=interaction.client.user.avatar.url)
+            embed.set_footer(text=interaction.client.user.name, icon_url=interaction.client.user.display_avatar.url)
             await interaction.followup.send(embed=embed)
 
 def extract_search_results(soup, engine):
     results = []
 
+    def get_meta_image(soup):
+        """Extract image from meta tags with proper error handling"""
+        try:
+            meta_img = (
+                soup.find('meta', attrs={'property': 'og:image'}) or 
+                soup.find('meta', attrs={'property': 'twitter:image'}) or
+                soup.find('meta', attrs={'name': 'thumbnail'})
+            )
+            return meta_img['content'] if meta_img and 'content' in meta_img.attrs else "No image"
+        except Exception:
+            return "No image"
+
     if engine == "google":
-        for g in soup.find_all('div', class_='tF2Cxc'):
-            title = g.find('h3').text if g.find('h3') else "No title"
-            link = g.find('a')['href'] if g.find('a') else "No link"
-            description = g.find('div', class_='VwiC3b').text if g.find('div', class_='VwiC3b') else "No description"
-            image = g.find('img')['src'] if g.find('img') else "No image"
-            
-            # Get the source domain name
-            domain = urlparse(link).netloc.replace("www.", "")
-            source = f"Source: [{domain}]({link})"
-            
-            results.append((title, description, source, image))
+        for g in soup.find_all(['div', 'g'], class_=['tF2Cxc', 'g']):
+            try:
+                title = g.find('h3').text if g.find('h3') else "No title"
+                link = g.find('a')['href'] if g.find('a') else "No link"
+                description = g.find('div', class_='VwiC3b').text if g.find('div', class_='VwiC3b') else "No description"
+                
+                # Enhanced image extraction for Google
+                image = (
+                    g.find('img', class_=['rISBZc', 'XNo5Ab'])['src'] if g.find('img', class_=['rISBZc', 'XNo5Ab']) else
+                    g.find('g-img')['src'] if g.find('g-img') and 'src' in g.find('g-img').attrs else
+                    g.find('img')['src'] if g.find('img') and 'src' in g.find('img').attrs else
+                    "No image"
+                )
+                
+                domain = urlparse(link).netloc.replace("www.", "")
+                source = f"Source: [{domain}]({link})"
+                results.append((title, description, source, image))
+            except Exception as e:
+                logging.error(f"Error parsing Google result: {e}")
+                continue
 
     elif engine == "bing":
         for b in soup.find_all('li', class_='b_algo'):
-            title = b.find('h2').text if b.find('h2') else "No title"
-            link = b.find('a')['href'] if b.find('a') else "No link"
-            description = b.find('p').text if b.find('p') else "No description"
-            image = b.find('img')['src'] if b.find('img') else "No image"
+            try:
+                title = b.find('h2').text if b.find('h2') else "No title"
+                link = b.find('a')['href'] if b.find('a') else "No link"
+                description = b.find('p').text if b.find('p') else "No description"
+                
+                # Enhanced image extraction for Bing
+                image = (
+                    b.find('img', class_=['cico', 'rms_img'])['src'] if b.find('img', class_=['cico', 'rms_img']) else
+                    b.find('img')['src'] if b.find('img') and 'src' in b.find('img').attrs else
+                    "No image"
+                )
+                
+                domain = urlparse(link).netloc.replace("www.", "")
+                source = f"Source: [{domain}]({link})"
+                results.append((title, description, source, image))
+            except Exception as e:
+                logging.error(f"Error parsing Bing result: {e}")
+                continue
             
-            domain = urlparse(link).netloc.replace("www.", "")
-            source = f"Source: [{domain}]({link})"
-            
-            results.append((title, description, source, image))
-
-    elif engine == "duckduckgo":
-        for d in soup.find_all('div', class_='result'):
-            title = d.find('a', class_='result__a').text if d.find('a', class_='result__a') else "No title"
-            link = d.find('a', class_='result__a')['href'] if d.find('a', class_='result__a') else "No link"
-            description = d.find('div', class_='result__snippet').text if d.find('div', class_='result__snippet') else "No description"
-            image = d.find('img')['src'] if d.find('img') else "No image"
-            
-            domain = urlparse(link).netloc.replace("www.", "")
-            source = f"Source: [{domain}]({link})"
-            
-            results.append((title, description, source, image))
-
     elif engine == "yahoo":
-        for y in soup.find_all('div', class_='dd algo'):
-            title = y.find('h3').text if y.find('h3') else "No title"
-            link = y.find('a')['href'] if y.find('a') else "No link"
-            description = y.find('p').text if y.find('p') else "No description"
-            image = y.find('img')['src'] if y.find('img') else "No image"
+        for y in soup.find_all('div', class_='algo'):  # Changed from algo-sr
+            try:
+                # Get title and clean it
+                title = y.find('h3').get_text(strip=True) if y.find('h3') else "No title"
+                
+                # Get real link instead of redirect
+                link_elem = y.find('a')
+                if link_elem:
+                    link = link_elem['href']
+                    # Remove Yahoo redirect
+                    if 'r.search.yahoo.com' in link:
+                        parsed = urlparse(link)
+                        query_params = parse_qs(parsed.query)
+                        link = query_params.get('p', [link])[0]
+                else:
+                    link = "No link"
+                    
+                # Get and clean description
+                description = y.find('div', class_='compText').get_text(strip=True) if y.find('div', class_='compText') else "No description"
+                description = description[:300] + '...' if len(description) > 300 else description
+                
+                # Get image if available
+                image = y.find('img')['src'] if y.find('img') else "No image"
+                
+                # Format domain and source
+                domain = urlparse(link).netloc.replace("www.", "")
+                source = f"Source: [{domain}]({link})"
+                
+                results.append((title, description, source, image))
+                
+            except Exception as e:
+                logging.error(f"Error parsing Yahoo result: {e}")
+                continue
+            
+    elif engine == "duckduckgo":
+        for d in soup.find_all('div', class_='nrn-react-div'):
+            title = d.find('h2').text if d.find('h2') else "No title"
+            link = d.find('a')['href'] if d.find('a') else "No link"
+            description = d.find('div', class_='result__snippet').text if d.find('div', class_='result__snippet') else "No description"
+            image = d.find('img', class_='result__image')['src'] if d.find('img', class_='result__image') else "No image"
             
             domain = urlparse(link).netloc.replace("www.", "")
             source = f"Source: [{domain}]({link})"
-            
             results.append((title, description, source, image))
 
     elif engine == "ask":
-        for a in soup.find_all('div', class_='PartialSearchResults-item'):
-            title = a.find('h2').text if a.find('h2') else "No title"
-            link = a.find('a')['href'] if a.find('a') else "No link"
-            description = a.find('p').text if a.find('p') else "No description"
-            image = a.find('img')['src'] if a.find('img') else "No image"
+        for a in soup.find_all('div', class_='PartialSearchResults-body'):
+            title = a.find('div', class_='PartialSearchResults-title').text if a.find('div', class_='PartialSearchResults-title') else "No title"
+            link = a.find('a', class_='PartialSearchResults-link')['href'] if a.find('a', class_='PartialSearchResults-link') else "No link"
+            description = a.find('p', class_='PartialSearchResults-item-abstract').text if a.find('p', class_='PartialSearchResults-item-abstract') else "No description"
+            image = a.find('img', class_='PartialSearchResults-image')['src'] if a.find('img', class_='PartialSearchResults-image') else "No image"
             
             domain = urlparse(link).netloc.replace("www.", "")
             source = f"Source: [{domain}]({link})"
-            
             results.append((title, description, source, image))
             
     return results
@@ -653,22 +850,22 @@ async def unsplash_image_search(query: str, orientation: str = 'landscape'):
                     photo_link = data['links']['html']
                     return image_url, photographer, photo_link
                 elif resp.status == 404:
-                    print(f"No images found for query: {query}")
+                    logging.info(f"No images found for query: {query}")
                     return None, None, None
                 elif resp.status == 403:
-                    print("Access Forbidden: Check your Unsplash Access Key and permissions.")
+                    logging.info("Access Forbidden: Check your Unsplash Access Key and permissions.")
                     return None, None, None
                 elif resp.status == 429:
-                    print("Rate limit exceeded: Too many requests to Unsplash API.")
+                    logging.info("Rate limit exceeded: Too many requests to Unsplash API.")
                     return None, None, None
                 else:
-                    print(f"Error fetching image: {resp.status}")
+                    logging.error(f"Error fetching image: {resp.status}")
                     return None, None, None
         except asyncio.TimeoutError:
-            print("Request timed out while contacting Unsplash API.")
+            logging.error("Request timed out while contacting Unsplash API.")
             return None, None, None
         except Exception as e:
-            print(f"Exception during Unsplash image search: {e}")
+            logging.error(f"Exception during Unsplash image search: {e}")
             return None, None, None
 
 @app_commands.command(name="image", description="Search for an image using Unsplash")
@@ -715,7 +912,7 @@ def search_videos(query, per_page=10):
         response.raise_for_status()
         return response.json().get('videos', [])
     except Exception as err:
-        print(f"Error occurred: {err}")
+        logging.error(f"Error occurred: {err}")
     return []
 
 def get_popular_videos():
@@ -731,7 +928,7 @@ def get_popular_videos():
         response.raise_for_status()
         return response.json().get('videos', [])
     except Exception as e:
-        print(f"Error fetching popular videos: {e}")
+        logging.error(f"Error fetching popular videos: {e}")
     return []
 
 @app_commands.command(name='video', description='Search for a video using Pexels.')
@@ -783,14 +980,14 @@ async def send_video(interaction, videos):
                             os.remove(video_filename)
                         return True  # Video sent successfully
             except Exception as e:
-                print(f"Error downloading video: {e}")
+                logging.error(f"Error downloading video: {e}")
                 continue  # Try next video
     return False  # Failed to send a video after retries
                 
 # Hugging Face API Key
 HF_API_KEY = hf_env()
 if not HF_API_KEY:
-    print("Hugging Face API Key not found. Please set HF_API_KEY in your environment variables.")
+    logging.error("Hugging Face API Key not found. Please set HF_API_KEY in your environment variables.")
     
 async def generate_image(
     prompt,
@@ -806,7 +1003,7 @@ async def generate_image(
     # Retrieve the model information
     model_info = AVAILABLE_MODELS.get(model)
     if not model_info:
-        print(f"Model '{model}' not found. Using default model.")
+        logging.error(f"Model '{model}' not found. Using default model.")
         model_info = AVAILABLE_MODELS["stable-diffusion-3.5-turbo"]
     hf_model_id = model_info["model_id"]
 
@@ -846,22 +1043,22 @@ async def generate_image(
                 ) as response:
                     if response.status == 200:
                         image_data = await response.read()
-                        print(f"Image generated successfully for prompt: '{prompt}' using model: '{model}'")
+                        logging.info(f"Image generated successfully for prompt: '{prompt}' using model: '{model}'")
                         return io.BytesIO(image_data)
                     else:
                         text = await response.text()
-                        print(f"Error: {response.status}, Response: {text}")
+                        logging.error(f"Error: {response.status}, Response: {text}")
                         if response.status in [429, 500, 502, 503, 504]:
                             raise aiohttp.ClientError(f"Server error: {response.status}")
                         return None
         except (asyncio.TimeoutError, aiohttp.ClientError) as e:
-            print(f"Attempt {attempt} failed with error: {e}")
+            logging.error(f"Attempt {attempt} failed with error: {e}")
             if attempt == retries:
-                print("All retry attempts failed.")
+                logging.error("All retry attempts failed.")
                 return None
             await asyncio.sleep(backoff_factor ** attempt)
         except Exception as e:
-            print(f"Unexpected exception during image generation: {e}")
+            logging.error(f"Unexpected exception during image generation: {e}")
             return None
         
 # Define available models and their descriptions
@@ -1121,7 +1318,7 @@ async def imagine_command(
             embed.set_image(url="attachment://image.png")
             await interaction.followup.send(embed=embed, file=file)
         except Exception as e:
-            print(f"Error sending image to Discord: {e}")
+            logging.error(f"Error sending image to Discord: {e}")
             await interaction.followup.send("Failed to send the generated image.")
     else:
         await interaction.followup.send(
@@ -1157,10 +1354,10 @@ async def generate_caption(image_bytes):
                     caption = result[0].get('generated_text', '')
                     return caption
                 else:
-                    print("No caption generated.")
+                    logging.info("No caption generated.")
             else:
                 text = await response.text()
-                print(f"Error: {response.status}, Response: {text}")
+                logging.error(f"Error: {response.status}, Response: {text}")
     return None
 
 @app_commands.command(name="caption", description="Generate a caption for an image.")
@@ -1197,7 +1394,7 @@ async def caption_command(
                 "Sorry, I couldn't generate a caption for the image. Please try again later."
             )
     except Exception as e:
-        print(f"Error: {e}")
+        logging.error(f"Error: {e}")
         await interaction.followup.send("An error occurred while processing your request.")
         
 async def generate_variations(image_bytes):
@@ -1219,7 +1416,7 @@ async def generate_variations(image_bytes):
                 return generated_image
             else:
                 text = await response.text()
-                print(f"Error: {response.status}, Response: {text}")
+                logging.error(f"Error: {response.status}, Response: {text}")
     return None
 @app_commands.command(name="variation", description="Generate a variation of an image using AI.")
 @app_commands.describe(
@@ -1260,7 +1457,7 @@ async def variation_command(
                 "Sorry, I couldn't generate a variation of the image. Please try again later."
             )
     except Exception as e:
-        print(f"Error: {e}")
+        logging.error(f"Error: {e}")
         await interaction.followup.send(
             "An error occurred while processing your request."
         )
@@ -1276,7 +1473,7 @@ async def refine_image(image_bytes, prompt):
         png_buffer.seek(0)
         png_bytes = png_buffer.getvalue()
     except Exception as e:
-        print(f"Image validation error: {e}")
+        logging.error(f"Image validation error: {e}")
         return None
 
     headers = {
@@ -1304,7 +1501,7 @@ async def refine_image(image_bytes, prompt):
                 return refined_image
             else:
                 text = await response.text()
-                print(f"Error: {response.status}, Response: {text}")
+                logging.error(f"Error: {response.status}, Response: {text}")
     return None
 
 @app_commands.command(name="refine", description="Refine an image using AI.")
@@ -1349,7 +1546,7 @@ async def refine_command(
                 "Sorry, I couldn't refine the image. Please try again later."
             )
     except Exception as e:
-        print(f"Error: {e}")
+        logging.error(f"Error: {e}")
         await interaction.followup.send(
             "An error occurred while processing your request."
         )
@@ -1367,7 +1564,7 @@ async def modify_image(image_bytes, instruction):
             img.save(png_buffer, format='PNG')
             png_bytes = png_buffer.getvalue()
     except Exception as e:
-        print(f"Image validation error: {e}")
+        logging.error(f"Image validation error: {e}")
         return None
 
     headers = {
@@ -1394,7 +1591,7 @@ async def modify_image(image_bytes, instruction):
                 return io.BytesIO(await response.read())
             else:
                 text = await response.text()
-                print(f"Error {response.status}: {text}")
+                logging.error(f"Error {response.status}: {text}")
                 return None
 
 @app_commands.command(name="modify", description="Modify an image based on an instruction.")
@@ -1439,7 +1636,7 @@ async def modify_command(
                 "Sorry, I couldn't modify the image. Please try again later."
             )
     except Exception as e:
-        print(f"Error: {e}")
+        logging.error(f"Error: {e}")
         await interaction.followup.send(
             "An error occurred while processing your request."
         )
@@ -1488,7 +1685,7 @@ async def youtube_command(interaction: discord.Interaction, query: str):
         else:
             await interaction.followup.send("No results found for the search query.")
     except Exception as e:
-        print(f"Error: {e}")
+        logging.error(f"Error: {e}")
         await interaction.followup.send("An error occurred while processing your request.")
 
 # Define the language choices for TTS

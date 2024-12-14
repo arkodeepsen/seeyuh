@@ -30,7 +30,8 @@ from engine.ai.gemini_models import (
     flash15normal,
     flash15creative,
     flash158bn,
-    flash158bc
+    flash158bc,
+    flash2
 )
 def extract_current_query(prompt: str) -> str:
     """Extract clean search query from bot prompt format."""
@@ -234,7 +235,7 @@ async def get_ai_response(prompt):
     current_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     query = f"\n{systemInstruction} Today's date and time is {current_datetime}", f"\n{prompt}"
     logging.info(f"Query to AI: {query}")
-    model = flash15normal
+    model = flash2
     try:
         response = model.generate_content(query)
         # Safely log response
@@ -281,16 +282,16 @@ async def code_ai_response(prompt, language=None, framework=None):
     query = f"\n{systemInstruction}", f"User is asking for AI generated code{language_info}{framework_info} for prompt: {prompt}"
     model = pro15normal
     try:
-        response = model.generate_content(query)
+        response = model.generate_content((query), tools='code_execution')
         return response.text or "I'm not sure how to respond to that."
     except Exception as e:
         print(f"Error generating response: {e}")
         return "Sorry, I could not process that."
     
 async def explain_ai_response(prompt):
-    systemInstruction = f"You are a discord bot named seeyuh. You will roleplay as professor seeyuh. You will strictly only explain serious concepts or topics in details covering the most important key information. Your message should be well structured to be displayed in discord and should not be too long."
+    systemInstruction = f"You are a discord bot named seeyuh. You will roleplay as professor seeyuh. You will strictly only explain serious concepts or topics in details covering the most important key information. Your message should be well structured to be displayed in discord and should not be too long. Don't be overly concise or too detailed unless specified by user."
     query = f"\n{systemInstruction}", f"\n User is asking a detailed explaination for: {prompt}"
-    model = pro15creative
+    model = pro15normal
     try:
         response = model.generate_content(query)
         return response.text or "I'm not sure how to respond to that."
@@ -351,7 +352,7 @@ async def get_tts_text(prompt: str, language: str) -> str:
     query = f"\n{system_instruction}", f"\n{prompt}"
     
     try:
-        response = flash15creative.generate_content(query)
+        response = flash158bc.generate_content(query)
         text = response.text or "I'm not sure how to respond to that."
         return text[:100]  # Limit length for TTS
     except Exception as e:

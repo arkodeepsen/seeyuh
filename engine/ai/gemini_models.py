@@ -13,7 +13,7 @@ slightly_creative_pro = {
     'temperature': 1.0,       # Higher creativity, allowing for more varied and unexpected language
     'top_p': 0.8,             # Slightly more randomness and diversity in responses
     'top_k': 50,              # Larger vocabulary selection, which promotes more casual and diverse word choices
-    'max_output_tokens': 1024 # Keeps responses complete without cutting off, especially if informal explanations are longer
+    'max_output_tokens': 2048 # Keeps responses complete without cutting off, especially if informal explanations are longer
 }
 
 # Initialize model with safety settings
@@ -35,7 +35,7 @@ very_creative_flash = {
     'temperature': 2,       # Higher creativity, allowing for more varied and unexpected language
     'top_p': 1.0,             # Slightly more randomness and diversity in responses
     'top_k': 40,              # Larger vocabulary selection, which promotes more casual and diverse word choices
-    'max_output_tokens': 1024 # Keeps responses complete without cutting off, especially if informal explanations are longer
+    'max_output_tokens': 2048 # Keeps responses complete without cutting off, especially if informal explanations are longer
 }
 
 safety_settings = [
@@ -92,5 +92,11 @@ flash158bn = genai.GenerativeModel(
 flash158bc = genai.GenerativeModel(
     model_name='gemini-1.5-flash-8b',
     generation_config=very_creative_flash,
+    safety_settings=safety_settings
+)
+
+flash2 = genai.GenerativeModel(
+    model_name='gemini-2.0-flash-exp',
+    generation_config=slightly_creative_flash,
     safety_settings=safety_settings
 )
