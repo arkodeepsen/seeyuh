@@ -18,21 +18,21 @@ slightly_creative_pro = {
 
 # Initialize model with safety settings
 very_creative_pro = {
-    'temperature': 2.0,       # Higher creativity, allowing for more varied and unexpected language
+    'temperature': 1.5,       # Higher creativity, allowing for more varied and unexpected language
     'top_p': 1.0,             # Slightly more randomness and diversity in responses
     'top_k': 100,              # Larger vocabulary selection, which promotes more casual and diverse word choices
     'max_output_tokens': 2048 # Keeps responses complete without cutting off, especially if informal explanations are longer
 }
 
 slightly_creative_flash = {
-    'temperature': 1,       # Higher creativity, allowing for more varied and unexpected language
+    'temperature': 1.0,       # Higher creativity, allowing for more varied and unexpected language
     'top_p': 0.8,             # Slightly more randomness and diversity in responses
     'top_k': 40,              # Larger vocabulary selection, which promotes more casual and diverse word choices
     'max_output_tokens': 2048 # Keeps responses complete without cutting off, especially if informal explanations are longer
 } 
 
 very_creative_flash = {
-    'temperature': 2,       # Higher creativity, allowing for more varied and unexpected language
+    'temperature': 2.0,       # Higher creativity, allowing for more varied and unexpected language
     'top_p': 1.0,             # Slightly more randomness and diversity in responses
     'top_k': 40,              # Larger vocabulary selection, which promotes more casual and diverse word choices
     'max_output_tokens': 2048 # Keeps responses complete without cutting off, especially if informal explanations are longer
@@ -60,25 +60,25 @@ pro10creative = genai.GenerativeModel(
 )
 
 pro15creative = genai.GenerativeModel(
-    model_name='gemini-1.5-pro',
+    model_name='gemini-1.5-pro-latest',
     generation_config=very_creative_pro,
     safety_settings=safety_settings
 )
 
 pro15normal = genai.GenerativeModel(
-    model_name='gemini-1.5-pro',
+    model_name='gemini-1.5-pro-latest',
     generation_config=slightly_creative_pro,
     safety_settings=safety_settings
 )   
 
 flash15normal = genai.GenerativeModel(
-    model_name='gemini-1.5-flash-002',
+    model_name='gemini-1.5-flash-latest',
     generation_config=slightly_creative_flash,
     safety_settings=safety_settings
 )
 
 flash15creative = genai.GenerativeModel(
-    model_name='gemini-1.5-flash-002',
+    model_name='gemini-1.5-flash-latest',
     generation_config=very_creative_flash,
     safety_settings=safety_settings
 )

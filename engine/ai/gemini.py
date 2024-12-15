@@ -33,6 +33,55 @@ from engine.ai.gemini_models import (
     flash158bc,
     flash2
 )
+
+# Model fallback chains
+MODEL_CHAINS = {
+    'pro15normal': ['pro15normal', 'flash2', 'flash15normal', 'flash158bn'],
+    'flash2': ['flash2', 'flash15normal', 'flash158bn'],
+    'pro15creative': ['pro15creative', 'flash15creative', 'flash158bc'],
+    'flash15normal': ['flash15normal', 'flash158bn']
+}
+
+# Track quota failures
+model_quota_failures = {}
+
+async def try_model_chain(query, initial_model_name, tools=None):
+    """Try models in sequence when quota exhausted"""
+    global model_quota_failures
+    
+    # Get appropriate model chain
+    chain = MODEL_CHAINS.get(initial_model_name, [initial_model_name])
+    
+    # Try each model in chain
+    for model_name in chain:
+        # Skip if quota exhausted today
+        if model_name in model_quota_failures:
+            last_failure = model_quota_failures[model_name]
+            if datetime.now().date() == last_failure.date():
+                logging.info(f"Skipping {model_name} - quota exhausted today")
+                continue
+            else:
+                del model_quota_failures[model_name]
+        
+        try:
+            model = globals()[model_name]
+            logging.info(f"Trying model: {model_name}")
+            if tools:
+                response = model.generate_content(query, tools=tools)
+            else:
+                response = model.generate_content(query)
+            return response
+            
+        except Exception as e:
+            if "quota" in str(e).lower():
+                model_quota_failures[model_name] = datetime.now()
+                logging.warning(f"Quota exhausted for {model_name}, trying next model")
+                continue
+            raise
+    
+    logging.error("All models in chain exhausted")
+    return None
+
 def extract_current_query(prompt: str) -> str:
     """Extract clean search query from bot prompt format."""
     if "Current query: from user" in prompt:
@@ -235,9 +284,8 @@ async def get_ai_response(prompt):
     current_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     query = f"\n{systemInstruction} Today's date and time is {current_datetime}", f"\n{prompt}"
     logging.info(f"Query to AI: {query}")
-    model = flash2
     try:
-        response = model.generate_content(query)
+        response = await try_model_chain(query, 'flash2')
         # Safely log response
         if response.text:
             try:
@@ -256,9 +304,8 @@ async def get_ai_response(prompt):
 async def slash_ai_response(prompt):
     systemInstruction = f"You are a discord bot named seeyuh. Your responses are chill asf and very informal gen-z style. You will do exactly what the user asks you to do."
     query = f"\n{systemInstruction}", f"\n{prompt}"
-    model = flash15creative
     try:
-        response = model.generate_content(query)
+        response = await try_model_chain(query, 'flash15creative')
         return response.text or "I'm not sure how to respond to that."
     except Exception as e:
         print(f"Error generating response: {e}")
@@ -280,10 +327,12 @@ async def code_ai_response(prompt, language=None, framework=None):
     language_info = f" in {language}" if language else ""
     framework_info = f" using {framework}" if framework else ""
     query = f"\n{systemInstruction}", f"User is asking for AI generated code{language_info}{framework_info} for prompt: {prompt}"
-    model = pro15normal
     try:
-        response = model.generate_content((query), tools='code_execution')
-        return response.text or "I'm not sure how to respond to that."
+        if language and language.upper() == 'PYTHON' or 'python' in prompt.lower():
+            response = await try_model_chain(query, 'pro15normal', tools='code_execution')
+        else:
+            response = await try_model_chain(query, 'pro15normal')
+        return response or "I'm not sure how to respond to that."
     except Exception as e:
         print(f"Error generating response: {e}")
         return "Sorry, I could not process that."
@@ -291,9 +340,8 @@ async def code_ai_response(prompt, language=None, framework=None):
 async def explain_ai_response(prompt):
     systemInstruction = f"You are a discord bot named seeyuh. You will roleplay as professor seeyuh. You will strictly only explain serious concepts or topics in details covering the most important key information. Your message should be well structured to be displayed in discord and should not be too long. Don't be overly concise or too detailed unless specified by user."
     query = f"\n{systemInstruction}", f"\n User is asking a detailed explaination for: {prompt}"
-    model = pro15normal
     try:
-        response = model.generate_content(query)
+        response = await try_model_chain(query, 'pro15normal')
         return response.text or "I'm not sure how to respond to that."
     except Exception as e:
         print(f"Error generating response: {e}")
@@ -324,9 +372,8 @@ async def mystery(prompt):
 async def translate(prompt):
     systemInstruction = f"You are a discord bot named seeyuh. Your will assume the role of a professional translator. You will strictly only translate text from one language to another."
     query = f"\n{systemInstruction}", f"\n{prompt}"
-    model = pro15normal
     try:
-        response = model.generate_content(query)
+        response = await try_model_chain(query, 'pro15normal')
         return response.text or "I'm not sure how to respond to that."
     except Exception as e:
         print(f"Error generating response: {e}")
@@ -352,7 +399,7 @@ async def get_tts_text(prompt: str, language: str) -> str:
     query = f"\n{system_instruction}", f"\n{prompt}"
     
     try:
-        response = flash158bc.generate_content(query)
+        response = flash158bn.generate_content(query)
         text = response.text or "I'm not sure how to respond to that."
         return text[:100]  # Limit length for TTS
     except Exception as e:

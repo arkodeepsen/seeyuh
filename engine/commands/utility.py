@@ -1,4 +1,4 @@
-import discord, asyncio, aiohttp, random, httpx, re, json, io, base64, requests, os, logging
+import discord, asyncio, aiohttp, random, httpx, re, json, io, base64, requests, os, logging, tempfile
 from discord import app_commands
 from typing import Optional
 from pytube import Search
@@ -39,20 +39,102 @@ async def say_command(interaction: discord.Interaction, content: str):
 @app_commands.command(name='code', description='Get AI generated code for your given prompt.')
 async def code_command(interaction: discord.Interaction, prompt: str, language: str = None, framework: str = None):
     await interaction.response.defer()
-    # Get AI-generated response
-    response = await code_ai_response(prompt, language=language, framework=framework)
     
-    # Split the response into multiple messages if it exceeds 2000 characters
-    max_length = 2000 - 6  # Deduct 6 characters for the code block delimiters (``` at the end and ``` at the beginning)
-    response_parts = [response[i:i + max_length] for i in range(0, len(response), max_length)]
-
-    for i, part in enumerate(response_parts):
-        if i == 0:
-            await interaction.followup.send(f"{part}```")
-        elif i == len(response_parts) - 1:
-            await interaction.followup.send(f"```{part}")
-        else:
-            await interaction.followup.send(f"```{part}```")
+    response = await code_ai_response(prompt, language=language, framework=framework)
+    parts = response.candidates[0].content.parts
+    
+    # Debug logging
+    logging.info(f"Full response object: {response}")
+    
+    # Check if response has executable code (Python)
+    has_executable = any(hasattr(part, 'executable_code') and part.executable_code.code.strip() for part in parts)
+    logging.info(f"Has executable code: {has_executable}")
+    logging.info(f"Parts structure: {[type(getattr(p, 'executable_code', None)) for p in parts]}")
+    
+    if has_executable:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            initial_text = next((part.text for part in parts if hasattr(part, 'text') and part.text.strip()), "")
+            code_file = None
+            output_file = None
+            remaining_text = []
+            seen_text = set()
+            
+            for part in parts:
+                if hasattr(part, 'executable_code') and part.executable_code.code.strip():
+                    code_path = os.path.join(temp_dir, 'code.py')
+                    with open(code_path, 'w', encoding='utf-8') as f:
+                        f.write(part.executable_code.code)
+                    code_file = discord.File(code_path)
+                
+                elif hasattr(part, 'code_execution_result') and part.code_execution_result.output.strip():
+                    output_path = os.path.join(temp_dir, 'output.txt')
+                    with open(output_path, 'w', encoding='utf-8') as f:
+                        f.write(part.code_execution_result.output)
+                    output_file = discord.File(output_path)
+                
+                elif hasattr(part, 'text') and part.text.strip():
+                    text = part.text
+                    if '```' not in text and text not in seen_text:
+                        seen_text.add(text)
+                        if text != initial_text:
+                            remaining_text.append(text)
+            
+            files = []
+            if code_file:
+                files.append(code_file)
+            if output_file:
+                files.append(output_file)
+                
+            await interaction.followup.send(content=initial_text[:2000], files=files)
+            
+            for text in remaining_text:
+                if text.strip():
+                    await interaction.followup.send(text[:2000])
+    else:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            initial_text = ""
+            remaining_text = []
+            code_files = []
+            
+            for i, part in enumerate(parts):
+                if hasattr(part, 'text') and part.text.strip():
+                    text = part.text
+                    # Extract all code blocks
+                    while '```' in text:
+                        pre_code = text[:text.find('```')].strip()
+                        lang_start = text.find('```') + 3
+                        lang_end = text.find('\n', lang_start)
+                        file_ext = '.' + text[lang_start:lang_end].strip().lower()
+                        code_start = text.find('\n', lang_end) + 1
+                        code_end = text.find('```', code_start)
+                        code = text[code_start:code_end]
+                        
+                        # Get remaining text after this code block
+                        text = text[text.find('```', code_end) + 3:].strip()
+                        
+                        if code.strip():
+                            code_path = os.path.join(temp_dir, f'code_{len(code_files)}{file_ext}')
+                            with open(code_path, 'w', encoding='utf-8') as f:
+                                f.write(code)
+                            code_files.append(discord.File(code_path))
+                        
+                        # Handle initial and remaining text
+                        if not initial_text:
+                            initial_text = pre_code[:2000] if pre_code else "Here's your code:"
+                        elif pre_code:
+                            remaining_text.append(pre_code)
+                    
+                    # Add any remaining text after last code block
+                    if text and not initial_text:
+                        initial_text = text[:2000]
+                    elif text:
+                        remaining_text.append(text)
+            
+            await interaction.followup.send(content=initial_text[:2000], files=code_files)
+            
+            for text in remaining_text:
+                if text.strip():
+                    await interaction.followup.send(text[:2000])
             
 @app_commands.command(name='explain', description='Ask the bot to explain a concept or a topic in details.')
 async def explain_command(interaction: discord.Interaction, prompt: str):
@@ -539,49 +621,55 @@ async def search_command(interaction: discord.Interaction, query: str, engine: a
                 results = []
                 try:
                     if engine.value == "google":
-                        # Try multiple selectors for Google Images
-                        for img in soup.find_all(['div', 'img'], class_=['isv-r', 'rg_i', 'Q4LuWd']):
-                            try:
-                                # First try direct image tag
-                                image = img.find('img')
-                                if image:
-                                    image_url = (
-                                        image.get('src') or 
-                                        image.get('data-src') or 
-                                        image.get('data-iurl')
-                                    )
-                                
-                                # Fallback to container metadata
-                                if not image_url:
-                                    metadata = img.get('metadata', '')
-                                    if metadata:
-                                        try:
-                                            metadata = json.loads(metadata)
-                                            image_url = metadata.get('ou', '')
-                                        except:
-                                            continue
+                        # Find image results container
+                        results_container = soup.find('div', class_='islrc')
+                        if results_container:
+                            for img_div in results_container.find_all('div', class_='isv-r'):
+                                try:
+                                    # Get actual image element
+                                    image = img_div.find('img', class_='rg_i')
+                                    if not image:
+                                        continue
                     
-                                if image_url and not image_url.startswith('data:'):
-                                    title = img.get('title', 'Image result')
-                                    source = img.find('a', href=True)
-                                    source_url = source['href'] if source else None
-                                    
-                                    logging.info(f"Found Google image: {image_url}")
-                                    embed = discord.Embed(title=f"Image search: {query}", color=discord.Color.blue())
-                                    embed.set_image(url=image_url)
-                                    if source_url:
-                                        embed.add_field(name="Source", value=source_url, inline=False)
-                                    embed.set_author(
-                                        name=f"{engine.name} Image Search",
-                                        icon_url=SEARCH_ENGINE_AUTHOR_ICONS[engine.value],
-                                        url=search_url
-                                    )
-                                    await interaction.followup.send(embed=embed)
-                                    return
-                                    
-                            except Exception as e:
-                                logging.error(f"Error parsing Google image: {str(e)}")
-                                continue
+                                    # Try multiple sources for image URL
+                                    image_url = None
+                                    for attr in ['src', 'data-src', 'data-iurl']:
+                                        url = image.get(attr)
+                                        if url and not url.startswith('data:') and len(url) > 200:
+                                            image_url = url
+                                            break
+                    
+                                    # Try metadata from parent container
+                                    if not image_url:
+                                        metadata = img_div.get('data-tbnid')
+                                        if metadata:
+                                            logging.info(f"Found metadata: {metadata}")
+                                            parent_a = img_div.find_parent('a')
+                                            if parent_a and parent_a.get('href'):
+                                                image_url = parent_a['href']
+                    
+                                    if image_url:
+                                        logging.info(f"Found Google image: {image_url}")
+                                        embed = discord.Embed(title=f"Image search: {query}", color=discord.Color.blue())
+                                        embed.set_image(url=image_url)
+                                        
+                                        # Try to get source URL
+                                        source_div = img_div.find('div', class_='VFACy')
+                                        if source_div and source_div.find('a'):
+                                            source_url = source_div.find('a')['href']
+                                            embed.add_field(name="Source", value=source_url, inline=False)
+                                        
+                                        embed.set_author(
+                                            name=f"{engine.name} Image Search",
+                                            icon_url=SEARCH_ENGINE_AUTHOR_ICONS[engine.value],
+                                            url=search_url
+                                        )
+                                        await interaction.followup.send(embed=embed)
+                                        return
+                    
+                                except Exception as e:
+                                    logging.error(f"Error parsing Google image: {str(e)}")
+                                    continue
                                 
                     elif engine.value == "yahoo":
                         for img in soup.find_all(['li', 'div'], class_=['ld', 'img']):

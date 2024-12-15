@@ -1,7 +1,8 @@
 import google.generativeai as genai
-import os, discord, logging, aiohttp, time, asyncio
+import os, discord, logging, aiohttp, datetime, asyncio, time
 from engine.db import fetch_recent_message, supabase
 from dotenv import load_dotenv
+from google.generativeai import caching
 from typing import Optional
 import subprocess
             
@@ -63,37 +64,97 @@ def prep_file(file_path, display_name, is_av=False):
     logging.info(f"Uploaded file '{sample_file.display_name}' as: {sample_file.uri}")
     return sample_file
 
-# Modify extract_content_from_file to handle videos
+PRIMARY_MODEL = "models/gemini-2.0-flash-exp"
+FALLBACK_MODEL = "models/gemini-1.5-flash"
+
+# Quota tracking
+last_quota_failure = None
+quota_reset_hour = 0  # Midnight UTC
+
+async def get_active_model():
+    global last_quota_failure
+    
+    # Check if we should reset quota failure status
+    if last_quota_failure:
+        now = datetime.datetime.now(datetime.timezone.utc)
+        if now.day != last_quota_failure.day:
+            last_quota_failure = None
+            logging.info("Quota status reset for new day")
+    
+    # Use fallback if quota was exhausted today
+    if last_quota_failure:
+        logging.info(f"Using fallback model {FALLBACK_MODEL} due to quota exhaustion")
+        return FALLBACK_MODEL
+    return PRIMARY_MODEL
+
 async def extract_content_from_file(sample_file, prompt, is_av=False, duration=0):
-    """Extract content with improved media handling"""
+    """Extract content with improved media handling and caching"""
+    global last_quota_failure
+    
     try:
+        active_model = await get_active_model()
+        logging.info(f"Using model: {active_model}")
+        
+        # Handle AV specific processing
         if is_av:
-            # Use actual duration or fallback
-            actual_duration = max(duration, 5.0)
-            wait_time = actual_duration * 1.1 + 5  # 1.1x duration + 5s buffer
+            max_wait = 300  # 5 minutes timeout
+            start_time = time.time()
             
-            logging.info(f"Processing media file, estimated time: {wait_time:.1f}s")
-            await asyncio.sleep(wait_time)
-            
-            for attempt in range(3):
-                try:
-                    model = genai.GenerativeModel("models/gemini-1.5-flash")
-                    response = model.generate_content([sample_file, prompt])
-                    if response and hasattr(response, 'text'):
-                        return response.text
-                    logging.error(f"Invalid response from model: {response}")
-                    await asyncio.sleep(2)  # Short delay between retries
-                except Exception as e:
-                    logging.error(f"Attempt {attempt + 1} failed: {str(e)}")
-                    if attempt < 2:
-                        await asyncio.sleep(3)
-            return None
-        else:
-            # Non-AV content handling remains the same
-            model = genai.GenerativeModel("models/gemini-1.5-flash")
-            response = model.generate_content([sample_file, prompt])
-            return response.text if response and hasattr(response, 'text') else None
-            
+            while sample_file.state.name == 'PROCESSING':
+                logging.info('Waiting for media file to be processed...')
+                await asyncio.sleep(2)
+                sample_file = genai.get_file(sample_file.name)
+                
+                if time.time() - start_time > max_wait:
+                    logging.error("Media processing timeout")
+                    return None
+                    
+            logging.info(f'Media processing complete: {sample_file.uri}')
+        
+        # Only use caching for 1.5 model
+        for attempt in range(3):
+            try:
+                if active_model == FALLBACK_MODEL:
+                    cache = caching.CachedContent.create(
+                        model=active_model,
+                        display_name=getattr(sample_file, 'name', 'content'),
+                        system_instruction='You are a content analyzer, analyze the provided content.',
+                        contents=[sample_file],
+                        ttl=datetime.timedelta(minutes=5 if is_av else 2),
+                    )
+                    model = genai.GenerativeModel.from_cached_content(cached_content=cache)
+                else:
+                    model = genai.GenerativeModel(active_model)
+                
+                response = model.generate_content([sample_file, prompt])
+                
+                if response and response.candidates:
+                    # Check finish reason and handle response
+                    if response.candidates[0].finish_reason == 8:  # SAFETY
+                        logging.error("Response blocked by safety filters")
+                        continue
+                        
+                    # Try to get text from response parts
+                    if response.candidates[0].content and response.candidates[0].content.parts:
+                        for part in response.candidates[0].content.parts:
+                            if hasattr(part, 'text') and part.text:
+                                logging.info(f"Token usage: {response.usage_metadata}")
+                                return part.text
+                                
+                    logging.error(f"Invalid response format: {response}")
+                    
+            except Exception as e:
+                logging.error(f"Attempt {attempt + 1} failed: {str(e)}")
+                if "quota" in str(e).lower():
+                    last_quota_failure = datetime.datetime.now(datetime.timezone.utc)
+                    logging.warning(f"Quota exhausted for {active_model}, switching to fallback")
+                    if active_model == PRIMARY_MODEL:
+                        active_model = FALLBACK_MODEL
+                        continue
+                if attempt < 2:
+                    await asyncio.sleep(3)
+        return None
+                
     except Exception as e:
         logging.error(f"Error extracting content: {str(e)}")
         return None
