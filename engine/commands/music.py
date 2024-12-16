@@ -19,11 +19,6 @@ genius.remove_section_headers = True
 genius.skip_non_songs = True
 genius.excluded_terms = ["(Remix)", "(Live)", "(Official Audio)", "Official Video"]
 
-# Add proper headers
-genius._session.headers.update({
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-})
-
 def clean_song_info(title: str, artist: str) -> Tuple[str, str]:
     """Clean song title and artist name"""
     # Remove common extras from title
