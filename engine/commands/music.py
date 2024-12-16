@@ -18,6 +18,9 @@ genius.verbose = False
 genius.remove_section_headers = True
 genius.skip_non_songs = True
 genius.excluded_terms = ["(Remix)", "(Live)", "(Official Audio)", "Official Video"]
+genius._session.headers.update({
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+})
 
 def clean_song_info(title: str, artist: str) -> Tuple[str, str]:
     """Clean song title and artist name"""
@@ -87,6 +90,9 @@ async def get_genius_lyrics(song: str, artist: str) -> Optional[str]:
         return None
     except Exception as e:
         logging.error(f"Genius API error: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            logging.error(f"Response status: {e.response.status_code}")
+            logging.error(f"Response body: {e.response.text}")
         return None
     
 # Load environment variables
