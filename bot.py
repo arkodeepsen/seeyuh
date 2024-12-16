@@ -395,6 +395,7 @@ music.queue.category = "Music"
 music.filter_command.category = "Music"
 music.list_filters.category = "Music"
 music.clear_filters.category = "Music"
+music.lyrics_command.category = "Music"
 bot.tree.add_command(music.join)
 bot.tree.add_command(music.leave)
 bot.tree.add_command(music.play)
@@ -406,6 +407,7 @@ bot.tree.add_command(music.queue)
 bot.tree.add_command(music.filter_command)
 bot.tree.add_command(music.list_filters)
 bot.tree.add_command(music.clear_filters)
+bot.tree.add_command(music.lyrics_command)
 
 # Register the commands from misc.py
 misc.steam.category = "Misc"

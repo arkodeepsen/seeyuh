@@ -40,9 +40,20 @@ async def say_command(interaction: discord.Interaction, content: str):
 async def code_command(interaction: discord.Interaction, prompt: str, language: str = None, framework: str = None):
     await interaction.response.defer()
     
-    response = await code_ai_response(prompt, language=language, framework=framework)
+    # Try primary model first
+    response = await code_ai_response(prompt, language=language, framework=framework, model="pro15normal")
     parts = response.candidates[0].content.parts
     
+    # Check if response is empty
+    if not any(hasattr(part, 'text') and part.text.strip() for part in parts):
+        logging.info("Empty response from pro15normal, trying flash2...")
+        response = await code_ai_response(prompt, language=language, framework=framework, model="flash2")
+        parts = response.candidates[0].content.parts
+        
+        if not any(hasattr(part, 'text') and part.text.strip() for part in parts):
+            await interaction.followup.send("Sorry, I couldn't generate any code. Please try rephrasing your prompt.")
+            return
+        
     # Debug logging
     logging.info(f"Full response object: {response}")
     
@@ -956,32 +967,95 @@ async def unsplash_image_search(query: str, orientation: str = 'landscape'):
             logging.error(f"Exception during Unsplash image search: {e}")
             return None, None, None
 
-@app_commands.command(name="image", description="Search for an image using Unsplash")
-@app_commands.choices(orientation=[
-    app_commands.Choice(name="Landscape", value="landscape"),
-    app_commands.Choice(name="Portrait", value="portrait"),
-    app_commands.Choice(name="Squarish", value="squarish")
-])
-async def image_command(interaction: discord.Interaction, query: str, orientation: app_commands.Choice[str]):
+async def web_image_search(query: str, engine: str) -> Optional[str]:
+    """Unified web image search function"""
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    search_url = f"https://{engine}.com/images/search?q={query}"
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(search_url, headers=headers) as response:
+                if response.status == 200:
+                    soup = BeautifulSoup(await response.text(), 'html.parser')
+                    
+                    if engine == "yahoo":
+                        for img in soup.find_all(['li', 'div'], class_=['ld', 'img']):
+                            image = img.find('img')
+                            image_url = image.get('data-src') or image.get('src')
+                            if image_url and not image_url.startswith('data:'):
+                                return image_url
+                                
+                    elif engine == "bing":
+                        for img in soup.find_all('div', class_='imgpt'):
+                            image = img.find('img')
+                            if image and 'src' in image.attrs:
+                                return image['src']
+                                
+    except Exception as e:
+        logging.error(f"Error in {engine} image search: {e}")
+    return None
 
-    await interaction.response.defer()  # Defer response to show the bot is working
-
-    image_url, photographer, photo_link = await unsplash_image_search(query, orientation.value)
-
-    if image_url:
-        embed = discord.Embed(
-            title=f"Image result for '{query}'",
-            description=f"Photo by [{photographer}]({photo_link}) on [Unsplash](https://unsplash.com/)",
-            color=discord.Color.blue()
-        )
-        embed.set_image(url=image_url)
-        embed.set_footer(
-            text=interaction.client.user.name,
-            icon_url=interaction.client.user.display_avatar.url
-        )
-        await interaction.followup.send(embed=embed)
-    else:
-        await interaction.followup.send("Sorry, I couldn't find any images for that query.")
+@app_commands.command(name="image", description="Search for an image")
+@app_commands.choices(
+    engine=[
+        app_commands.Choice(name="Unsplash", value="unsplash"),
+        app_commands.Choice(name="Bing", value="bing"),
+        app_commands.Choice(name="Yahoo", value="yahoo")
+    ],
+    orientation=[
+        app_commands.Choice(name="Landscape", value="landscape"),
+        app_commands.Choice(name="Portrait", value="portrait"),
+        app_commands.Choice(name="Squarish", value="squarish")
+    ]
+)
+async def image_command(
+    interaction: discord.Interaction, 
+    query: str, 
+    orientation: app_commands.Choice[str],
+    engine: app_commands.Choice[str] = None
+):
+    await interaction.response.defer()
+    
+    try:
+        # Default to Unsplash if no engine specified
+        search_engine = engine.value if engine else "unsplash"
+        
+        if search_engine == "unsplash":
+            image_url, photographer, photo_link = await unsplash_image_search(query, orientation.value)
+            if image_url:
+                embed = discord.Embed(
+                    title=f"Image result for '{query}'",
+                    description=f"Photo by [{photographer}]({photo_link}) on [Unsplash](https://unsplash.com/)",
+                    color=discord.Color.blue()
+                )
+                embed.set_image(url=image_url)
+                
+        elif search_engine in ["bing", "yahoo"]:
+            image_url = await web_image_search(query, search_engine)
+            if image_url:
+                embed = discord.Embed(
+                    title=f"Image search: {query}",
+                    color=discord.Color.blue()
+                )
+                embed.set_image(url=image_url)
+                embed.set_author(
+                    name=f"{search_engine.capitalize()} Image Search",
+                    icon_url=SEARCH_ENGINE_AUTHOR_ICONS[search_engine],
+                    url=f"https://{search_engine}.com/images/search?q={query}"
+                )
+                
+        if image_url:
+            embed.set_footer(
+                text=interaction.client.user.name,
+                icon_url=interaction.client.user.display_avatar.url
+            )
+            await interaction.followup.send(embed=embed)
+        else:
+            await interaction.followup.send(f"Sorry, I couldn't find any images for that query on {search_engine.capitalize()}.")
+            
+    except Exception as e:
+        logging.error(f"Image search error: {e}")
+        await interaction.followup.send("An error occurred while searching for images.")
 
 API_KEY = pexels_env()
 BASE_URL = 'https://api.pexels.com/videos/search'
@@ -1847,7 +1921,11 @@ async def text_to_speech(
                         with open(temp_file, 'wb') as f:
                             f.write(await response.read())
 
-                        source = await discord.FFmpegOpusAudio.from_probe(temp_file)
+                        # Add volume filter to increase audio gain
+                        source = await discord.FFmpegOpusAudio.from_probe(
+                            temp_file,
+                            options='-filter:a volume=2.0'  # Double the volume
+                        )
                         interaction.guild.voice_client.play(source)
                         
                         embed = discord.Embed(

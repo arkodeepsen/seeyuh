@@ -2,7 +2,7 @@ import os, logging, sys, random, re, aiohttp, asyncio, google.generativeai as ge
 from datetime import datetime
 from bs4 import BeautifulSoup
 from functools import lru_cache
-from typing import List
+from typing import List, Any
 from dotenv import load_dotenv
 from urllib.parse import quote_plus, urlparse
 
@@ -322,20 +322,32 @@ async def slash_ai8b_response(prompt):
         print(f"Error generating response: {e}")
         return "Sorry, I could not process that."
     
-async def code_ai_response(prompt, language=None, framework=None):
+async def code_ai_response(prompt: str, language: str = None, framework: str = None, model: str = "pro15normal") -> Any:
     systemInstruction = f"You are a discord bot named seeyuh. Your responses are chill asf and very informal gen-z style. You will strictly only generate code and answer programming related questions along with code snippets."
     language_info = f" in {language}" if language else ""
     framework_info = f" using {framework}" if framework else ""
     query = f"\n{systemInstruction}", f"User is asking for AI generated code{language_info}{framework_info} for prompt: {prompt}"
+    
     try:
         if language and language.upper() == 'PYTHON' or 'python' in prompt.lower():
-            response = await try_model_chain(query, 'pro15normal', tools='code_execution')
+            response = await try_model_chain(query, model, tools='code_execution')
         else:
-            response = await try_model_chain(query, 'pro15normal')
-        return response or "I'm not sure how to respond to that."
+            response = await try_model_chain(query, model)
+            
+        if not response or not any(hasattr(part, 'text') and part.text.strip() 
+                                 for part in response.candidates[0].content.parts):
+            if model != "flash2":
+                logging.info(f"Empty response from {model}, trying flash2...")
+                return await code_ai_response(prompt, language, framework, "flash2")
+            
+        return response
+        
     except Exception as e:
-        print(f"Error generating response: {e}")
-        return "Sorry, I could not process that."
+        logging.error(f"Error generating response with {model}: {e}")
+        if model != "flash2":
+            logging.info("Retrying with flash2 model...")
+            return await code_ai_response(prompt, language, framework, "flash2")
+        return None
     
 async def explain_ai_response(prompt):
     systemInstruction = f"You are a discord bot named seeyuh. You will roleplay as professor seeyuh. You will strictly only explain serious concepts or topics in details covering the most important key information. Your message should be well structured to be displayed in discord and should not be too long. Don't be overly concise or too detailed unless specified by user."
