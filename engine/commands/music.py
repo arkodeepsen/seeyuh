@@ -1,4 +1,4 @@
-import discord, yt_dlp as youtube_dl, asyncio, engine.eventloop as eventloop, re, os, lyricsgenius, logging, time
+import discord, yt_dlp as youtube_dl, asyncio, engine.eventloop as eventloop, re, os, lyricsgenius, logging, time, backoff
 from youtube_transcript_api import YouTubeTranscriptApi
 from requests.exceptions import HTTPError
 from typing import Optional, Tuple, List
@@ -7,13 +7,24 @@ from engine.utils import load_env
 
 logging.basicConfig(level=logging.INFO)
 
-# Initialize Genius with proper config
-genius = lyricsgenius.Genius(os.getenv('GENIUS_API_KEY'))
+# Initialize Genius with proper config and retries
+genius = lyricsgenius.Genius(
+    access_token=os.getenv('GENIUS_API_KEY'),
+    timeout=10,
+    retries=3
+)
+
 genius.verbose = False 
 genius.remove_section_headers = True
 genius.skip_non_songs = True
 genius.excluded_terms = ["(Remix)", "(Live)", "(Official Audio)", "Official Video"]
-genius._session.headers.update({'User-Agent': 'Mozilla/5.0'})
+
+# Add proper headers
+genius._session.headers.update({
+    'User-Agent': 'Mozilla/5.0',
+    'Authorization': f'Bearer {os.getenv("GENIUS_API_KEY")}',
+    'Accept': 'application/json'
+})
 
 def clean_song_info(title: str, artist: str) -> Tuple[str, str]:
     """Clean song title and artist name"""
@@ -49,22 +60,28 @@ async def get_song_info(url: str) -> Optional[Tuple[str, str]]:
             logging.error(f"Error extracting song info: {e}")
             return None
 
+@backoff.on_exception(backoff.expo, Exception, max_tries=3)
 async def get_genius_lyrics(song: str, artist: str) -> Optional[str]:
-    """Get lyrics from Genius without chunking"""
+    """Get lyrics from Genius with retries"""
     try:
+        if not os.getenv('GENIUS_API_KEY'):
+            logging.error("Missing Genius API key")
+            return None
+            
         song, artist = clean_song_info(song, artist)
         logging.info(f"Searching Genius for: {song} by {artist}")
 
         for search_query in [
-            (song, artist),  
-            (song, None),    
-            (f"{artist} {song}", None)  
+            (song, artist),
+            (song, None),
+            (f"{artist} {song}", None)
         ]:
             try:
+                # Add delay between retries
+                time.sleep(1)
                 result = genius.search_song(*search_query)
                 if result and result.lyrics:
                     lyrics = result.lyrics
-                    # Clean lyrics
                     lyrics = re.sub(r'\[[^\]]*\]', '', lyrics)
                     lyrics = re.sub(r'\d*Embed$', '', lyrics)
                     lyrics = re.sub(r'You might also like', '', lyrics)
