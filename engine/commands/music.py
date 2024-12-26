@@ -125,13 +125,12 @@ ytdl_options = {
     'options': '-vn -bufsize 64k',
     'extract_flat': False,
     'force_generic_extractor': False,
-    # Add these options
-    'cookiefile': os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'engine/youtube/cookies.txt'),
+    #'cookiefile': os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'engine/youtube/cookies.txt'),
     'nocheckcertificate': True,
     'ignoreerrors': True,
     'no_warnings': True,
-    'cookiesfrombrowser': ('chrome',),  # Use cookies from Chrome
-    # Add consent handling
+    #'cookiesfrombrowser': ('chrome',),  # Use cookies from Chrome
+
     'extractor_args': {
         'youtube': {
             'player_client': ['android'],  # Use android client to avoid consent
