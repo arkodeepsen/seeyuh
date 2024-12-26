@@ -145,8 +145,8 @@ ffmpeg_options = {
     'options': '-vn -bufsize 8192k -maxrate 2048k -user_agent "Mozilla/5.0"'
 }
 
-if not os.path.exists(ytdl_options['cookiefile']):
-    logging.error(f"Cookie file not found at {ytdl_options['cookiefile']}")
+#if not os.path.exists(ytdl_options['cookiefile']):
+#    logging.error(f"Cookie file not found at {ytdl_options['cookiefile']}")
 
 ytdl = youtube_dl.YoutubeDL(ytdl_options)
 
