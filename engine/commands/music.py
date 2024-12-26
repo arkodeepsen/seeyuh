@@ -123,14 +123,31 @@ ytdl_options = {
     'source_address': '0.0.0.0',
     "cachedir": False,
     'options': '-vn -bufsize 64k',
-    'extract_flat': False,  # Get full video info
-    'force_generic_extractor': False
+    'extract_flat': False,
+    'force_generic_extractor': False,
+    # Add these options
+    'cookiefile': os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'engine/youtube/cookies.txt'),
+    'nocheckcertificate': True,
+    'ignoreerrors': True,
+    'no_warnings': True,
+    'cookiesfrombrowser': ('chrome',),  # Use cookies from Chrome
+    # Add consent handling
+    'extractor_args': {
+        'youtube': {
+            'player_client': ['android'],  # Use android client to avoid consent
+            'player_skip': ['webpage'],    # Skip webpage download
+            'consent': 'yes'               # Auto consent
+        }
+    }
 }
 
 ffmpeg_options = {
     'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
-    'options': '-vn -bufsize 8192k -maxrate 2048k'
+    'options': '-vn -bufsize 8192k -maxrate 2048k -user_agent "Mozilla/5.0"'
 }
+
+if not os.path.exists(ytdl_options['cookiefile']):
+    logging.error(f"Cookie file not found at {ytdl_options['cookiefile']}")
 
 ytdl = youtube_dl.YoutubeDL(ytdl_options)
 
