@@ -67,8 +67,9 @@ def health_check():
     return {"status": "ok"}
 
 @app.head("/api/uptimerobot")
+@app.get("/api/uptimerobot")
 async def uptimerobot_check():
-    return {}  # Return an empty response body for HEAD request, no body content
+    return {}
 
 @app.get("/api/endpoint")
 def bot_details():
