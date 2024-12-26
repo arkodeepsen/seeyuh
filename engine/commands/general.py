@@ -111,9 +111,9 @@ async def info_command(interaction: discord.Interaction, user: discord.User = No
             f"**Total Users:** {sum(guild.member_count for guild in interaction.client.guilds)}\n"
             f"**Unique Users:** {len(set(interaction.client.get_all_members()))}\n"
             f"**[Invite](https://discord.com/oauth2/authorize?client_id={interaction.client.user.id}&permissions=8&scope=bot%20applications.commands)**\n"
-            f"**[Website](https://seeyuh-production.up.railway.app/)**\n"
-            f"**[Privacy Policy](https://seeyuh-production.up.railway.app/privacy-policy)**\n"
-            f"**[Terms of Service](https://seeyuh-production.up.railway.app/terms)**\n"
+            f"**[Website](https://seeyuh.onrender.com/)**\n"
+            f"**[Privacy Policy](https://seeyuh.onrender.com/privacy-policy)**\n"
+            f"**[Terms of Service](https://seeyuh.onrender.com/terms)**\n"
             f"***Enjoying the bot?** [Support the developer to keep the bot alive!](https://paypal.me/arkodeepsen)*\n"
             f"For more information, use `/info @user` to get user details."
         )

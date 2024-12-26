@@ -8,13 +8,13 @@ Seeyuh Bot is a powerful, AI-driven Discord bot designed for dynamic and multimo
 ---
 
 ## 🚦 **Bot Status**
-![Status](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh-production.up.railway.app%2Fstatus&query=status&prefix=%20&label=Status)
-![Name](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh-production.up.railway.app%2Fapi%2Fendpoint&query=name&prefix=%20&label=Name)
-![ID](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh-production.up.railway.app%2Fapi%2Fendpoint&query=id&prefix=%20&label=ID)
-![Uptime](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh-production.up.railway.app%2Fapi%2Fendpoint&query=uptime&prefix=%20&label=Uptime)
-![Ping](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh-production.up.railway.app%2Fapi%2Fendpoint&query=ping&prefix=%20&suffix=ms&label=Ping)
-![Users](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh-production.up.railway.app%2Fapi%2Fendpoint&query=unique_users&prefix=%20&label=Users)
-![Servers](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh-production.up.railway.app%2Fapi%2Fendpoint&query=guild_count&prefix=%20&label=Servers)
+![Status](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh.onrender.com%2Fstatus&query=status&prefix=%20&label=Status)
+![Name](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh.onrender.com%2Fapi%2Fendpoint&query=name&prefix=%20&label=Name)
+![ID](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh.onrender.com%2Fapi%2Fendpoint&query=id&prefix=%20&label=ID)
+![Uptime](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh.onrender.com%2Fapi%2Fendpoint&query=uptime&prefix=%20&label=Uptime)
+![Ping](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh.onrender.com%2Fapi%2Fendpoint&query=ping&prefix=%20&suffix=ms&label=Ping)
+![Users](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh.onrender.com%2Fapi%2Fendpoint&query=unique_users&prefix=%20&label=Users)
+![Servers](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh.onrender.com%2Fapi%2Fendpoint&query=guild_count&prefix=%20&label=Servers)
 
 ---
 
@@ -98,7 +98,7 @@ This bot is proprietary and not open-source. Unauthorized copying, redistributio
 ---
 
 ## 🌐 **Dynamic Updates**
-- Visit the [Seeyuh Bot Status Page](https://seeyuh-production.up.railway.app/) for real-time metrics and updates.  
+- Visit the [Seeyuh Bot Status Page](https://seeyuh.onrender.com/) for real-time metrics and updates.  
 - Join our [support server](https://discord.gg/ETXgCVYmBb) for announcements and issues.
 
 ---
