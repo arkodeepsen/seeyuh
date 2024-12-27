@@ -34,7 +34,6 @@ def clean_song_info(title: str, artist: str) -> Tuple[str, str]:
     
     return title, artist
 
-# Function to handle song info extraction
 async def get_song_info(url: str) -> Optional[Tuple[str, str]]:
     """Extract song title and artist from YouTube URL"""
     ydl_opts = {
@@ -44,13 +43,7 @@ async def get_song_info(url: str) -> Optional[Tuple[str, str]]:
     with youtube_dl.YoutubeDL(ydl_opts) as ydl:
         try:
             info = ydl.extract_info(url, download=False)
-            if not info:
-                logging.error("No info extracted from URL")
-                return None
             title = info.get('title', '')
-            if not title:
-                logging.error("No title found in extracted info")
-                return None
             # Try to split title into song and artist
             if ' - ' in title:
                 artist, song = title.split(' - ', 1)
@@ -120,6 +113,7 @@ AUDIO_EFFECTS = {
 # Active filters per guild
 active_filters = {}  # Key: guild.id, Value: set of active filters
 
+# Setup for yt-dlp to extract audio
 ytdl_options = {
     'format': 'bestaudio/best',
     'noplaylist': False,
@@ -146,10 +140,9 @@ ytdl_options = {
 
 ffmpeg_options = {
     'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
-    'options': '-vn -bufsize 8192k -maxrate 2048k -user_agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"'
+    'options': '-vn -bufsize 8192k -maxrate 2048k'
 }
 
-# Initialize yt-dlp with retries
 ytdl = youtube_dl.YoutubeDL(ytdl_options)
 
 # Queue to hold the songs
@@ -388,6 +381,8 @@ async def leave(interaction: discord.Interaction):
         await interaction.response.send_message(embed=embed)
 
 # Play a YouTube URL or search query
+# music.py (continued)
+
 @app_commands.command(name="play", description="Play a song or playlist.")
 @app_commands.describe(query="The song name or URL to play.")
 async def play(interaction: discord.Interaction, query: str):
@@ -407,44 +402,33 @@ async def play(interaction: discord.Interaction, query: str):
                 await interaction.followup.send(embed=embed)
                 return
 
-        # Handle search vs direct URL
-        if not any(x in query for x in ['youtube.com', 'youtu.be']):
-            query = f"ytsearch:{query}"
-
-        # Extract info with retries
-        try:
-            info = await asyncio.get_event_loop().run_in_executor(
-                None, 
-                lambda: ytdl.extract_info(query, download=False)
-            )
-        except Exception as e:
-            logging.error(f"Error extracting info: {e}")
-            await interaction.followup.send("Failed to get video information. Please try again.")
-            return
-
-        if info.get('_type') == 'playlist':
+        # Resolve the query to get song info
+        info = ytdl.extract_info(query, download=False)
+        if 'entries' in info:
+            # If it's a playlist, take the first entry
             info = info['entries'][0]
-        elif not info.get('title'):
-            await interaction.followup.send("Could not find any matching videos.")
-            return
 
-        # Add to queue
+        # Add the song to the queue
         song_queue.append((interaction, query, info))
-        
+
         await interaction.followup.send(
-            f"Added **{info.get('title', 'Unknown Title')}** to the queue.",
+            f"Added **{info['title']}** to the queue.",
             ephemeral=True
         )
 
-        # Start playing if not already
-        if not interaction.guild.voice_client.is_playing():
+        # If nothing is currently playing, start the next song
+        voice_client = interaction.guild.voice_client
+        if not voice_client.is_playing():
             await play_next_song()
 
     except Exception as e:
-        logging.error(f"Play command error: {e}")
-        await interaction.followup.send("An error occurred while processing your request.")
+        embed = discord.Embed(
+            title="Error",
+            description=f"An error occurred: {e}",
+            color=discord.Color.red()
+        )
+        await interaction.followup.send(embed=embed)
         
-# Function to play next song
 async def play_next_song():
     global current_song, previous_message, current_song_start
     
@@ -458,10 +442,7 @@ async def play_next_song():
         return
 
     try:
-        url2 = info.get('url')
-        if not url2:
-            logging.error("No URL found in song info")
-            return
+        url2 = info['url']
         duration = info.get('duration', 0)
         current_song_start = time.time()
 
