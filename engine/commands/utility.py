@@ -1,10 +1,13 @@
-import discord, asyncio, aiohttp, random, httpx, re, json, io, base64, requests, os, logging, tempfile
+import discord, asyncio, aiohttp, random, httpx, re, json, io, base64, requests, os, logging, tempfile, aiofiles
 from discord import app_commands
+from pathlib import Path
 from typing import Optional
 from pytube import Search
 from urllib.parse import urlparse, parse_qs
 from bs4 import BeautifulSoup
 from PIL import Image
+from contextlib import contextmanager
+from filelock import FileLock
 from engine.utils import load_env, get_reddit_access_token, unsplash_env, hf_env, pexels_env
 from engine.ai.gemini_multimodal import handle_interaction
 from engine.ai.gemini import code_ai_response, explain_ai_response, ask_ai_response, translate, prompt_ai_response, get_tts_text
@@ -31,6 +34,26 @@ logging.basicConfig(
     ]
 )
 
+# Add at top of file
+TEMP_DIR = Path(tempfile.gettempdir()) / "discord_tts"
+TEMP_DIR.mkdir(exist_ok=True)
+
+@contextmanager
+def safe_tempfile(guild_id: int):
+    """Safely handle temp file creation and cleanup"""
+    temp_path = TEMP_DIR / f'temp_{guild_id}.mp3'
+    lock_path = temp_path.with_suffix('.lock')
+    
+    try:
+        with FileLock(lock_path):
+            yield temp_path
+    finally:
+        if temp_path.exists():
+            try:
+                temp_path.unlink()
+            except:
+                pass
+            
 # Define the say command
 @app_commands.command(name='say', description='Make the bot say something.')
 async def say_command(interaction: discord.Interaction, content: str):
@@ -1902,49 +1925,55 @@ async def text_to_speech(
             raise ValueError("Please provide either text or prompt, not both")
 
         if prompt:
-            # Get AI response in specified language
             text = await get_tts_text(prompt, language.name if language else "English")
 
-        if interaction.user.voice:
-            if not interaction.guild.voice_client:
-                await interaction.user.voice.channel.connect()
+        if not interaction.user.voice:
+            raise ValueError("You need to be in a voice channel to use this command!")
+
+        if not interaction.guild.voice_client:
+            await interaction.user.voice.channel.connect()
             
-            # Use selected language or default to en-US
-            lang_code = language.value if language else "en-US"
-            tts_url = f"https://translate.google.com/translate_tts?ie=UTF-8&tl={lang_code}&client=tw-ob&q={text}"
-            
-            temp_file = f'temp_{interaction.guild.id}.mp3'
-            
+        lang_code = language.value if language else "en-US"
+        tts_url = f"https://translate.google.com/translate_tts?ie=UTF-8&tl={lang_code}&client=tw-ob&q={text}"
+
+        with safe_tempfile(interaction.guild.id) as temp_path:
             async with aiohttp.ClientSession() as session:
                 async with session.get(tts_url) as response:
-                    if response.status == 200:
-                        with open(temp_file, 'wb') as f:
-                            f.write(await response.read())
-
-                        # Add volume filter to increase audio gain
-                        source = await discord.FFmpegOpusAudio.from_probe(
-                            temp_file,
-                            options='-filter:a volume=2.0'  # Double the volume
-                        )
-                        interaction.guild.voice_client.play(source)
-                        
-                        embed = discord.Embed(
-                            title="Text to Speech",
-                            description=f"Now playing TTS message in {language.name if language else 'English (US)'}",
-                            color=discord.Color.green()
-                        )
-                        await interaction.followup.send(embed=embed, ephemeral=True)
-                        
-                        os.remove(temp_file)
-                    else:
+                    if response.status != 200:
                         raise Exception(f"TTS service returned status code {response.status}")
-        else:
-            embed = discord.Embed(
-                title="Error",
-                description="You need to be in a voice channel to use this command!",
-                color=discord.Color.red()
-            )
-            await interaction.followup.send(embed=embed, ephemeral=True)
+                        
+                    async with aiofiles.open(temp_path, 'wb') as f:
+                        await f.write(await response.read())
+
+                    # Verify file exists and has content
+                    if not temp_path.exists() or temp_path.stat().st_size == 0:
+                        raise FileNotFoundError("Failed to create audio file")
+
+                    # Add retries for FFmpeg
+                    for _ in range(3):
+                        try:
+                            source = await discord.FFmpegOpusAudio.from_probe(
+                                str(temp_path),
+                                options='-filter:a volume=2.0'
+                            )
+                            break
+                        except Exception as e:
+                            if _ == 2:  # Last retry
+                                raise
+                            await asyncio.sleep(1)
+                    
+                    # Play audio
+                    if interaction.guild.voice_client.is_playing():
+                        interaction.guild.voice_client.stop()
+                    
+                    interaction.guild.voice_client.play(source)
+                    
+                    embed = discord.Embed(
+                        title="Text to Speech",
+                        description=f"Now playing TTS message in {language.name if language else 'English (US)'}",
+                        color=discord.Color.green()
+                    )
+                    await interaction.followup.send(embed=embed, ephemeral=True)
 
     except Exception as e:
         embed = discord.Embed(
