@@ -121,31 +121,27 @@ AUDIO_EFFECTS = {
 active_filters = {}  # Key: guild.id, Value: set of active filters
 
 ytdl_options = {
-    'format': 'bestaudio/best[acodec^=opus]/best',
+    'format': 'bestaudio/best',
     'noplaylist': False,
-    'quiet': True,
-    'no_warnings': True,
-    'default_search': 'auto',
+    'default_search': 'ytsearch:',
     'source_address': '0.0.0.0',
+    'force-ipv4': True,
     'cachedir': False,
-    'options': '-vn -bufsize 64k',
-    'extract_flat': False,
-    'force_generic_extractor': False,
-    'nocheckcertificate': True,
-    'ignoreerrors': False,  # Changed to False to catch errors
+    'extract_flat': 'in_playlist',
+    'ignoreerrors': True,
     'no_warnings': True,
-    'extract_flat': True,
+    'quiet': True,
     'extractor_args': {
         'youtube': {
-            'player_client': ['android', 'web'],  # Added web client
-            'player_skip': ['webpage', 'config'],  # Skip more
-            'consent': 'yes',
-            'embed_webpage': False,
-            'playback_stats': False
+            'player_client': ['android'],
+            'player_skip': ['webpage', 'config', 'js'],
+            'skip': ['dash', 'hls'],
+            'max-downloads': 1
         }
     },
-    'quiet': False,  # Enable output for debugging
-    'verbose': True  # Add verbose output
+    'nocheckcertificate': True,
+    'restrictfilenames': True,
+    'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
 }
 
 ffmpeg_options = {
@@ -392,8 +388,6 @@ async def leave(interaction: discord.Interaction):
         await interaction.response.send_message(embed=embed)
 
 # Play a YouTube URL or search query
-# music.py (continued)
-
 @app_commands.command(name="play", description="Play a song or playlist.")
 @app_commands.describe(query="The song name or URL to play.")
 async def play(interaction: discord.Interaction, query: str):
@@ -413,32 +407,42 @@ async def play(interaction: discord.Interaction, query: str):
                 await interaction.followup.send(embed=embed)
                 return
 
-        # Resolve the query to get song info
-        info = ytdl.extract_info(query, download=False)
-        if 'entries' in info:
-            # If it's a playlist, take the first entry
+        # Handle search vs direct URL
+        if not any(x in query for x in ['youtube.com', 'youtu.be']):
+            query = f"ytsearch:{query}"
+
+        # Extract info with retries
+        try:
+            info = await asyncio.get_event_loop().run_in_executor(
+                None, 
+                lambda: ytdl.extract_info(query, download=False)
+            )
+        except Exception as e:
+            logging.error(f"Error extracting info: {e}")
+            await interaction.followup.send("Failed to get video information. Please try again.")
+            return
+
+        if info.get('_type') == 'playlist':
             info = info['entries'][0]
+        elif not info.get('title'):
+            await interaction.followup.send("Could not find any matching videos.")
+            return
 
-        # Add the song to the queue
+        # Add to queue
         song_queue.append((interaction, query, info))
-
+        
         await interaction.followup.send(
-            f"Added **{info['title']}** to the queue.",
+            f"Added **{info.get('title', 'Unknown Title')}** to the queue.",
             ephemeral=True
         )
 
-        # If nothing is currently playing, start the next song
-        voice_client = interaction.guild.voice_client
-        if not voice_client.is_playing():
+        # Start playing if not already
+        if not interaction.guild.voice_client.is_playing():
             await play_next_song()
 
     except Exception as e:
-        embed = discord.Embed(
-            title="Error",
-            description=f"An error occurred: {e}",
-            color=discord.Color.red()
-        )
-        await interaction.followup.send(embed=embed)
+        logging.error(f"Play command error: {e}")
+        await interaction.followup.send("An error occurred while processing your request.")
         
 # Function to play next song
 async def play_next_song():
