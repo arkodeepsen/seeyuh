@@ -121,26 +121,30 @@ ytdl_options = {
     'source_address': '0.0.0.0',
     'force-ipv4': True,
     'cachedir': False,
-    'extract_flat': False,  # Changed from 'in_playlist'
-    'ignoreerrors': True,
-    'no_warnings': True,
-    'quiet': True,
+    'extract_flat': True,  # Changed to True
+    'ignoreerrors': False,  # Changed to False to catch errors
+    'no_warnings': False,  # Enable warnings
+    'quiet': False,  # Enable output for debugging
     'extractor_args': {
         'youtube': {
-            'player_client': ['android', 'web'],  # Added web client
-            'player_skip': ['webpage', 'config'],
+            'player_client': ['android'],  # Use only android client
+            'player_skip': ['webpage', 'config', 'js'],  # Skip more components
             'skip': ['dash', 'hls'],
-            'max-downloads': 1
+            'max-downloads': 1,
+            'embed_webpage': False,
+            'playback_stats': False
         }
     },
     'nocheckcertificate': True,
     'restrictfilenames': True,
-    'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    'user_agent': 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.43 Mobile Safari/537.36',
     'http_headers': {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.43 Mobile Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-us,en;q=0.5',
-        'Sec-Fetch-Mode': 'navigate'
+        'Sec-Fetch-Mode': 'navigate',
+        'Accept-Encoding': 'gzip, deflate',
+        'Connection': 'keep-alive'
     }
 }
 
@@ -405,45 +409,54 @@ async def play(interaction: discord.Interaction, query: str):
                 await interaction.followup.send(embed=embed)
                 return
 
-        # Add retries for extraction
         max_retries = 3
+        last_error = None
+        
         for attempt in range(max_retries):
             try:
+                await asyncio.sleep(1)  # Add delay between attempts
+                
                 info = await asyncio.get_event_loop().run_in_executor(
-                    None, 
+                    None,
                     lambda: ytdl.extract_info(query, download=False)
                 )
                 
                 if not info:
                     continue
-                    
+                
                 if 'entries' in info:
                     info = info['entries'][0]
                 
-                # Verify required fields
-                if not all(k in info for k in ['title', 'url', 'webpage_url']):
-                    raise ValueError("Missing required video information")
+                if not info:
+                    raise ValueError("No video information found")
+                
+                required_fields = ['title', 'url']
+                if not all(field in info for field in required_fields):
+                    raise ValueError(f"Missing required fields: {[f for f in required_fields if f not in info]}")
+                
+                # Add webpage_url if missing
+                if 'webpage_url' not in info:
+                    video_id = extract_video_id(query) or extract_video_id(info.get('url', ''))
+                    if video_id:
+                        info['webpage_url'] = f"https://www.youtube.com/watch?v={video_id}"
+                    else:
+                        info['webpage_url'] = query
+
+                song_queue.append((interaction, query, info))
+                await interaction.followup.send(f"Added **{info['title']}** to the queue.", ephemeral=True)
+                
+                if not interaction.guild.voice_client.is_playing():
+                    await play_next_song()
                     
-                break
+                return
+                
             except Exception as e:
-                if attempt == max_retries - 1:
-                    raise
-                await asyncio.sleep(1)
-        else:
-            raise Exception("Failed to extract video information")
-
-        # Add to queue
-        song_queue.append((interaction, query, info))
-        
-        await interaction.followup.send(
-            f"Added **{info['title']}** to the queue.",
-            ephemeral=True
-        )
-
-        # Start playing if not already
-        voice_client = interaction.guild.voice_client
-        if not voice_client.is_playing():
-            await play_next_song()
+                last_error = e
+                logging.error(f"Attempt {attempt + 1} failed: {str(e)}")
+                await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                continue
+                
+        raise last_error or Exception("Failed to extract video information after all retries")
 
     except Exception as e:
         logging.error(f"Play error: {str(e)}")
