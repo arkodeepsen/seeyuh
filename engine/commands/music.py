@@ -121,21 +121,27 @@ ytdl_options = {
     'source_address': '0.0.0.0',
     'force-ipv4': True,
     'cachedir': False,
-    'extract_flat': 'in_playlist',
+    'extract_flat': False,  # Changed from 'in_playlist'
     'ignoreerrors': True,
     'no_warnings': True,
     'quiet': True,
     'extractor_args': {
         'youtube': {
-            'player_client': ['android'],
-            'player_skip': ['webpage', 'config', 'js'],
+            'player_client': ['android', 'web'],  # Added web client
+            'player_skip': ['webpage', 'config'],
             'skip': ['dash', 'hls'],
             'max-downloads': 1
         }
     },
     'nocheckcertificate': True,
     'restrictfilenames': True,
-    'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    'http_headers': {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-us,en;q=0.5',
+        'Sec-Fetch-Mode': 'navigate'
+    }
 }
 
 ffmpeg_options = {
@@ -380,9 +386,6 @@ async def leave(interaction: discord.Interaction):
         embed = discord.Embed(title="Error", description="I'm not in a voice channel!", color=discord.Color.red())
         await interaction.response.send_message(embed=embed)
 
-# Play a YouTube URL or search query
-# music.py (continued)
-
 @app_commands.command(name="play", description="Play a song or playlist.")
 @app_commands.describe(query="The song name or URL to play.")
 async def play(interaction: discord.Interaction, query: str):
@@ -402,29 +405,51 @@ async def play(interaction: discord.Interaction, query: str):
                 await interaction.followup.send(embed=embed)
                 return
 
-        # Resolve the query to get song info
-        info = ytdl.extract_info(query, download=False)
-        if 'entries' in info:
-            # If it's a playlist, take the first entry
-            info = info['entries'][0]
+        # Add retries for extraction
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                info = await asyncio.get_event_loop().run_in_executor(
+                    None, 
+                    lambda: ytdl.extract_info(query, download=False)
+                )
+                
+                if not info:
+                    continue
+                    
+                if 'entries' in info:
+                    info = info['entries'][0]
+                
+                # Verify required fields
+                if not all(k in info for k in ['title', 'url', 'webpage_url']):
+                    raise ValueError("Missing required video information")
+                    
+                break
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    raise
+                await asyncio.sleep(1)
+        else:
+            raise Exception("Failed to extract video information")
 
-        # Add the song to the queue
+        # Add to queue
         song_queue.append((interaction, query, info))
-
+        
         await interaction.followup.send(
             f"Added **{info['title']}** to the queue.",
             ephemeral=True
         )
 
-        # If nothing is currently playing, start the next song
+        # Start playing if not already
         voice_client = interaction.guild.voice_client
         if not voice_client.is_playing():
             await play_next_song()
 
     except Exception as e:
+        logging.error(f"Play error: {str(e)}")
         embed = discord.Embed(
             title="Error",
-            description=f"An error occurred: {e}",
+            description=f"An error occurred while trying to play: {str(e)}",
             color=discord.Color.red()
         )
         await interaction.followup.send(embed=embed)

@@ -34,25 +34,24 @@ logging.basicConfig(
     ]
 )
 
-# Add at top of file
-TEMP_DIR = Path(tempfile.gettempdir()) / "discord_tts"
-TEMP_DIR.mkdir(exist_ok=True)
+TEMP_DIR = Path('/tmp/discord_tts')
+os.makedirs(TEMP_DIR, mode=0o777, exist_ok=True)
 
 @contextmanager
 def safe_tempfile(guild_id: int):
-    """Safely handle temp file creation and cleanup"""
+    """Safely handle temp file creation and cleanup with verification"""
     temp_path = TEMP_DIR / f'temp_{guild_id}.mp3'
     lock_path = temp_path.with_suffix('.lock')
     
     try:
         with FileLock(lock_path):
+            # Ensure clean state
+            if temp_path.exists():
+                temp_path.unlink()
             yield temp_path
     finally:
-        if temp_path.exists():
-            try:
-                temp_path.unlink()
-            except:
-                pass
+        # Don't delete immediately - let FFmpeg finish
+        pass
             
 # Define the say command
 @app_commands.command(name='say', description='Make the bot say something.')
@@ -1936,38 +1935,57 @@ async def text_to_speech(
         lang_code = language.value if language else "en-US"
         tts_url = f"https://translate.google.com/translate_tts?ie=UTF-8&tl={lang_code}&client=tw-ob&q={text}"
 
-        with safe_tempfile(interaction.guild.id) as temp_path:
+        temp_path = None
+        with safe_tempfile(interaction.guild.id) as tmp:
+            temp_path = tmp
             async with aiohttp.ClientSession() as session:
                 async with session.get(tts_url) as response:
                     if response.status != 200:
                         raise Exception(f"TTS service returned status code {response.status}")
                         
+                    # Write file
                     async with aiofiles.open(temp_path, 'wb') as f:
                         await f.write(await response.read())
-
-                    # Verify file exists and has content
-                    if not temp_path.exists() or temp_path.stat().st_size == 0:
-                        raise FileNotFoundError("Failed to create audio file")
-
-                    # Add retries for FFmpeg
-                    for _ in range(3):
-                        try:
-                            source = await discord.FFmpegOpusAudio.from_probe(
-                                str(temp_path),
-                                options='-filter:a volume=2.0'
-                            )
-                            break
-                        except Exception as e:
-                            if _ == 2:  # Last retry
-                                raise
-                            await asyncio.sleep(1)
                     
+                    # Verify file
+                    if not temp_path.exists():
+                        raise FileNotFoundError(f"File not found: {temp_path}")
+                    
+                    if temp_path.stat().st_size == 0:
+                        raise ValueError("Empty audio file created")
+                        
+                    logging.info(f"Created temp file: {temp_path} Size: {temp_path.stat().st_size}")
+                    
+                    # Small delay to ensure file is fully written
+                    await asyncio.sleep(0.5)
+                    
+                    # Create audio source
+                    try:
+                        source = await discord.FFmpegOpusAudio.from_probe(
+                            str(temp_path),
+                            options='-filter:a volume=2.0'
+                        )
+                    except Exception as e:
+                        logging.error(f"FFmpeg error: {e}")
+                        raise
+                        
                     # Play audio
                     if interaction.guild.voice_client.is_playing():
                         interaction.guild.voice_client.stop()
                     
-                    interaction.guild.voice_client.play(source)
+                    def after_playing(error):
+                        if error:
+                            logging.error(f"Playback error: {error}")
+                        # Clean up file after playback
+                        try:
+                            if temp_path and temp_path.exists():
+                                temp_path.unlink()
+                        except Exception as e:
+                            logging.error(f"Cleanup error: {e}")
                     
+                    interaction.guild.voice_client.play(source, after=after_playing)
+                    
+                    # Send confirmation
                     embed = discord.Embed(
                         title="Text to Speech",
                         description=f"Now playing TTS message in {language.name if language else 'English (US)'}",
@@ -1976,9 +1994,16 @@ async def text_to_speech(
                     await interaction.followup.send(embed=embed, ephemeral=True)
 
     except Exception as e:
+        logging.error(f"TTS error: {e}")
         embed = discord.Embed(
             title="Error", 
             description=f"An error occurred: {str(e)}", 
             color=discord.Color.red()
         )
+        # Clean up on error
+        if temp_path and temp_path.exists():
+            try:
+                temp_path.unlink()
+            except:
+                pass
         await interaction.followup.send(embed=embed, ephemeral=True)
