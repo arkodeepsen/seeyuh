@@ -34,6 +34,7 @@ def clean_song_info(title: str, artist: str) -> Tuple[str, str]:
     
     return title, artist
 
+# Function to handle song info extraction
 async def get_song_info(url: str) -> Optional[Tuple[str, str]]:
     """Extract song title and artist from YouTube URL"""
     ydl_opts = {
@@ -43,7 +44,13 @@ async def get_song_info(url: str) -> Optional[Tuple[str, str]]:
     with youtube_dl.YoutubeDL(ydl_opts) as ydl:
         try:
             info = ydl.extract_info(url, download=False)
+            if not info:
+                logging.error("No info extracted from URL")
+                return None
             title = info.get('title', '')
+            if not title:
+                logging.error("No title found in extracted info")
+                return None
             # Try to split title into song and artist
             if ' - ' in title:
                 artist, song = title.split(' - ', 1)
@@ -433,6 +440,7 @@ async def play(interaction: discord.Interaction, query: str):
         )
         await interaction.followup.send(embed=embed)
         
+# Function to play next song
 async def play_next_song():
     global current_song, previous_message, current_song_start
     
@@ -446,7 +454,10 @@ async def play_next_song():
         return
 
     try:
-        url2 = info['url']
+        url2 = info.get('url')
+        if not url2:
+            logging.error("No URL found in song info")
+            return
         duration = info.get('duration', 0)
         current_song_start = time.time()
 
