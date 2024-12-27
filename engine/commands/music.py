@@ -113,41 +113,40 @@ AUDIO_EFFECTS = {
 # Active filters per guild
 active_filters = {}  # Key: guild.id, Value: set of active filters
 
-# Setup for yt-dlp to extract audio
 ytdl_options = {
-    'format': 'bestaudio/best',
+    'format': 'bestaudio/best[acodec^=opus]/best',
     'noplaylist': False,
     'quiet': True,
     'no_warnings': True,
     'default_search': 'auto',
     'source_address': '0.0.0.0',
-    "cachedir": False,
+    'cachedir': False,
     'options': '-vn -bufsize 64k',
     'extract_flat': False,
     'force_generic_extractor': False,
-    #'cookiefile': os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'engine/youtube/cookies.txt'),
     'nocheckcertificate': True,
-    'ignoreerrors': True,
+    'ignoreerrors': False,  # Changed to False to catch errors
     'no_warnings': True,
-    #'cookiesfrombrowser': ('chrome',),  # Use cookies from Chrome
-
+    'extract_flat': True,
     'extractor_args': {
         'youtube': {
-            'player_client': ['android'],  # Use android client to avoid consent
-            'player_skip': ['webpage'],    # Skip webpage download
-            'consent': 'yes'               # Auto consent
+            'player_client': ['android', 'web'],  # Added web client
+            'player_skip': ['webpage', 'config'],  # Skip more
+            'consent': 'yes',
+            'embed_webpage': False,
+            'playback_stats': False
         }
-    }
+    },
+    'quiet': False,  # Enable output for debugging
+    'verbose': True  # Add verbose output
 }
 
 ffmpeg_options = {
     'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
-    'options': '-vn -bufsize 8192k -maxrate 2048k -user_agent "Mozilla/5.0"'
+    'options': '-vn -bufsize 8192k -maxrate 2048k -user_agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"'
 }
 
-#if not os.path.exists(ytdl_options['cookiefile']):
-#    logging.error(f"Cookie file not found at {ytdl_options['cookiefile']}")
-
+# Initialize yt-dlp with retries
 ytdl = youtube_dl.YoutubeDL(ytdl_options)
 
 # Queue to hold the songs
