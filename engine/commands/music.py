@@ -119,30 +119,12 @@ ytdl_options = {
     'noplaylist': False,
     'quiet': True,
     'no_warnings': True,
-    'default_search': 'ytsearch',
+    'default_search': 'auto',
     'source_address': '0.0.0.0',
-    'force-ipv4': True,
-    'sleep_interval': 1,
-    'max_sleep_interval': 5,
-    'cachedir': False,
-    'extract_flat': False,
-    'force_generic_extractor': False,
-    'ignoreerrors': True,
-    'geo_bypass': True,
-    'nocheckcertificate': True,
-    'extractor_args': {
-        'youtube': {
-            'player_client': ['android'],
-            'player_skip': ['webpage', 'config'],
-            'skip': ['dash', 'hls']
-        }
-    },
-    'http_headers': {
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.43 Mobile Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-us,en;q=0.5',
-        'Sec-Fetch-Mode': 'navigate'
-    }
+    "cachedir": False,
+    'options': '-vn -bufsize 64k',
+    'extract_flat': False,  # Get full video info
+    'force_generic_extractor': False
 }
 
 ffmpeg_options = {
