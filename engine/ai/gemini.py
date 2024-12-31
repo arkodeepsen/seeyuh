@@ -1,4 +1,4 @@
-import os, logging, sys, random, re, aiohttp, asyncio, google.generativeai as genai
+import discord, os, logging, sys, random, re, aiohttp, asyncio, tempfile, google.generativeai as genai
 from datetime import datetime
 from bs4 import BeautifulSoup
 from functools import lru_cache
@@ -252,7 +252,7 @@ async def get_search_results(query: str, num_results: int = 3) -> str:
     return "No results found."
 
 @lru_cache(maxsize=100) 
-async def get_ai_response(prompt):
+async def get_ai_response(prompt, message):
     current_query = extract_current_query(prompt)
     logging.info(f"Extracted query: {current_query}")
     
@@ -286,19 +286,78 @@ async def get_ai_response(prompt):
     logging.info(f"Query to AI: {query}")
     try:
         response = await try_model_chain(query, 'flash2')
-        # Safely log response
         if response.text:
             try:
                 logging.info(f"AI response: {response.text}")
-            except UnicodeEncodeError:
-                # Fallback to ASCII if Unicode fails
-                logging.info(f"AI response: {response.text.encode('ascii', 'ignore').decode()}")
                 
-        return response.text or "I'm not sure how to respond to that."
+                if '```' in response.text:
+                    with tempfile.TemporaryDirectory() as temp_dir:
+                        message_components = []  # List of (type, content) tuples
+                        text = response.text
+                        text_only = ""  # For database storage
+                        
+                        # First pass: Process all content into components
+                        while '```' in text:
+                            # Handle text before code block
+                            pre_code = text[:text.find('```')].strip()
+                            if pre_code:
+                                message_components.append(('text', pre_code))
+                                text_only += pre_code + "\n"
+                            
+                            # Process code block
+                            lang_start = text.find('```') + 3
+                            lang_end = text.find('\n', lang_start)
+                            file_ext = '.' + text[lang_start:lang_end].strip().lower()
+                            code_start = text.find('\n', lang_end) + 1
+                            code_end = text.find('```', code_start)
+                            code = text[code_start:code_end]
+                            
+                            # Get remaining text
+                            text = text[text.find('```', code_end) + 3:].strip()
+                            
+                            # Create code file
+                            if code.strip():
+                                if file_ext.lower() == '.csv':
+                                    csv_lines = code.strip().split('\n')
+                                    chunk_size = 1000
+                                    chunks = [csv_lines[i:i + chunk_size] for i in range(0, len(csv_lines), chunk_size)]
+                                    
+                                    for i, chunk in enumerate(chunks):
+                                        code_path = os.path.join(temp_dir, f'data_part_{i+1}{file_ext}')
+                                        with open(code_path, 'w', encoding='utf-8') as f:
+                                            f.write('\n'.join(chunk))
+                                        message_components.append(('file', discord.File(code_path)))
+                                else:
+                                    code_path = os.path.join(temp_dir, f'code_{len([c for c in message_components if c[0] == "file"])}{file_ext}')
+                                    with open(code_path, 'w', encoding='utf-8') as f:
+                                        f.write(code)
+                                    message_components.append(('file', discord.File(code_path)))
+                        
+                        # Add any remaining text
+                        if text:
+                            message_components.append(('text', text))
+                            text_only += text + "\n"
+                        
+                        # Second pass: Send all components in order
+                        for comp_type, content in message_components:
+                            if comp_type == 'text':
+                                await message.reply(content[:2000])
+                            else:  # file
+                                await message.reply(files=[content])
+                        
+                        return (text_only.strip() or "Generated files have been sent.", True)
+                    
+                return (response.text, False)
+                
+            except Exception as e:
+                logging.error(f"Error in code block handling: {str(e)}")
+                return (response.text, False)
+    
+        return ("I'm not sure how to respond to that.", False)
         
     except Exception as e:
         logging.error(f"Error generating response: {str(e)}")
-        return "Sorry, I could not process that."
+        return ("Sorry, I could not process that.", False)
 
 # Function to get AI response
 async def slash_ai_response(prompt):

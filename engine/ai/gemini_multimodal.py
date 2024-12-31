@@ -241,20 +241,21 @@ async def handle_attachment(bot, message, attachment):
             duration=duration
         )
 
-        # Replace content handling section with:
         if extracted_content:
             with tempfile.TemporaryDirectory() as temp_dir:
-                initial_text = ""
-                remaining_text = []
-                code_files = []
+                message_components = []  # List of (content_type, content) tuples
                 text = extracted_content
                 text_only_content = ""  # For database storage
                 
-                # Extract all code blocks
+                # Process content sequentially
                 while '```' in text:
+                    # Get text before code block
                     pre_code = text[:text.find('```')].strip()
-                    text_only_content += pre_code + "\n"  # Add text before code block
+                    if pre_code:
+                        message_components.append(('text', pre_code))
+                        text_only_content += pre_code + "\n"
                     
+                    # Extract code block
                     lang_start = text.find('```') + 3
                     lang_end = text.find('\n', lang_start)
                     file_ext = '.' + text[lang_start:lang_end].strip().lower()
@@ -262,40 +263,65 @@ async def handle_attachment(bot, message, attachment):
                     code_end = text.find('```', code_start)
                     code = text[code_start:code_end]
                     
-                    # Get remaining text after this code block
+                    # Get remaining text
                     text = text[text.find('```', code_end) + 3:].strip()
                     
                     if code.strip():
-                        code_path = os.path.join(temp_dir, f'code_{len(code_files)}{file_ext}')
-                        with open(code_path, 'w', encoding='utf-8') as f:
-                            f.write(code)
-                        code_files.append(discord.File(code_path))
-                    
-                    # Handle initial and remaining text
-                    if not initial_text:
-                        initial_text = pre_code[:2000] if pre_code else "Here's your code:"
-                    elif pre_code:
-                        remaining_text.append(pre_code)
+                        if file_ext.lower() == '.csv':
+                            # Handle CSV in chunks
+                            csv_lines = code.strip().split('\n')
+                            chunk_size = 1000
+                            chunks = [csv_lines[i:i + chunk_size] for i in range(0, len(csv_lines), chunk_size)]
+                            
+                            for i, chunk in enumerate(chunks):
+                                code_path = os.path.join(temp_dir, f'data_part_{i+1}{file_ext}')
+                                with open(code_path, 'w', encoding='utf-8') as f:
+                                    f.write('\n'.join(chunk))
+                                message_components.append(('file', discord.File(code_path)))
+                        else:
+                            code_path = os.path.join(temp_dir, f'code_{len([c for c in message_components if c[0] == "file"])}{file_ext}')
+                            with open(code_path, 'w', encoding='utf-8') as f:
+                                f.write(code)
+                            message_components.append(('file', discord.File(code_path)))
                 
-                # Add any remaining text after last code block
+                # Add remaining text
                 if text:
-                    text_only_content += text + "\n"  # Add remaining text
-                    if not initial_text:
-                        initial_text = text[:2000]
-                    else:
-                        remaining_text.append(text)
+                    message_components.append(('text', text))
+                    text_only_content += text + "\n"
                 
-                # Send initial message with files
-                await message.reply(content=initial_text[:2000], files=code_files)
+                # Send messages respecting Discord's limits
+                current_files = []
+                current_text = []
                 
-                # Send any remaining text chunks
-                for text in remaining_text:
-                    if text.strip():
-                        await message.reply(text[:2000])
+                for comp_type, content in message_components:
+                    if comp_type == 'text':
+                        current_text.append(content)
+                        if current_files:  # Send accumulated files
+                            await message.reply(
+                                content="\n".join(current_text)[:2000] if current_text else "Here's your code:",
+                                files=current_files
+                            )
+                            current_files = []
+                            current_text = []
+                    else:  # File
+                        current_files.append(content)
+                        if len(current_files) >= 10:
+                            await message.reply(
+                                content="\n".join(current_text)[:2000] if current_text else "Here's your code:",
+                                files=current_files
+                            )
+                            current_files = []
+                            current_text = []
                 
-                # Return only text content for database
-                return text_only_content.strip()
+                # Send any remaining content
+                if current_files or current_text:
+                    await message.reply(
+                        content="\n".join(current_text)[:2000] if current_text else None,
+                        files=current_files if current_files else None
+                    )
                 
+                return text_only_content.strip() or "Generated files have been sent."
+        
         else:
             await message.reply("Failed to extract content from the file.")
             return "Failed to extract content from the file."
