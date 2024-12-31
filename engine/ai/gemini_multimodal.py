@@ -241,17 +241,20 @@ async def handle_attachment(bot, message, attachment):
             duration=duration
         )
 
-        # Replace the existing content handling with:
+        # Replace content handling section with:
         if extracted_content:
             with tempfile.TemporaryDirectory() as temp_dir:
                 initial_text = ""
                 remaining_text = []
                 code_files = []
                 text = extracted_content
+                text_only_content = ""  # For database storage
                 
                 # Extract all code blocks
                 while '```' in text:
                     pre_code = text[:text.find('```')].strip()
+                    text_only_content += pre_code + "\n"  # Add text before code block
+                    
                     lang_start = text.find('```') + 3
                     lang_end = text.find('\n', lang_start)
                     file_ext = '.' + text[lang_start:lang_end].strip().lower()
@@ -275,10 +278,12 @@ async def handle_attachment(bot, message, attachment):
                         remaining_text.append(pre_code)
                 
                 # Add any remaining text after last code block
-                if text and not initial_text:
-                    initial_text = text[:2000]
-                elif text:
-                    remaining_text.append(text)
+                if text:
+                    text_only_content += text + "\n"  # Add remaining text
+                    if not initial_text:
+                        initial_text = text[:2000]
+                    else:
+                        remaining_text.append(text)
                 
                 # Send initial message with files
                 await message.reply(content=initial_text[:2000], files=code_files)
@@ -287,8 +292,10 @@ async def handle_attachment(bot, message, attachment):
                 for text in remaining_text:
                     if text.strip():
                         await message.reply(text[:2000])
-                        
-                return extracted_content 
+                
+                # Return only text content for database
+                return text_only_content.strip()
+                
         else:
             await message.reply("Failed to extract content from the file.")
             return "Failed to extract content from the file."
