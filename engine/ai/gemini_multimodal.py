@@ -1,5 +1,5 @@
 import google.generativeai as genai
-import os, discord, logging, aiohttp, datetime, asyncio, time
+import os, discord, logging, aiohttp, datetime, asyncio, time, tempfile
 from engine.db import fetch_recent_message, supabase
 from dotenv import load_dotenv
 from google.generativeai import caching
@@ -241,15 +241,54 @@ async def handle_attachment(bot, message, attachment):
             duration=duration
         )
 
-        # Reply with extracted content
+        # Replace the existing content handling with:
         if extracted_content:
-                        # Split the content into chunks if it exceeds the message size limit
-                        max_message_size = 2000
-                        content_chunks = [extracted_content[i:i + max_message_size] for i in range(0, len(extracted_content), max_message_size)]
-
-                        for chunk in content_chunks:
-                            await message.reply(chunk)
-                        return extracted_content    
+            with tempfile.TemporaryDirectory() as temp_dir:
+                initial_text = ""
+                remaining_text = []
+                code_files = []
+                text = extracted_content
+                
+                # Extract all code blocks
+                while '```' in text:
+                    pre_code = text[:text.find('```')].strip()
+                    lang_start = text.find('```') + 3
+                    lang_end = text.find('\n', lang_start)
+                    file_ext = '.' + text[lang_start:lang_end].strip().lower()
+                    code_start = text.find('\n', lang_end) + 1
+                    code_end = text.find('```', code_start)
+                    code = text[code_start:code_end]
+                    
+                    # Get remaining text after this code block
+                    text = text[text.find('```', code_end) + 3:].strip()
+                    
+                    if code.strip():
+                        code_path = os.path.join(temp_dir, f'code_{len(code_files)}{file_ext}')
+                        with open(code_path, 'w', encoding='utf-8') as f:
+                            f.write(code)
+                        code_files.append(discord.File(code_path))
+                    
+                    # Handle initial and remaining text
+                    if not initial_text:
+                        initial_text = pre_code[:2000] if pre_code else "Here's your code:"
+                    elif pre_code:
+                        remaining_text.append(pre_code)
+                
+                # Add any remaining text after last code block
+                if text and not initial_text:
+                    initial_text = text[:2000]
+                elif text:
+                    remaining_text.append(text)
+                
+                # Send initial message with files
+                await message.reply(content=initial_text[:2000], files=code_files)
+                
+                # Send any remaining text chunks
+                for text in remaining_text:
+                    if text.strip():
+                        await message.reply(text[:2000])
+                        
+                return extracted_content 
         else:
             await message.reply("Failed to extract content from the file.")
             return "Failed to extract content from the file."
