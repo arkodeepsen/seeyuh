@@ -1400,7 +1400,7 @@ AVAILABLE_MODELS = {
         "description": "Image generated using Flux-Super-Realism-LoRA"
     },
     "FLUX_master": {
-        "model_id": "pimpilikipilapi1/NSFW_master",
+        "model_id": "user3712931729/flux-nsfw-highres",
         "description": "Image generated using FLUX_master"
     },
     "DucHaiten-Real3D-V1": {
@@ -1417,7 +1417,7 @@ MODEL_CHOICES = [
     app_commands.Choice(name="FLUX.1-dev", value="FLUX.1-dev"),
     app_commands.Choice(name="FLUX Ghibsky Illustration", value="flux-ghibsky-illustration"),
     app_commands.Choice(name="FLUX Super Realism LoRA", value="Flux-Super-Realism-LoRA"),
-    app_commands.Choice(name="FLUX Master", value="FLUX_master"),
+    app_commands.Choice(name="FLUX Master Highres", value="FLUX_master"),
     app_commands.Choice(name="Stable Diffusion XL Base 1.0", value="stable-diffusion-xl-base-1.0"),
     app_commands.Choice(name="RealVisXL V4.0", value="RealVisXL_V4.0"),
     app_commands.Choice(name="epiCPhotoGasm", value="epiCPhotoGasm"),
