@@ -1,4 +1,4 @@
-import discord, time, uvicorn, asyncio, requests, os, aiohttp, random, engine.commands.general as general, engine.commands.utility as utility, engine.commands.fun as fun, engine.commands.music as music, engine.commands.moderation as moderation, engine.commands.misc as misc, engine.commands.rpg as rpg, engine.eventloop as eventloop
+import discord, time, uvicorn, asyncio, logging, os, aiohttp, random, engine.commands.general as general, engine.commands.utility as utility, engine.commands.fun as fun, engine.commands.music as music, engine.commands.moderation as moderation, engine.commands.misc as misc, engine.commands.rpg as rpg, engine.eventloop as eventloop
 from discord.ext import commands, tasks
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import HTMLResponse
@@ -11,6 +11,8 @@ from engine.ai.gemini_multimodal import handle_attachment
 from supabase import create_client, Client
 from sqlalchemy.orm import declarative_base
 from sqlalchemy import Column, Integer, String, ForeignKey
+
+logging.basicConfig(level=logging.INFO)
 
 # Load environment variables
 DISCORD_TOKEN, OWNER, url, key = load_env()
@@ -247,8 +249,8 @@ async def on_ready():
     if not check_inactivity.is_running():
         check_inactivity.start()
     eventloop.event_loop = asyncio.get_running_loop()
-    print(f"Connected to Discord Gateway Region: {bot.latency:.2f} ms")
-    print(f'Logged in as {bot.user}')
+    logging.info(f"Connected to Discord Gateway Region: {bot.latency:.2f} ms")
+    logging.info(f'Logged in as {bot.user}')
     # Generate and cache invites without blocking the event loop
     asyncio.create_task(generate_and_cache_invites(bot))
     asyncio.create_task(sync_guilds_and_users(bot))
