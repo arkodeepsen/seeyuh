@@ -113,7 +113,7 @@ AUDIO_EFFECTS = {
 # Active filters per guild
 active_filters = {}  # Key: guild.id, Value: set of active filters
 
-# Setup for yt-dlp to extract audio
+# Modify ytdl_options
 ytdl_options = {
     'format': 'bestaudio/best',
     'noplaylist': False,
@@ -121,11 +121,22 @@ ytdl_options = {
     'no_warnings': True,
     'default_search': 'auto',
     'source_address': '0.0.0.0',
-    "cachedir": False,
-    'options': '-vn -bufsize 64k',
-    'extract_flat': False,  # Get full video info
+    'cachedir': False,
+    'extract_flat': False,
     'force_generic_extractor': False,
-    'cookiefile': os.path.join(os.path.dirname(__file__), '..', 'youtube', 'cookies.txt')  # Add cookies file
+    'extractor_args': {
+        'youtube': {
+            'skip': ['webpage']  # Skip webpage download
+        }
+    },
+    # Add Invidious instance
+    'extractors': ['Invidious'],
+    'extractor_retries': 3,
+    'extractor_args': {
+        'Invidious': {
+            'instance': 'https://invidious.snopyta.org'  # Use a reliable instance
+        }
+    }
 }
 
 ffmpeg_options = {
