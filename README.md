@@ -98,7 +98,7 @@ This bot is proprietary and not open-source. Unauthorized copying, redistributio
 ---
 
 ## 🌐 **Dynamic Updates**
-- Visit the [Seeyuh Bot Status Page](https://seeyuh.up.railway.app) for real-time metrics and updates.  
+- Visit the [Seeyuh Bot Website](https://seeyuh.up.railway.app) for real-time metrics and updates.  
 - Join our [support server](https://discord.gg/ETXgCVYmBb) for announcements and issues.
 
 ---
