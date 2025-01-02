@@ -113,7 +113,7 @@ AUDIO_EFFECTS = {
 # Active filters per guild
 active_filters = {}  # Key: guild.id, Value: set of active filters
 
-# Modify ytdl_options
+# Setup for yt-dlp to extract audio
 ytdl_options = {
     'format': 'bestaudio/best',
     'noplaylist': False,
@@ -121,22 +121,10 @@ ytdl_options = {
     'no_warnings': True,
     'default_search': 'auto',
     'source_address': '0.0.0.0',
-    'cachedir': False,
-    'extract_flat': False,
-    'force_generic_extractor': False,
-    'extractor_args': {
-        'youtube': {
-            'skip': ['webpage']  # Skip webpage download
-        }
-    },
-    # Add Invidious instance
-    'extractors': ['Invidious'],
-    'extractor_retries': 3,
-    'extractor_args': {
-        'Invidious': {
-            'instance': 'https://invidious.snopyta.org'  # Use a reliable instance
-        }
-    }
+    "cachedir": False,
+    'options': '-vn -bufsize 64k',
+    'extract_flat': False,  # Get full video info
+    'force_generic_extractor': False
 }
 
 ffmpeg_options = {
@@ -388,7 +376,8 @@ async def leave(interaction: discord.Interaction):
 @app_commands.describe(query="The song name or URL to play.")
 async def play(interaction: discord.Interaction, query: str):
     try:
-        await interaction.response.defer()  # Defer the response
+        await interaction.response.defer()
+
         if not interaction.guild.voice_client:
             if interaction.user.voice:
                 channel = interaction.user.voice.channel
@@ -402,68 +391,29 @@ async def play(interaction: discord.Interaction, query: str):
                 await interaction.followup.send(embed=embed)
                 return
 
-        max_retries = 3
-        last_error = None
-        
-        for attempt in range(max_retries):
-            try:
-                await asyncio.sleep(1)  # Add delay between attempts
-                
-                info = await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: ytdl.extract_info(query, download=False)
-                )
-                
-                if not info:
-                    continue
-                
-                if 'entries' in info:
-                    if len(info['entries']) == 0:
-                        raise ValueError("No search results found")
-                    info = info['entries'][0]
-                
-                if not info:
-                    raise ValueError("No video information found")
-                
-                required_fields = ['title', 'url']
-                if not all(field in info for field in required_fields):
-                    # Attempt to extract title from webpage_url if missing
-                    if 'webpage_url' in info:
-                        video_id = extract_video_id(info['webpage_url'])
-                        if video_id:
-                            info['title'] = f"Video {video_id}"
-                    if not all(field in info for field in required_fields):
-                        raise ValueError(f"Missing required fields: {[f for f in required_fields if f not in info]}")
-                
-                # Add webpage_url if missing
-                if 'webpage_url' not in info:
-                    video_id = extract_video_id(query) or extract_video_id(info.get('url', ''))
-                    if video_id:
-                        info['webpage_url'] = f"https://www.youtube.com/watch?v={video_id}"
-                    else:
-                        info['webpage_url'] = query
+        # Resolve the query to get song info
+        info = ytdl.extract_info(query, download=False)
+        if 'entries' in info:
+            # If it's a playlist, take the first entry
+            info = info['entries'][0]
 
-                song_queue.append((interaction, query, info))
-                await interaction.followup.send(f"Added **{info['title']}** to the queue.", ephemeral=True)
-                
-                if not interaction.guild.voice_client.is_playing():
-                    await play_next_song()
-                    
-                return
-                
-            except Exception as e:
-                last_error = e
-                logging.error(f"Attempt {attempt + 1} failed: {str(e)}")
-                await asyncio.sleep(2 ** attempt)  # Exponential backoff
-                continue
-                
-        raise last_error or Exception("Failed to extract video information after all retries")
+        # Add the song to the queue
+        song_queue.append((interaction, query, info))
+
+        await interaction.followup.send(
+            f"Added **{info['title']}** to the queue.",
+            ephemeral=True
+        )
+
+        # If nothing is currently playing, start the next song
+        voice_client = interaction.guild.voice_client
+        if not voice_client.is_playing():
+            await play_next_song()
 
     except Exception as e:
-        logging.error(f"Play error: {str(e)}")
         embed = discord.Embed(
             title="Error",
-            description=f"An error occurred while trying to play: {str(e)}",
+            description=f"An error occurred: {e}",
             color=discord.Color.red()
         )
         await interaction.followup.send(embed=embed)
