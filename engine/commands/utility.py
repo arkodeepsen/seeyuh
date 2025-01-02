@@ -1900,7 +1900,12 @@ tts_language_choices = [
     app_commands.Choice(name="Czech", value="cs"),
     app_commands.Choice(name="Bengali", value="bn")
 ]
-
+PREFERRED_REGIONS = [
+    'us-east', 
+    'us-central',
+    'us-west',
+    'us-south'
+]
 @app_commands.command(name="tts", description="Convert text or AI response to speech.")
 @app_commands.describe(
     text="Direct text to convert to speech",
@@ -1930,7 +1935,21 @@ async def text_to_speech(
             raise ValueError("You need to be in a voice channel to use this command!")
 
         if not interaction.guild.voice_client:
-            await interaction.user.voice.channel.connect()
+            voice_channel = interaction.user.voice.channel
+        
+            # Try preferred regions
+            for region in PREFERRED_REGIONS:
+                try:
+                    await voice_channel.edit(rtc_region=region)
+                    await voice_channel.connect()
+                    logging.info(f"Connected to {voice_channel} with region {region}")
+                    break
+                except discord.HTTPException:
+                    continue
+            else:
+                # Fallback without region specification
+                await voice_channel.connect()
+                logging.info(f"Connected to {voice_channel} with default region")
             
         lang_code = language.value if language else "en-US"
         tts_url = f"https://translate.google.com/translate_tts?ie=UTF-8&tl={lang_code}&client=tw-ob&q={text}"

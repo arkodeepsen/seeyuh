@@ -7,6 +7,12 @@ from engine.utils import load_env
 
 logging.basicConfig(level=logging.INFO)
 
+PREFERRED_REGIONS = [
+    'us-east', 
+    'us-central',
+    'us-west',
+    'us-south'
+]
 # Initialize Genius with proper config and retries
 genius = lyricsgenius.Genius(
     access_token=os.getenv('GENIUS_API_KEY'),
@@ -128,9 +134,41 @@ ytdl_options = {
 }
 
 ffmpeg_options = {
-    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
-    'options': '-vn -bufsize 8192k -maxrate 2048k'
+    'before_options': (
+        '-reconnect 1 '
+        '-reconnect_streamed 1 '
+        '-reconnect_delay_max 5 '
+        '-multiple_requests 1 '
+        '-rw_timeout 15000000'
+    ),
+    'options': (
+        '-vn '
+        '-bufsize 16M '
+        '-maxrate 4M '
+        '-acodec libopus '
+        '-ab 192k '
+        '-loglevel warning'
+    )
 }
+
+# Replace create_audio_source function
+@backoff.on_exception(backoff.expo, Exception, max_tries=3)
+async def create_audio_source(url: str) -> discord.FFmpegOpusAudio:
+    """Create audio source with direct FFmpeg"""
+    try:
+        # Skip probe and use direct creation
+        return await discord.FFmpegOpusAudio.from_probe(
+            url,
+            method='fallback',
+            **ffmpeg_options
+        )
+    except Exception as e:
+        logging.error(f"FFmpeg error: {e}")
+        # Try one more time with basic options
+        return await discord.FFmpegOpusAudio.create(
+            url,
+            **ffmpeg_options
+        )
 
 ytdl = youtube_dl.YoutubeDL(ytdl_options)
 
@@ -235,7 +273,7 @@ class MusicView(discord.ui.View):
                                 color=discord.Color.red())
             await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @discord.ui.button(label="Lyrics", style=discord.ButtonStyle.secondary, emoji="📝")
+    @discord.ui.button(label="Lyrics (Powered by Genius.com)", style=discord.ButtonStyle.secondary, emoji="<:genius:1324379192032231424>")
     async def lyrics_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self.youtube_url:
             await interaction.response.send_message("No song is currently playing.", ephemeral=True)
@@ -260,7 +298,7 @@ class MusicView(discord.ui.View):
                     current_length = 0
                     
                     for line in lines:
-                        if current_length + len(line) + 1 > 1900:
+                        if current_length + len(line) + 1 > 1500:
                             chunks.append('\n'.join(current_chunk))
                             current_chunk = [line]
                             current_length = len(line)
@@ -275,7 +313,7 @@ class MusicView(discord.ui.View):
                     for i, chunk in enumerate(chunks):
                         if i == 0:
                             await interaction.followup.send(
-                                f"📝 **Lyrics for {song} by {artist}**\n```\n{chunk}```"
+                                f"<:genius:1324379192032231424> **Lyrics for {song} by {artist}**\n```\n{chunk}```"
                             )
                         else:
                             await interaction.followup.send(f"```\n{chunk}```")
@@ -351,6 +389,23 @@ async def join(interaction: discord.Interaction):
 
     if interaction.user.voice:
         channel = interaction.user.voice.channel
+        
+        # Try to connect with preferred region
+        for region in PREFERRED_REGIONS:
+            try:
+                await channel.edit(rtc_region=region)
+                await channel.connect()
+                embed = discord.Embed(
+                    title="Voice Channel", 
+                    description=f"Joined {channel} (Region: {region})", 
+                    color=discord.Color.green()
+                )
+                await interaction.response.send_message(embed=embed)
+                return
+            except discord.HTTPException:
+                continue
+                
+        # Fallback to default if no preferred region works
         await channel.connect()
         embed = discord.Embed(title="Voice Channel", description=f"Joined {channel}", color=discord.Color.green())
         await interaction.response.send_message(embed=embed)
@@ -381,7 +436,15 @@ async def play(interaction: discord.Interaction, query: str):
         if not interaction.guild.voice_client:
             if interaction.user.voice:
                 channel = interaction.user.voice.channel
-                await channel.connect()
+                for region in PREFERRED_REGIONS:
+                    try:
+                        await channel.edit(rtc_region=region)
+                        await channel.connect()
+                        break
+                    except discord.HTTPException:
+                        continue
+                else:
+                    await channel.connect()  # Fallback
             else:
                 embed = discord.Embed(
                     title="Error",
@@ -435,22 +498,16 @@ async def play_next_song():
         duration = info.get('duration', 0)
         current_song_start = time.time()
 
-        # Create FFmpeg source with better buffering
-        source = await discord.FFmpegOpusAudio.from_probe(
-            url2,
-            **ffmpeg_options
-        )
+        # Create FFmpeg source with retries and better error handling
+        source = await create_audio_source(url2)
 
         def after_playing(error):
             if error:
                 logging.error(f"Playback error: {error}")
-            
-            # Schedule next song in event loop
             eventloop.event_loop.call_soon_threadsafe(
                 lambda: asyncio.create_task(play_next_song())
             )
 
-        # Play with increased buffer
         interaction.guild.voice_client.play(
             source,
             after=after_playing
@@ -714,7 +771,7 @@ async def lyrics_command(interaction: discord.Interaction, url: str):
                 current_length = 0
                 
                 for line in lines:
-                    if current_length + len(line) + 1 > 1900:
+                    if current_length + len(line) + 1 > 1500:
                         chunks.append('\n'.join(current_chunk))
                         current_chunk = [line]
                         current_length = len(line)
@@ -729,14 +786,14 @@ async def lyrics_command(interaction: discord.Interaction, url: str):
                 for i, chunk in enumerate(chunks):
                     if i == 0:
                         await interaction.followup.send(
-                            f"📝 **Lyrics for {song} by {artist}**\n```\n{chunk}```"
+                            f"<:genius:1324379192032231424> **Lyrics for {song} by {artist}**\n```\n{chunk}```"
                         )
                     else:
                         await interaction.followup.send(f"```\n{chunk}```")
                 return
-                # If no Genius lyrics were found
-                logging.info("No Genius lyrics found, trying YouTube captions")
-                await interaction.followup.send("❌ Could not find lyrics for this song. Let me try getting the video captions...", ephemeral=True)
+            # If no Genius lyrics were found
+            logging.info("No Genius lyrics found, trying YouTube captions")
+            await interaction.followup.send("❌ Could not find lyrics for this song. Let me try getting the video captions...", ephemeral=True)
 
                 
         # Fallback to YouTube captions
