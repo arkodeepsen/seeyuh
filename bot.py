@@ -247,6 +247,7 @@ async def on_ready():
     if not check_inactivity.is_running():
         check_inactivity.start()
     eventloop.event_loop = asyncio.get_running_loop()
+    print(f"Connected to Discord Gateway Region: {bot.latency:.2f} ms")
     print(f'Logged in as {bot.user}')
     # Generate and cache invites without blocking the event loop
     asyncio.create_task(generate_and_cache_invites(bot))

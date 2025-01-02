@@ -73,7 +73,7 @@ async def ping_command(interaction: discord.Interaction):
         description="Pong! Calculating ping...",
         color=discord.Color.orange()
     )
-    embed.set_footer(text=f"{interaction.client.user.name}", icon_url=interaction.client.user.avatar.url)
+    embed.set_footer(text=f"{interaction.client.user.name}", icon_url=interaction.client.user.display_avatar.url)
     await interaction.response.send_message(embed=embed)
 
     # Calculate the ping
@@ -83,10 +83,10 @@ async def ping_command(interaction: discord.Interaction):
 
     embed = discord.Embed(
         title="Ping Command",
-        description=f"Pong! Bot ping is {ping} ms. Discord API latency is {latency} ms.",
+        description=f"Pong! Discord API latency is {latency} ms. This command took {ping} ms to execute.",
         color=discord.Color.green()
     )
-    embed.set_footer(text=f"{interaction.client.user.name}", icon_url=interaction.client.user.avatar.url)
+    embed.set_footer(text=f"{interaction.client.user.name}", icon_url=interaction.client.user.display_avatar.url)
 
     # Instead of trying to edit, use followup to send the updated message
     message = await interaction.original_response()
