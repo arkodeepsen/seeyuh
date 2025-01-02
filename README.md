@@ -22,7 +22,7 @@ Seeyuh Bot is a powerful, AI-driven Discord bot designed for dynamic and multimo
 - **Platform**: Hosted on Railway  
 - **Region**: Virginia, USA  
 - **Bot Connection**: Connected to Discord's US East region  
-- **Preferred Port**: 8000  
+- **Preferred Port**: 8080 
 
 ## 🎯 **Features**
 
