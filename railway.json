@@ -1,0 +1,12 @@
+{
+    "$schema": "https://railway.app/railway.schema.json",
+    "build": {
+      "buildCommand": "bash install_ffmpeg.sh && pip install -r requirements.txt"
+    },
+    "deploy": {
+      "startCommand": "python3 start.py",
+      "healthcheckPath": "/status",
+      "healthcheckTimeout": 100,
+      "restartPolicyType": "never"
+    }
+  }
