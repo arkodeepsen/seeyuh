@@ -484,6 +484,26 @@ async def play(interaction: discord.Interaction, query: str):
 async def play_next_song():
     global current_song, previous_message, current_song_start
     
+    # Edit previous message if it exists
+    if previous_message:
+        try:
+            # Get info from current song that just finished
+            _, _, old_info = current_song
+            played_embed = discord.Embed(
+                title="Played",
+                description=f"[{old_info['title']}]({old_info['webpage_url']})",
+                color=discord.Color.green()
+            )
+            if duration := old_info.get('duration', 0):
+                minutes = duration // 60
+                seconds = duration % 60
+                played_embed.add_field(name="Duration", value=f"{minutes:02d}:{seconds:02d}")
+            
+            played_embed.set_thumbnail(url=old_info['thumbnail'])
+            await previous_message.edit(embed=played_embed, view=None)
+        except Exception as e:
+            logging.error(f"Failed to edit previous message: {e}")
+
     if loop_song and current_song:
         interaction, query, info = current_song
     elif song_queue:
@@ -513,7 +533,7 @@ async def play_next_song():
             after=after_playing
         )
 
-        # Add duration to embed if available
+        # Create new message for current song
         embed = discord.Embed(
             title="Now Playing",
             description=f"[{info['title']}]({info['webpage_url']})",

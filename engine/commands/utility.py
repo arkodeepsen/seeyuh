@@ -1,5 +1,5 @@
-import discord, asyncio, aiohttp, random, httpx, re, json, io, base64, requests, os, logging, tempfile, aiofiles
-from discord import app_commands
+import discord, asyncio, aiohttp, random, httpx, re, json, io, base64, requests, os, logging, tempfile, aiofiles, time
+from discord import app_commands, File
 from pathlib import Path
 from typing import Optional
 from pytube import Search
@@ -2026,3 +2026,107 @@ async def text_to_speech(
             except:
                 pass
         await interaction.followup.send(embed=embed, ephemeral=True)
+        
+API_URL = "https://api-inference.huggingface.co/models/facebook/musicgen-small"
+
+async def generate_music(prompt: str) -> bytes:
+    """Generate music from text using HuggingFace API"""
+    headers = {"Authorization": f"Bearer {HF_API_KEY}"}
+    payload = {"inputs": prompt}
+    
+    async with aiohttp.ClientSession() as session:
+        async with session.post(API_URL, headers=headers, json=payload) as response:
+            if response.status != 200:
+                raise Exception(f"API request failed with status {response.status}")
+            return await response.read()
+
+def sync_cleanup(file_path: str):
+    """Wait before cleanup to ensure playback completes"""
+    time.sleep(2)  # Add delay
+    try:
+        if os.path.exists(file_path):
+            os.unlink(file_path)
+            logging.info(f"Cleaned up temp file: {file_path}")
+    except Exception as e:
+        logging.error(f"Cleanup error: {str(e)}")
+
+@app_commands.command(name="musicgen", description="Generate music using AI.")
+@app_commands.describe(prompt="Description of the music you want to generate")
+async def musicgen(interaction: discord.Interaction, prompt: str):
+    try:
+        await interaction.response.defer()
+        
+        if not HF_API_KEY:
+            await interaction.followup.send("❌ HuggingFace API key not configured!")
+            return
+            
+        # Generate music
+        audio_data = await generate_music(prompt)
+        
+        # Save to temp file
+        with tempfile.NamedTemporaryFile(suffix='.flac', delete=False) as tmp:
+            tmp.write(audio_data)
+            tmp_path = tmp.name
+            
+        # Verify file
+        if not os.path.exists(tmp_path):
+            raise FileNotFoundError(f"File not found: {tmp_path}")
+        
+        if os.path.getsize(tmp_path) == 0:
+            raise ValueError("Empty audio file created")
+        
+        # Send file in chat
+        await interaction.followup.send(
+            f"🎵 Generated music for: **{prompt}**",
+            file=File(tmp_path, f'{prompt}.flac')
+        )
+        
+        # Join voice channel if user is in one
+        if interaction.user.voice:
+            channel = interaction.user.voice.channel
+            
+            # Connect to voice
+            voice_client = None
+            for region in PREFERRED_REGIONS:
+                try:
+                    await channel.edit(rtc_region=region)
+                    if not interaction.guild.voice_client:
+                        voice_client = await channel.connect()
+                    else:
+                        voice_client = interaction.guild.voice_client
+                        if voice_client.channel != channel:
+                            await voice_client.move_to(channel)
+                    await asyncio.sleep(1)
+                    break
+                except Exception as e:
+                    logging.error(f"Voice connection error: {e}")
+                    continue
+
+            # Create audio source like TTS
+            try:
+                source = await discord.FFmpegOpusAudio.from_probe(
+                    tmp_path,
+                    options='-filter:a volume=2.0'
+                )
+                
+                def after_playing(error):
+                    if error:
+                        logging.error(f"Playback error: {error}")
+                    try:
+                        if os.path.exists(tmp_path):
+                            os.unlink(tmp_path)
+                            logging.info(f"Cleaned up temp file: {tmp_path}")
+                    except Exception as e:
+                        logging.error(f"Cleanup error: {e}")
+
+                voice_client.play(source, after=after_playing)
+                
+            except Exception as e:
+                logging.error(f"FFmpeg error: {e}")
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+                await interaction.followup.send("❌ Failed to play audio", ephemeral=True)
+                
+    except Exception as e:
+        logging.error(f"MusicGen error: {e}")
+        await interaction.followup.send(f"❌ Error: {str(e)}")
