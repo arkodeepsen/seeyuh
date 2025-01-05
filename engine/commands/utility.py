@@ -2078,7 +2078,7 @@ async def musicgen(interaction: discord.Interaction, prompt: str):
         # Send file in chat
         await interaction.followup.send(
             f"🎵 Generated music for: **{prompt}**",
-            file=File(tmp_path, f'{prompt}.flac')
+            file=File(tmp_path, f'{prompt[:200]}.flac')  # Limit filename to 200 chars
         )
         
         # Join voice channel if user is in one

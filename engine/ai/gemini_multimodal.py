@@ -205,7 +205,7 @@ async def handle_attachment(bot, message, attachment):
             if duration > 300:  # 5 minute limit
                 await message.reply("Media file too long. Maximum duration is 5 minutes.")
                 return
-            await message.reply(f"Processing {duration:.1f} second media file, please wait...")
+            processing_msg = await message.reply(f"Processing {duration:.1f} second media file, please wait...")
 
         # Upload file with video flag
         sample_file = prep_file(file_path, attachment.filename, is_av=is_av)
@@ -242,6 +242,10 @@ async def handle_attachment(bot, message, attachment):
         )
 
         if extracted_content:
+            # Delete processing message if it exists
+            if is_av:
+                await processing_msg.delete()
+                
             with tempfile.TemporaryDirectory() as temp_dir:
                 message_components = []  # List of (content_type, content) tuples
                 text = extracted_content
@@ -323,10 +327,17 @@ async def handle_attachment(bot, message, attachment):
                 return text_only_content.strip() or "Generated files have been sent."
         
         else:
+            # Delete processing message if it exists
+            if is_av:
+                await processing_msg.delete()
+
             await message.reply("Failed to extract content from the file.")
             return "Failed to extract content from the file."
 
     except Exception as e:
+        # Delete processing message if it exists
+        if is_av:
+            await processing_msg.delete()
         logging.error(f"An error occurred: {e}")
         await message.reply("An error occurred while processing the file.")
     finally:
