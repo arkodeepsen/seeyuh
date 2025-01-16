@@ -182,10 +182,6 @@ KEYWORDS = {
 @lru_cache(maxsize=1000)
 def needs_realtime_data(query: str) -> bool:
     query = ' '.join(query.lower().split())
-    
-    # Quick checks for common real-time queries
-    if any(word in query for word in ('happened', 'owner', 'news', 'who', 'what')):
-        return True
         
     # Pattern matching with expanded patterns
     for patterns in PATTERNS.values():
@@ -198,18 +194,18 @@ def needs_realtime_data(query: str) -> bool:
     
     for category in KEYWORDS.values():
         if words & category['high']:
-            score += 5
+            score += 0.5
         if words & category['medium']:
-            score += 3
+            score += 0.3
         if words & category['low']:
-            score += 1
+            score += 0.1
             
     if 'today' in query or 'now' in query:
-        score += 3
+        score += 0.3
     if any(term in query for term in ('latest', 'current', 'new')):
-        score += 2
+        score += 0.2
         
-    return score >= 4  # Lowered threshold from 6 to 4
+    return score >= 0.8
 
 # Add link detection regex with enhanced pattern
 URL_PATTERN = re.compile(
@@ -395,7 +391,6 @@ async def get_search_results(query: str, num_results: int = 3) -> str:
                     domain = urlparse(url).netloc.replace("www.", "") if url != '#' else 'Unknown'
                     entry += f"Source: {domain}\n"
                     entry += f"URL: {url}\n"
-                    entry += f"NOTE - Instruction to AI: Provide information based on search results appropriately according to the context. Provide urls only if asked by the user in [Title](url) format."
                 
                 if search_type == 'news':
                     title = r.get('title', 'No title')
@@ -404,13 +399,12 @@ async def get_search_results(query: str, num_results: int = 3) -> str:
                     date = r.get('date', 'No date')
                     source = r.get('source', 'Unknown source')
                     entry = f"Title: {title}\nDate: {date}\nSource: {source}\n{desc}\nURL: {url}"
-                    entry += f"NOTE - Instruction to AI: Provide news information based on search results appropriately according to the context. Provide urls only if appropriate according to context, in [Title](url) format."
                     
                 elif search_type == 'image':
                     entry = f"Title: {r.get('title', 'No Title')}\n"
                     entry += f"Source: {r.get('source', 'Unknown')}\n"
                     entry += f"Image URL: {r.get('image', '#')}\n"
-                    entry += f"NOTE - Instruction to AI: Provide image link urls directly to user in [title](url) format. Send single best matching image result and more than one or all results only if needed according to the context."
+                    entry += f"NOTE - Instruction to AI: Provide image link urls directly to user in [title](url) format. Send single best matching image result always and more than one or all results only if needed according to the context."
                     
                 else: # video
                     entry = f"Title: {r.get('title', 'No Title')}\n"
@@ -418,7 +412,7 @@ async def get_search_results(query: str, num_results: int = 3) -> str:
                         entry += f"Duration: {r.get('duration')}\n"
                     entry += f"Source: {r.get('publisher', 'Unknown')}\n"
                     entry += f"URL: {r.get('content', '#')}\n"
-                    entry += f"NOTE - Instruction to AI: Provide video link urls to user in **[Title](url)** format. Send single best matching video result and more than one or all results only if needed according to the context."
+                    entry += f"NOTE - Instruction to AI: Provide video link urls to user in **[Title](url)** format. Send single best matching video result always and more than one or all results only if needed according to the context."
                 
                 formatted_results.append(entry)
                 
