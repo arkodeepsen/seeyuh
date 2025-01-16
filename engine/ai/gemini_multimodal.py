@@ -262,7 +262,7 @@ async def handle_attachment(bot, message, attachment):
                     # Extract code block
                     lang_start = text.find('```') + 3
                     lang_end = text.find('\n', lang_start)
-                    file_ext = '.' + text[lang_start:lang_end].strip().lower()
+                    lang = text[lang_start:lang_end].strip().lower()
                     code_start = text.find('\n', lang_end) + 1
                     code_end = text.find('```', code_start)
                     code = text[code_start:code_end]
@@ -270,7 +270,10 @@ async def handle_attachment(bot, message, attachment):
                     # Get remaining text
                     text = text[text.find('```', code_end) + 3:].strip()
                     
-                    if code.strip():
+                    # Only create file if language exists and code is not empty
+                    if lang and code.strip():
+                        file_ext = '.' + lang
+                        
                         if file_ext.lower() == '.csv':
                             # Handle CSV in chunks
                             csv_lines = code.strip().split('\n')
@@ -287,6 +290,10 @@ async def handle_attachment(bot, message, attachment):
                             with open(code_path, 'w', encoding='utf-8') as f:
                                 f.write(code)
                             message_components.append(('file', discord.File(code_path)))
+                    else:
+                        # If no language specified, keep code block in markdown
+                        message_components.append(('text', f'```\n{code}\n```'))
+                        text_only_content += f'```\n{code}\n```\n'
                 
                 # Add remaining text
                 if text:
