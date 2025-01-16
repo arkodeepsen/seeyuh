@@ -880,7 +880,7 @@ async def aisearch_command(
             search_text.append(f"Title: {title}\n{desc}")
             
         # Get AI summary
-        summary_query = f"Summarize these search results:\n\n" + "\n\n".join(search_text)
+        summary_query = f"Query: {query}\nAnswer the query using these search results:\n\n" + "\n\n".join(search_text)
         ai_results = await search_ddg(
             summary_query,
             num_results=1,
