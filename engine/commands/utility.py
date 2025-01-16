@@ -442,24 +442,28 @@ async def chat_command(
             else:
                 await interaction.followup.send("Failed to get AI response.")
                 return
-                
-        embed = discord.Embed(
-            title="AI Chat Response",
-            description=response,
-            color=discord.Color.blue()
-        )
+
+        # Split response into chunks of 4000 chars (leaving room for formatting)
+        response_chunks = [response[i:i+4000] for i in range(0, len(response), 4000)]
         
-        embed.set_author(
-            name=f"Chat with {model.name}",
-            icon_url=interaction.client.user.display_avatar.url
-        )
-        
-        embed.set_footer(
-            text=f"Prompt: {prompt[:100]}{'...' if len(prompt) > 100 else ''}",
-            icon_url=interaction.client.user.display_avatar.url
-        )
-        
-        await interaction.followup.send(embed=embed)
+        for i, chunk in enumerate(response_chunks):
+            embed = discord.Embed(
+                title="AI Chat Response" if i == 0 else f"AI Chat Response (Part {i+1})",
+                description=chunk,
+                color=discord.Color.blue()
+            )
+            
+            if i == 0:  # Only add author and footer to first embed
+                embed.set_author(
+                    name=f"Chat with {model.name}",
+                    icon_url=interaction.client.user.display_avatar.url
+                )
+                embed.set_footer(
+                    text=f"Prompt: {prompt[:100]}{'...' if len(prompt) > 100 else ''}",
+                    icon_url=interaction.client.user.display_avatar.url
+                )
+            
+            await interaction.followup.send(embed=embed)
         
     except Exception as e:
         logging.error(f"Chat error: {e}")
@@ -780,43 +784,51 @@ async def news_command(
     await interaction.response.defer()
     
     try:
-        # Get news articles
-        results = await search_ddg(
-            query,
-            num_results=5,
-            search_type='news'
-        )
+        results = await search_ddg(query, num_results=5, search_type='news')
         
         if not results:
             await interaction.followup.send("No news found for that topic.")
             return
             
-        embed = discord.Embed(
+        # Create first embed with title and author
+        main_embed = discord.Embed(
             title=f"Latest news for '{query}'",
             color=discord.Color.blue()
         )
         
-        # Add author with DDG icon
-        embed.set_author(
+        main_embed.set_author(
             name="DuckDuckGo News",
             icon_url=SEARCH_ENGINE_AUTHOR_ICONS["duckduckgo"],
             url=f"https://duckduckgo.com/?q={query}&ia=news"
         )
-        
-        # Combine all articles for summarization
+
         all_articles = []
+        current_length = 0
+        current_embed = main_embed
+        embeds = [main_embed]
         
+        # Process articles
         for title, description, source, image in results:
-            embed.add_field(
-                name=title,
-                value=f"{description}\n*{source}*",
-                inline=False
-            )
-            if image != "No image" and is_valid_url(image):
-                embed.set_image(url=image)
-                
+            field_content = f"{description}\n*{source}*"
+            field_length = len(title) + len(field_content)
+            
+            # If adding this field would exceed limit, create new embed
+            if current_length + field_length > 4000:
+                current_embed = discord.Embed(
+                    title=f"Latest news for '{query}' (continued)",
+                    color=discord.Color.blue()
+                )
+                embeds.append(current_embed)
+                current_length = 0
+            
+            current_embed.add_field(name=title, value=field_content, inline=False)
+            current_length += field_length
             all_articles.append(f"Title: {title}\n{description}")
             
+            # Set image in first embed that has space
+            if image != "No image" and is_valid_url(image) and not any(e.image for e in embeds):
+                current_embed.set_image(url=image)
+                
         # Get AI summary if model selected
         if summarize:
             summary_query = f"Summarize these news articles:\n\n" + "\n\n".join(all_articles)
@@ -829,14 +841,29 @@ async def news_command(
             
             if summary_results:
                 _, summary, _, _ = summary_results[0]
-                embed.description = f"**AI Summary ({summarize.name}):**\n{summary}"
-        
-        embed.set_footer(
+                # Split summary if too long
+                summary_chunks = [summary[i:i+4000] for i in range(0, len(summary), 4000)]
+                
+                for i, chunk in enumerate(summary_chunks):
+                    if i == 0:
+                        main_embed.description = f"**AI Summary ({summarize.name}):**\n{chunk}"
+                    else:
+                        summary_embed = discord.Embed(
+                            title=f"AI Summary (Part {i+1})",
+                            description=chunk,
+                            color=discord.Color.blue()
+                        )
+                        embeds.append(summary_embed)
+
+        # Add footer to last embed
+        embeds[-1].set_footer(
             text=interaction.client.user.name,
             icon_url=interaction.client.user.display_avatar.url
         )
         
-        await interaction.followup.send(embed=embed)
+        # Send all embeds
+        for embed in embeds:
+            await interaction.followup.send(embed=embed)
         
     except Exception as e:
         logging.error(f"News search error: {e}")
@@ -870,11 +897,10 @@ async def aisearch_command(
             await interaction.followup.send("No results found.")
             return
             
-        # Format sources
+        # Format sources and text
         sources = []
         search_text = []
         for title, desc, source, _ in search_results:
-            # Extract URL from source string
             url = source.split('](')[1].rstrip(')')
             sources.append(f"[{title}]({url})")
             search_text.append(f"Title: {title}\n{desc}")
@@ -892,36 +918,53 @@ async def aisearch_command(
             await interaction.followup.send("Failed to get AI summary.")
             return
             
-        # Create embed
-        embed = discord.Embed(
+        _, summary, _, _ = ai_results[0]
+        summary_chunks = [summary[i:i+4000] for i in range(0, len(summary), 4000)]
+        
+        embeds = []
+        
+        # Create main embed
+        main_embed = discord.Embed(
             title=f"AI Search: {query}",
+            description=summary_chunks[0],
             color=discord.Color.blue()
         )
         
-        embed.set_author(
+        main_embed.set_author(
             name=f"DuckDuckGo + {model.name}",
             icon_url=SEARCH_ENGINE_AUTHOR_ICONS["duckduckgo"]
         )
         
-        _, summary, _, _ = ai_results[0]
-        embed.description = summary
-        
-        embed.add_field(
+        main_embed.add_field(
             name="Sources",
             value="\n".join(sources),
             inline=False
         )
         
-        embed.set_footer(
+        embeds.append(main_embed)
+        
+        # Create additional embeds for long summaries
+        for i, chunk in enumerate(summary_chunks[1:], 1):
+            embed = discord.Embed(
+                title=f"AI Search: {query} (Part {i+1})",
+                description=chunk,
+                color=discord.Color.blue()
+            )
+            embeds.append(embed)
+            
+        # Add footer to last embed
+        embeds[-1].set_footer(
             text=interaction.client.user.name,
             icon_url=interaction.client.user.display_avatar.url
         )
         
-        await interaction.followup.send(embed=embed)
+        # Send all embeds
+        for embed in embeds:
+            await interaction.followup.send(embed=embed)
         
     except Exception as e:
-        logging.error(f"AI search error: {e}")
-        await interaction.followup.send("An error occurred during search.")
+        logging.error(f"News search error: {e}")
+        await interaction.followup.send("An error occurred while fetching news.")
 
 @app_commands.command(name="search", description="Search for a query on the web.")
 @app_commands.choices(engine=search_engine_choices)
