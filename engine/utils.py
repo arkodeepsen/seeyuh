@@ -90,9 +90,9 @@ async def update_presence(bot):
         # Wait a few minutes before updating again (e.g., 5 minutes)
         await asyncio.sleep(300)
   
-image_keywords = ["draw an image of", "show me an image of", "generate an image of", "generate a picture of", "create an image of", "send me a picture of",
-    "I want to see an image of", "can you create an image of", "I'd like a picture of", "make a picture of", "show an image of",
-    "give me a picture of", "I need an image of", "I want an image of", "I'd like an image of", "I want to see a picture of",
+image_keywords = ["draw an image of", "generate an image of", "generate a picture of", "create an image of",
+    "can you create an image of", "I'd like a picture of", "make a picture of",
+    "give me a picture of", "I need an image of", "I want an image of",
     "generate artwork of", "design a scene with", "paint a picture of", "create artwork of", "show a depiction of", "produce a visual of", 
     "render an image of", "illustrate a scene with", "I'd love a drawing of", "craft a picture showing", "make a portrait of", 
     "give me an artwork featuring", "let me see a rendering of", "compose a picture with", "can you make a drawing of", "give a visual representation of", "depict a scene with", 
@@ -104,9 +104,8 @@ image_keywords = ["draw an image of", "show me an image of", "generate an image 
     "design an artwork showing", "can you render an illustration of", "I need a visual that captures", "illustrate a scenario with", "show a concept art of", "draw a scene based on",
     "develop a creative depiction of", "create an image that features", "craft a detailed artwork of", "draw a vivid representation of", "sketch an idea showing", "illustrate a scene filled with",
     "make a digital rendering of", "give me a visual impression of", "paint a striking image of", "I'd like to see a concept of", "make an artistic interpretation of", "compose a scenic view of", 
-    "craft an imaginative artwork of", "draw image", "show me image", "generate image", "generate picture", "create image", "send me picture",
-    "I want to see an image of", "can you create image", "I'd like picture", "make picture", "show image",
-    "give me picture", "I need image", "I want image", "I'd like image", "I want to see picture",
+    "craft an imaginative artwork of", "draw image", "show me image", "generate image", "generate picture", "create image",
+    "I want to see an image of", "can you create image", "I'd like picture", "make picture",
     "generate artwork", "design scene with", "paint picture", "create artwork", "show depiction", "produce visual", 
     "render image", "illustrate scene", "I'd love drawing", "craft picture showing", "make portrait", 
     "give me artwork", "let me see rendering", "compose picture", "can you make drawing", "give visual representation", "depict scene", 
@@ -121,12 +120,12 @@ image_keywords = ["draw an image of", "show me an image of", "generate an image 
     "craft imaginative artwork" ] 
 image_end_keywords = [
     "generate an image", "create an illustration", "draw a picture", "make an artwork", 
-    "produce a rendering", "show a visual", "visualize this", "render an image",
-    "depict this", "make a picture", "show a drawing", "design an artwork", "show an image", "make an image",
-    "illustrate this scene", "paint this scenario", "show an art piece", "show picture", "show pic", "make picture", "make pic",
-    "create a visual", "give me a sketch", "give an illustration", "show image", "make image", "generate a picture", "generate pic",
+    "produce a rendering", "visualize this", "render an image",
+    "depict this", "make a picture", "show a drawing", "design an artwork", "make an image",
+    "illustrate this scene", "paint this scenario", "show an art piece", "make picture", "make pic",
+    "create a visual", "give me a sketch", "give an illustration", "make image", "generate a picture", "generate pic",
     "produce a concept", "draw this scene", "make a digital art", "generate picture", "draw an image", "draw image", "draw picture", "draw pic",
-    "compose a visual", "craft a picture", "display an artwork", "generate image","show a picture", "give a picture", "give an image", "give image", "give pic", "give picture",
+    "compose a visual", "craft a picture", "display an artwork", "generate image",
 ]      
 def is_image_request(message_content):
     message_content_lower = message_content.lower()

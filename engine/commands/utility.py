@@ -1,4 +1,5 @@
 import discord, asyncio, aiohttp, random, httpx, re, json, io, base64, requests, os, logging, tempfile, aiofiles, time
+from duckduckgo_search import DDGS
 from discord import app_commands, File
 from pathlib import Path
 from typing import Optional
@@ -404,6 +405,66 @@ model_map = {
     "flash2": flash2
 }
 
+@app_commands.command(name='chat', description='Chat with an AI model')
+@app_commands.describe(
+    prompt="Your message to the AI",
+    model="Select AI model to chat with"
+)
+@app_commands.choices(
+    model=[
+        app_commands.Choice(name="Claude-3 Haiku", value="claude-3-haiku"),
+        app_commands.Choice(name="GPT-4o Mini", value="gpt-4o-mini"),
+        app_commands.Choice(name="Llama 3.1", value="llama-3.1-70b"), 
+        app_commands.Choice(name="Mixtral 8x7B", value="mixtral-8x7b"),
+        app_commands.Choice(name="Gemini-1.5-Flash", value="flash15normal"),
+        app_commands.Choice(name="Gemini-2.0-Flash", value="flash2")
+    ]
+)
+async def chat_command(
+    interaction: discord.Interaction,
+    prompt: str,
+    model: app_commands.Choice[str]
+):
+    await interaction.response.defer()
+    
+    try:
+        if model.value in ["flash15normal", "flash2"]:
+            response = await prompt_ai_response(prompt, model_map[model.value])
+        else:
+            results = await search_ddg(
+                prompt,
+                num_results=1,
+                search_type='chat',
+                model=model.value
+            )
+            if results:
+                _, response, _, _ = results[0]
+            else:
+                await interaction.followup.send("Failed to get AI response.")
+                return
+                
+        embed = discord.Embed(
+            title="AI Chat Response",
+            description=response,
+            color=discord.Color.blue()
+        )
+        
+        embed.set_author(
+            name=f"Chat with {model.name}",
+            icon_url=interaction.client.user.display_avatar.url
+        )
+        
+        embed.set_footer(
+            text=f"Prompt: {prompt[:100]}{'...' if len(prompt) > 100 else ''}",
+            icon_url=interaction.client.user.display_avatar.url
+        )
+        
+        await interaction.followup.send(embed=embed)
+        
+    except Exception as e:
+        logging.error(f"Chat error: {e}")
+        await interaction.followup.send("An error occurred during chat.")
+
 @app_commands.command(name='prompt', description='Prompt for a specific AI model to generate a response.')
 @app_commands.choices(model=model_choices)
 async def prompt_command(interaction: discord.Interaction, prompt: str, model: app_commands.Choice[str] = None):
@@ -571,13 +632,113 @@ async def reddit_command(interaction: discord.Interaction, subreddit: str, sort:
     except Exception as e:
         await interaction.followup.send("An unexpected error occurred. Please try again later.")
         logging.error(f"Unexpected error: {e}")
-        
+
+async def search_ddg(query: str, num_results: int = 3, search_type: str = 'text', model: str = None) -> list:
+    try:
+        with DDGS() as ddgs:
+            results = []
+            if search_type == 'video':
+                video_results = list(ddgs.videos(
+                    query,
+                    region='wt-wt',
+                    safesearch='moderate',
+                    resolution='high',
+                    max_results=num_results
+                ))
+                
+                for r in video_results:
+                    title = r.get('title', 'No title')
+                    description = r.get('description', 'No description')
+                    link = r.get('content', '#') 
+                    duration = r.get('duration', 'Unknown duration')
+                    publisher = r.get('publisher', 'Unknown source')
+                    published = r.get('published', 'Unknown date')
+                    views = r.get('statistics', {}).get('viewCount', '0')
+                    thumbnail = r.get('images', {}).get('large', 'No image')
+                    
+                    source = f"Source: {publisher} | Duration: {duration} | Views: {views:,} | Date: {published}"
+                    results.append((title, description, source, thumbnail))
+                    
+            elif search_type == 'text':
+                search_results = list(ddgs.text(
+                    query, region='wt-wt',
+                    safesearch='moderate', 
+                    max_results=num_results,
+                    backend='html'
+                ))
+                
+                for r in search_results:
+                    title = r.get('title', 'No title')
+                    description = r.get('body', 'No description')
+                    link = r.get('href', '#')
+                    domain = urlparse(link).netloc.replace("www.", "") if link != '#' else 'Unknown'
+                    source = f"Source: [{domain}]({link})"
+                    results.append((title, description, source, "No image"))
+                    
+            elif search_type == 'image':
+                image_results = list(ddgs.images(
+                    query, region='wt-wt',
+                    safesearch='moderate',
+                    max_results=num_results
+                ))
+                
+                for r in image_results:
+                    if not r.get('image'):
+                        continue
+                    title = r.get('title', 'No title')
+                    image_url = r.get('image')
+                    source_url = r.get('url', '#')
+                    domain = urlparse(source_url).netloc.replace("www.", "")
+                    source = f"Source: [{domain}]({source_url})"
+                    dimensions = f"{r.get('width','?')}x{r.get('height','?')}"
+                    description = f"Size: {dimensions}"
+                    results.append((title, description, source, image_url))
+                    
+            elif search_type == 'news':
+                news_results = list(ddgs.news(
+                    query,
+                    region='wt-wt',
+                    safesearch='moderate',
+                    timelimit='m',  # Last month
+                    max_results=num_results
+                ))
+                
+                for r in news_results:
+                    title = r.get('title', 'No title')
+                    description = r.get('body', 'No description')
+                    link = r.get('url', '#')
+                    date = r.get('date', 'No date')
+                    image = r.get('image', 'No image')
+                    domain = urlparse(link).netloc.replace("www.", "")
+                    source = f"Source: [{domain}]({link}) | Date: {date}"
+                    results.append((title, description, source, image))
+                    
+            elif search_type == 'chat':
+                chat_response = ddgs.chat(
+                    query,
+                    model=model if model else "claude-3-haiku",
+                    timeout=30
+                )
+                if chat_response:
+                    results.append((
+                        "AI Response",
+                        chat_response,
+                        "Source: DuckDuckGo AI",
+                        "No image"
+                    ))
+                    
+            return results
+            
+    except Exception as e:
+        logging.error(f"DuckDuckGo search error: {e}")
+        return []
+            
 # Define the choices for search engines
 search_engine_choices = [
-    app_commands.Choice(name="Google", value="google"),
     app_commands.Choice(name="Bing", value="bing"),
     app_commands.Choice(name="Yahoo", value="yahoo"),
-    app_commands.Choice(name="DuckDuckGo (DEPRECATED)", value="duckduckgo"),
+    app_commands.Choice(name="DuckDuckGo", value="duckduckgo"),
+    app_commands.Choice(name="Google (DEPRECATED)", value="google"),
     app_commands.Choice(name="Ask.com (DEPRECATED)", value="ask")
 ]
 
@@ -597,18 +758,235 @@ SEARCH_ENGINE_AUTHOR_ICONS = {
     "yahoo": "https://media.discordapp.net/attachments/533926025747234838/1316108609586724864/yahoo.png",   # Yahoo '!' logo
     "ask": "https://media.discordapp.net/attachments/533926025747234838/1316108609863553085/ask.png"      # Ask.com logo
 }
+
+@app_commands.command(name="news", description="Get the latest news articles with AI summary")
+@app_commands.describe(
+    query="Topic to search news for",
+    summarize="Select AI model for summary"
+)
+@app_commands.choices(
+    summarize=[
+        app_commands.Choice(name="Claude-3 Haiku", value="claude-3-haiku"),
+        app_commands.Choice(name="GPT-4o Mini", value="gpt-4o-mini"),
+        app_commands.Choice(name="Llama 3.1", value="llama-3.1-70b"),
+        app_commands.Choice(name="Mixtral 8x7B", value="mixtral-8x7b")
+    ]
+)
+async def news_command(
+    interaction: discord.Interaction, 
+    query: str,
+    summarize: app_commands.Choice[str] = None
+):
+    await interaction.response.defer()
+    
+    try:
+        # Get news articles
+        results = await search_ddg(
+            query,
+            num_results=5,
+            search_type='news'
+        )
+        
+        if not results:
+            await interaction.followup.send("No news found for that topic.")
+            return
+            
+        embed = discord.Embed(
+            title=f"Latest news for '{query}'",
+            color=discord.Color.blue()
+        )
+        
+        # Add author with DDG icon
+        embed.set_author(
+            name="DuckDuckGo News",
+            icon_url=SEARCH_ENGINE_AUTHOR_ICONS["duckduckgo"],
+            url=f"https://duckduckgo.com/?q={query}&ia=news"
+        )
+        
+        # Combine all articles for summarization
+        all_articles = []
+        
+        for title, description, source, image in results:
+            embed.add_field(
+                name=title,
+                value=f"{description}\n*{source}*",
+                inline=False
+            )
+            if image != "No image" and is_valid_url(image):
+                embed.set_image(url=image)
+                
+            all_articles.append(f"Title: {title}\n{description}")
+            
+        # Get AI summary if model selected
+        if summarize:
+            summary_query = f"Summarize these news articles:\n\n" + "\n\n".join(all_articles)
+            summary_results = await search_ddg(
+                summary_query,
+                num_results=1,
+                search_type='chat',
+                model=summarize.value
+            )
+            
+            if summary_results:
+                _, summary, _, _ = summary_results[0]
+                embed.description = f"**AI Summary ({summarize.name}):**\n{summary}"
+        
+        embed.set_footer(
+            text=interaction.client.user.name,
+            icon_url=interaction.client.user.display_avatar.url
+        )
+        
+        await interaction.followup.send(embed=embed)
+        
+    except Exception as e:
+        logging.error(f"News search error: {e}")
+        await interaction.followup.send("An error occurred while fetching news.")
+
+@app_commands.command(name="aisearch", description="Search using AI and get summarized results")
+@app_commands.describe(
+    query="Your search query",
+    model="AI model to use for summarization"
+)
+@app_commands.choices(
+    model=[
+        app_commands.Choice(name="Claude-3 Haiku", value="claude-3-haiku"),
+        app_commands.Choice(name="GPT-4o Mini", value="gpt-4o-mini"), 
+        app_commands.Choice(name="Llama 3.1", value="llama-3.1-70b"),
+        app_commands.Choice(name="Mixtral 8x7B", value="mixtral-8x7b")
+    ]
+)
+async def aisearch_command(
+    interaction: discord.Interaction,
+    query: str,
+    model: app_commands.Choice[str]
+):
+    await interaction.response.defer()
+    
+    try:
+        # Get search results
+        search_results = await search_ddg(query, num_results=5, search_type='text')
+        
+        if not search_results:
+            await interaction.followup.send("No results found.")
+            return
+            
+        # Format sources
+        sources = []
+        search_text = []
+        for title, desc, source, _ in search_results:
+            # Extract URL from source string
+            url = source.split('](')[1].rstrip(')')
+            sources.append(f"[{title}]({url})")
+            search_text.append(f"Title: {title}\n{desc}")
+            
+        # Get AI summary
+        summary_query = f"Summarize these search results:\n\n" + "\n\n".join(search_text)
+        ai_results = await search_ddg(
+            summary_query,
+            num_results=1,
+            search_type='chat',
+            model=model.value
+        )
+        
+        if not ai_results:
+            await interaction.followup.send("Failed to get AI summary.")
+            return
+            
+        # Create embed
+        embed = discord.Embed(
+            title=f"AI Search: {query}",
+            color=discord.Color.blue()
+        )
+        
+        embed.set_author(
+            name=f"DuckDuckGo + {model.name}",
+            icon_url=SEARCH_ENGINE_AUTHOR_ICONS["duckduckgo"]
+        )
+        
+        _, summary, _, _ = ai_results[0]
+        embed.description = summary
+        
+        embed.add_field(
+            name="Sources",
+            value="\n".join(sources),
+            inline=False
+        )
+        
+        embed.set_footer(
+            text=interaction.client.user.name,
+            icon_url=interaction.client.user.display_avatar.url
+        )
+        
+        await interaction.followup.send(embed=embed)
+        
+    except Exception as e:
+        logging.error(f"AI search error: {e}")
+        await interaction.followup.send("An error occurred during search.")
+
 @app_commands.command(name="search", description="Search for a query on the web.")
 @app_commands.choices(engine=search_engine_choices)
-async def search_command(interaction: discord.Interaction, query: str, engine: app_commands.Choice[str] = None, safesearch: bool = True, image_search: bool = False):
+async def search_command(
+    interaction: discord.Interaction, 
+    query: str, 
+    engine: app_commands.Choice[str] = None, 
+    safesearch: bool = True, 
+    image_search: bool = False,
+    video_search: bool = False
+):
     await interaction.response.defer()
 
-    # Force SafeSearch if the channel is not NSFW
+    # Force SafeSearch if not NSFW channel
     if not interaction.channel.is_nsfw() and not safesearch:
         safesearch = True
-        await interaction.followup.send("🔒 SafeSearch is enabled because this channel doesn’t allow NSFW content.")
-        
+        await interaction.followup.send("🔒 SafeSearch is enabled because this channel doesn't allow NSFW content.")
+
     if engine is None:
-        engine = app_commands.Choice(name="Google", value="google")
+        engine = app_commands.Choice(name="DuckDuckGo", value="duckduckgo")
+
+    # Handle video search
+    if video_search:
+        if engine.value != "duckduckgo":
+            await interaction.followup.send(f"❌ Video search is not supported for {engine.name}. Try using DuckDuckGo instead.")
+            return
+            
+        try:
+            results = await search_ddg(query, num_results=5, search_type='video')
+            
+            if not results:
+                await interaction.followup.send("No videos found.")
+                return
+                
+            embed = discord.Embed(
+                title=f"Video results for '{query}'",
+                color=discord.Color.blue()
+            )
+            
+            embed.set_author(
+                name="DuckDuckGo Video Search",
+                icon_url=SEARCH_ENGINE_AUTHOR_ICONS["duckduckgo"]
+            )
+            
+            for title, description, source, thumbnail in results:
+                embed.add_field(
+                    name=title,
+                    value=f"{description[:200]}...\n*{source}*",
+                    inline=False
+                )
+                if thumbnail != "No image":
+                    embed.set_thumbnail(url=thumbnail)
+                    
+            embed.set_footer(
+                text=interaction.client.user.name,
+                icon_url=interaction.client.user.display_avatar.url
+            )
+            
+            await interaction.followup.send(embed=embed)
+            return
+
+        except Exception as e:
+            logging.error(f"Video search error: {e}")
+            await interaction.followup.send("❌ Error processing video search.")
+            return
 
     # Map engine names to URLs with image search options
     search_urls = {
@@ -741,7 +1119,31 @@ async def search_command(interaction: discord.Interaction, query: str, engine: a
                             except Exception as e:
                                 logging.error(f"Error parsing Bing image: {e}")
                                 continue
+                
+                    elif engine.value == "duckduckgo":
+                        results = await search_ddg(query, num_results=5, search_type='image')
+                        for result in results:
+                            try:
+                                title, description, source, image = result
+                                if image != "No image":
+                                    embed = discord.Embed(title=f"Image search: {query}", color=discord.Color.blue())
+                                    embed.set_image(url=image)
+                                    embed.add_field(name=title, value=f"{description}\n{source}", inline=False)
+                                    embed.set_author(
+                                        name=f"{engine.name} Image Search",
+                                        icon_url=SEARCH_ENGINE_AUTHOR_ICONS[engine.value],
+                                        url=search_url
+                                    )
+                                    await interaction.followup.send(embed=embed)
+                                    return
+                            except Exception as e:
+                                logging.error(f"Error parsing DuckDuckGo image: {e}")
+                                continue
                                 
+                    else:
+                        await interaction.followup.send("❌ Image search is not supported for this search engine.")
+                        return
+                                 
                     await interaction.followup.send("❌ No image results found.")
                     return
                     
@@ -752,7 +1154,7 @@ async def search_command(interaction: discord.Interaction, query: str, engine: a
 
             else:
                 # Normal web search
-                results = extract_search_results(soup, engine.value)
+                results = await extract_search_results(soup, engine.value, query)
     
 
             # Build and send the embed
@@ -782,8 +1184,8 @@ async def search_command(interaction: discord.Interaction, query: str, engine: a
 
             embed.set_footer(text=interaction.client.user.name, icon_url=interaction.client.user.display_avatar.url)
             await interaction.followup.send(embed=embed)
-
-def extract_search_results(soup, engine):
+    
+async def extract_search_results(soup, engine, query):
     results = []
 
     def get_meta_image(soup):
@@ -877,15 +1279,11 @@ def extract_search_results(soup, engine):
                 continue
             
     elif engine == "duckduckgo":
-        for d in soup.find_all('div', class_='nrn-react-div'):
-            title = d.find('h2').text if d.find('h2') else "No title"
-            link = d.find('a')['href'] if d.find('a') else "No link"
-            description = d.find('div', class_='result__snippet').text if d.find('div', class_='result__snippet') else "No description"
-            image = d.find('img', class_='result__image')['src'] if d.find('img', class_='result__image') else "No image"
-            
-            domain = urlparse(link).netloc.replace("www.", "")
-            source = f"Source: [{domain}]({link})"
-            results.append((title, description, source, image))
+        results = await search_ddg(
+            query, 
+            num_results=5,
+            search_type='text'
+        )
 
     elif engine == "ask":
         for a in soup.find_all('div', class_='PartialSearchResults-body'):
@@ -989,20 +1387,22 @@ async def unsplash_image_search(query: str, orientation: str = 'landscape'):
             logging.error(f"Exception during Unsplash image search: {e}")
             return None, None, None
 
-async def web_image_search(query: str, engine: str) -> Optional[str]:
-    """Unified web image search function"""
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    search_url = f"https://{engine}.com/images/search?q={query}"
-    
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(search_url, headers=headers) as response:
-                if response.status == 200:
-                    soup = BeautifulSoup(await response.text(), 'html.parser')
+async def web_image_search(query: str, engine: str) -> str:
+    async with aiohttp.ClientSession() as session:
+        search_url = f"https://images.search.yahoo.com/search/images?p={query}"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        
+        try:
+            async with session.get(search_url, headers=headers) as resp:
+                if resp.status == 200:
+                    html = await resp.text()
+                    soup = BeautifulSoup(html, 'html.parser')
                     
                     if engine == "yahoo":
                         for img in soup.find_all(['li', 'div'], class_=['ld', 'img']):
                             image = img.find('img')
+                            if not image:
+                                continue
                             image_url = image.get('data-src') or image.get('src')
                             if image_url and not image_url.startswith('data:'):
                                 return image_url
@@ -1013,37 +1413,36 @@ async def web_image_search(query: str, engine: str) -> Optional[str]:
                             if image and 'src' in image.attrs:
                                 return image['src']
                                 
-    except Exception as e:
-        logging.error(f"Error in {engine} image search: {e}")
+        except Exception as e:
+            logging.error(f"Error in {engine} image search: {e}")
     return None
 
 @app_commands.command(name="image", description="Search for an image")
 @app_commands.choices(
     engine=[
         app_commands.Choice(name="Unsplash", value="unsplash"),
+        app_commands.Choice(name="DuckDuckGo", value="duckduckgo"),
         app_commands.Choice(name="Bing", value="bing"),
         app_commands.Choice(name="Yahoo", value="yahoo")
     ],
     orientation=[
         app_commands.Choice(name="Landscape", value="landscape"),
-        app_commands.Choice(name="Portrait", value="portrait"),
+        app_commands.Choice(name="Portrait", value="portrait"), 
         app_commands.Choice(name="Squarish", value="squarish")
     ]
 )
 async def image_command(
-    interaction: discord.Interaction, 
-    query: str, 
-    orientation: app_commands.Choice[str],
-    engine: app_commands.Choice[str] = None
+    interaction: discord.Interaction,
+    query: str,
+    engine: app_commands.Choice[str],
+    orientation: app_commands.Choice[str] = None
 ):
     await interaction.response.defer()
     
     try:
-        # Default to Unsplash if no engine specified
-        search_engine = engine.value if engine else "unsplash"
-        
-        if search_engine == "unsplash":
-            image_url, photographer, photo_link = await unsplash_image_search(query, orientation.value)
+        if engine.value == "unsplash":
+            orient = orientation.value if orientation else "landscape"
+            image_url, photographer, photo_link = await unsplash_image_search(query, orient)
             if image_url:
                 embed = discord.Embed(
                     title=f"Image result for '{query}'",
@@ -1052,28 +1451,35 @@ async def image_command(
                 )
                 embed.set_image(url=image_url)
                 
-        elif search_engine in ["bing", "yahoo"]:
-            image_url = await web_image_search(query, search_engine)
-            if image_url:
-                embed = discord.Embed(
-                    title=f"Image search: {query}",
-                    color=discord.Color.blue()
-                )
+        elif engine.value == "duckduckgo":
+            results = await search_ddg(query, num_results=1, search_type='image')
+            if results:
+                title, description, source, image_url = results[0]
+                embed = discord.Embed(title=f"Image search: {query}", color=discord.Color.blue())
                 embed.set_image(url=image_url)
+                embed.add_field(name=title, value=f"{description}\n{source}", inline=False)
                 embed.set_author(
-                    name=f"{search_engine.capitalize()} Image Search",
-                    icon_url=SEARCH_ENGINE_AUTHOR_ICONS[search_engine],
-                    url=f"https://{search_engine}.com/images/search?q={query}"
+                    name="DuckDuckGo Image Search",
+                    icon_url=SEARCH_ENGINE_AUTHOR_ICONS["duckduckgo"],
+                    url=f"https://duckduckgo.com/?q={query}&ia=images"
                 )
                 
+        elif engine.value in ["bing", "yahoo"]:
+            image_url = await web_image_search(query, engine.value)
+            if image_url:
+                embed = discord.Embed(title=f"Image search: {query}", color=discord.Color.blue())
+                embed.set_image(url=image_url)
+                embed.set_author(
+                    name=f"{engine.value.capitalize()} Image Search",
+                    icon_url=SEARCH_ENGINE_AUTHOR_ICONS[engine.value],
+                    url=f"https://{engine.value}.com/images/search?q={query}"
+                )
+        
         if image_url:
-            embed.set_footer(
-                text=interaction.client.user.name,
-                icon_url=interaction.client.user.display_avatar.url
-            )
+            embed.set_footer(text=interaction.client.user.name, icon_url=interaction.client.user.display_avatar.url)
             await interaction.followup.send(embed=embed)
         else:
-            await interaction.followup.send(f"Sorry, I couldn't find any images for that query on {search_engine.capitalize()}.")
+            await interaction.followup.send(f"No images found for that query on {engine.value.capitalize()}.")
             
     except Exception as e:
         logging.error(f"Image search error: {e}")
@@ -1153,7 +1559,7 @@ async def send_video(interaction, videos):
                     if resp.status == 200:
                         video_data = await resp.read()
                         video_size = len(video_data)
-                        if video_size > 8 * 1024 * 1024:  # Discord limit is 8 MB
+                        if video_size > 50 * 1024 * 1024:  # Discord limit is 50 MB
                             continue  # Try another video
                         video_filename = f"video_{video_id}.mp4"
                         with open(video_filename, "wb") as f:
@@ -1940,7 +2346,7 @@ async def text_to_speech(
             # Try preferred regions
             for region in PREFERRED_REGIONS:
                 try:
-                    await voice_channel.edit(rtc_region=region)
+                    #await voice_channel.edit(rtc_region=region)
                     await voice_channel.connect()
                     logging.info(f"Connected to {voice_channel} with region {region}")
                     break

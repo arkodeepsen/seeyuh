@@ -393,7 +393,7 @@ async def join(interaction: discord.Interaction):
         # Try to connect with preferred region
         for region in PREFERRED_REGIONS:
             try:
-                await channel.edit(rtc_region=region)
+                #await channel.edit(rtc_region=region)
                 await channel.connect()
                 embed = discord.Embed(
                     title="Voice Channel", 
@@ -438,7 +438,7 @@ async def play(interaction: discord.Interaction, query: str):
                 channel = interaction.user.voice.channel
                 for region in PREFERRED_REGIONS:
                     try:
-                        await channel.edit(rtc_region=region)
+                        #await channel.edit(rtc_region=region)
                         await channel.connect()
                         break
                     except discord.HTTPException:

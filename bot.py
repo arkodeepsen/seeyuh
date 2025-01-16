@@ -315,6 +315,9 @@ utility.analyze_command.category = "Utility"
 utility.youtube_command.category = "Utility"
 utility.text_to_speech.category = "Utility"
 utility.musicgen.category = "Utility"
+utility.aisearch_command.category = "Utility"
+utility.news_command.category = "Utility"
+utility.chat_command.category = "Utility"
 bot.tree.add_command(utility.say_command)
 bot.tree.add_command(utility.emoji_command)
 bot.tree.add_command(utility.avatar_command)
@@ -340,6 +343,9 @@ bot.tree.add_command(utility.analyze_command)
 bot.tree.add_command(utility.youtube_command)
 bot.tree.add_command(utility.text_to_speech)
 bot.tree.add_command(utility.musicgen)
+bot.tree.add_command(utility.aisearch_command)
+bot.tree.add_command(utility.news_command)
+bot.tree.add_command(utility.chat_command)
 
 # Register the commands from fun.py
 fun.roast_command.category = "Fun"
@@ -641,35 +647,6 @@ async def on_message(message):
             response_message = " ".join(words[1:])
             await message.reply(response_message)
             return  # Stop further processing if this condition is met
-    
-    if message.content.lower().startswith("code") or (("seeyuh" in message.content.lower() or bot.user.mentioned_in(message)) and "code" in message.content.lower()):
-            content = message.content.strip()
-            command_content = content.replace(f"<@{bot.user.id}>", "").strip()
-            command_content = command_content.replace("seeyuh", "").strip()
-            words = command_content.split()
-            
-            # Start the background task to retry the entry update
-            bot.loop.create_task(retry_check_and_update_guild_entry(supabase, str(message.guild.id), message.guild.name))
-            
-            if words and words[0].lower() == "code":
-                prompt = " ".join(words[1:])
-                async with message.channel.typing():  # Show typing indicator
-                    response_message = await code_ai_response(prompt)  # Await the coroutine directly
-                # Split the response into multiple messages if it exceeds 2000 characters
-                max_length = 2000 - 6  # Deduct 6 characters for the code block delimiters (``` at the end and ``` at the beginning)
-                response_parts = [response_message[i:i + max_length] for i in range(0, len(response_message), max_length)]
-
-                for i, part in enumerate(response_parts):
-                    if i == 0:
-                        await message.reply(f"```{part}")
-                    elif i == len(response_parts) - 1:
-                        await message.reply(f"{part}```")
-                    else:
-                        await message.reply(f"{part}```\n```")
-            
-                # Save the user message and bot response
-                bot.loop.create_task(save_message_to_db(str(message.guild.id), message.author, prompt, response_message))
-                return  # Stop further processing if this condition is met
             
     if any(phrase in message.content.lower() for phrase in ["thick of it", "thickofit"]):
         link = "https://www.youtube.com/watch?v=At8v_Yc044Y"
@@ -820,9 +797,23 @@ async def on_message(message):
 
             # Only send text responses if code wasn't handled already
             if not code_handled:
-                # Split the response into parts if it exceeds 2000 characters
+                # Split response into parts at newlines while respecting 2000 char limit
                 max_length = 2000
-                response_parts = [response[i:i + max_length] for i in range(0, len(response), max_length)]
+                response_parts = []
+                current_part = ""
+                
+                for line in response.splitlines(keepends=True):
+                    # If adding this line would exceed limit, start new part
+                    if len(current_part) + len(line) > max_length:
+                        if current_part:
+                            response_parts.append(current_part)
+                        current_part = line
+                    else:
+                        current_part += line
+                        
+                # Add final part if exists
+                if current_part:
+                    response_parts.append(current_part)
 
                 # Send the first part along with the image if image_data is available
                 if file:
@@ -991,9 +982,23 @@ async def on_message(message):
 
             # Only send text responses if code wasn't handled already
             if not code_handled:
-                # Split the response into parts if it exceeds 2000 characters
+                # Split response into parts at newlines while respecting 2000 char limit
                 max_length = 2000
-                response_parts = [response[i:i + max_length] for i in range(0, len(response), max_length)]
+                response_parts = []
+                current_part = ""
+                
+                for line in response.splitlines(keepends=True):
+                    # If adding this line would exceed limit, start new part
+                    if len(current_part) + len(line) > max_length:
+                        if current_part:
+                            response_parts.append(current_part)
+                        current_part = line
+                    else:
+                        current_part += line
+                        
+                # Add final part if exists
+                if current_part:
+                    response_parts.append(current_part)
 
                 # Send the first part along with the image if image_data is available
                 if file:
@@ -1160,9 +1165,23 @@ async def on_message(message):
         async with message.channel.typing():  # Show typing indicator
             response, code_handled = await get_ai_response(ai_prompt, message)
             if not code_handled:
-                # Split response if it exceeds Discord's limit
+                # Split response into parts at newlines while respecting 2000 char limit
                 max_length = 2000
-                response_parts = [response[i:i + max_length] for i in range(0, len(response), max_length)]
+                response_parts = []
+                current_part = ""
+                
+                for line in response.splitlines(keepends=True):
+                    # If adding this line would exceed limit, start new part
+                    if len(current_part) + len(line) > max_length:
+                        if current_part:
+                            response_parts.append(current_part)
+                        current_part = line
+                    else:
+                        current_part += line
+                        
+                # Add final part if exists
+                if current_part:
+                    response_parts.append(current_part)
                 for part in response_parts:
                     await message.reply(part)
         return
