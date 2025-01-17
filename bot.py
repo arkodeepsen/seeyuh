@@ -724,8 +724,7 @@ async def on_message(message):
             
     if bot.user.mentioned_in(message) or "seeyuh" in message.content.lower():
         content = message.content.strip()
-        command_content = content.replace(f"<@{bot.user.id}>", "").strip()
-        command_content = command_content.replace("seeyuh", "").strip()
+        command_content = content.replace(f"<@{bot.user.id}>", "seeyuh").strip()
         words = command_content.split()
     
         # Retrieve the last relevant message, prioritizing the user’s recent message
@@ -743,7 +742,7 @@ async def on_message(message):
                 original_message = await message.channel.fetch_message(message.reference.message_id)
                 original_author = original_message.author.name
                 original_content = original_message.content
-                context_message += f"\nUser replied to {original_author}'s message: {original_content}"
+                context_message += f"\n{message.author.name} replied to {original_author}'s message: {original_content}"
 
             except discord.NotFound:
                 print("Original message not found.")
@@ -757,8 +756,8 @@ async def on_message(message):
         # If there are more than three words, treat as an AI query
         if len(words) > 3:
             author_name = message.author.name
-            current_query = f"from user {author_name} : {command_content}."
-            ai_prompt = context_message + "Current query: " + current_query
+            current_query = f"{command_content}"
+            ai_prompt = context_message + f"\nCurrent query from {author_name}: " + current_query
         
             if mentioned_users:
                 mentioned_user_names = [user.name for user in mentioned_users]
@@ -766,8 +765,11 @@ async def on_message(message):
                     original_author_name = original_message.author.name
                     mentioned_user_names = [name for name in mentioned_user_names if name != original_author_name]
                 user_names_str = ", ".join(mentioned_user_names)
-                current_query = f"from user {author_name} about users {user_names_str} : {command_content}."
-                ai_prompt = context_message + "\nCurrent query " + current_query
+                current_query = command_content
+                for user in mentioned_users:
+                    current_query = current_query.replace(f"<@{user.id}>", user.name)
+                    current_query = current_query.replace(f"<@!{user.id}>", user.name)
+                ai_prompt = context_message + f"\nCurrent query from {author_name}: " + current_query
 
             # Initialize image generation variables
             image_data = None
@@ -943,16 +945,19 @@ async def on_message(message):
         if not command_found:
             # Treat as an AI query, include any mentioned user's name
             author_name = message.author.name
-            current_query = f"from user {author_name} : {command_content}."
-            ai_prompt = context_message + "Current query: " + current_query
+            current_query = command_content
+            ai_prompt = context_message + "\nCurrent query from " + author_name + ": " + current_query
             if mentioned_users:
                 mentioned_user_names = [user.name for user in mentioned_users]
                 if message.reference and len(mentioned_users) > 1:
                     original_author_name = original_message.author.name
                     mentioned_user_names = [name for name in mentioned_user_names if name != original_author_name]
                 user_names_str = ", ".join(mentioned_user_names)
-                current_query = f"from user {author_name} about users {user_names_str} : {command_content}."
-                ai_prompt = context_message + "Current query " + current_query
+                current_query = command_content
+                for user in mentioned_users:
+                    current_query = current_query.replace(f"<@{user.id}>", user.name)
+                    current_query = current_query.replace(f"<@!{user.id}>", user.name)
+                ai_prompt = context_message + f"\nCurrent query from {author_name}: " + current_query
             
             # Initialize image generation variables
             image_data = None

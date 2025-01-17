@@ -86,27 +86,71 @@ async def try_model_chain(query, initial_model_name, tools=None):
 
 def extract_current_query(prompt: str) -> str:
     """Extract clean search query from bot prompt format."""
-    if "Current query: from user" in prompt:
-        # Get text after pattern
-        query = prompt.split("Current query: from user", 1)[1]
-        query = query.split(":")[-1].strip()
-        
-        # Check for URLs before cleaning
-        urls = URL_PATTERN.findall(query)
-        
-        # Clean and limit query length, preserving URLs
-        if not urls:
-            query = query.rstrip('.!?')
-            query = ' '.join(query.split())
-            words = query.split()
-            if len(words) > 15:
-                query = ' '.join(words[:15])
-            return query[:150]
-        
-        # Return query with URL intact
-        return urls[0] if urls else query[:150]
-        
-    return prompt.strip()[:150]
+    # Remove 'seeyuh' and clean prompt
+    prompt = prompt.lower().replace('seeyuh', '').strip()
+    
+    # Extract query using regex pattern match
+    query_pattern = re.compile(r"Current query from .*?:(.*)", re.IGNORECASE)
+    match = query_pattern.search(prompt)
+    
+    if match:
+        query = match.group(1).strip()
+    else:
+        query = prompt.strip()
+
+    # Preserve URLs if present  
+    urls = URL_PATTERN.findall(query)
+    if urls:
+        return urls[0]
+
+    # Clean query
+    query = query.rstrip('.!?')
+    query = ' '.join(query.split()) # Normalize whitespace
+    words = query.split()
+
+    if not words:
+        return ""
+
+    # Try pattern matching first
+    for pattern_type, patterns in PATTERNS.items():
+        for pattern in patterns:
+            match = pattern.search(query)
+            if match:
+                matched_query = match.group(0)
+                # Get surrounding context 
+                idx = query.find(matched_query)
+                before = query[:idx].split()[-3:] if idx > 0 else []  # Increased context
+                after = query[idx+len(matched_query):].split()[:3]    # Increased context
+                context_query = ' '.join(filter(None, before + [matched_query] + after))
+                
+                # Only return pattern match if it captures most of original query
+                if len(context_query.split()) >= len(words) * 0.7:
+                    return context_query[:150]
+                
+    # Fall back to keyword scoring if no pattern match
+    scores = {}
+    for pos, word in enumerate(words):
+        score = 0
+        for category, weights in KEYWORDS.items():
+            for weight, terms in weights.items():
+                if any(term in ' '.join(words[max(0,pos-1):pos+2]) for term in terms):
+                    score += {'high': 3, 'medium': 2, 'low': 1}[weight]
+        scores[pos] = score
+
+    # Only proceed with window scoring if we have enough words
+    window = min(8, len(words))  # Adjust window size for short queries
+    if window > 0:
+        total_scores = []
+        for i in range(len(words) - window + 1):
+            total_scores.append((i, sum(scores[j] for j in range(i, i + window))))
+            
+        if total_scores:  # Check if we have any scores
+            start = max(total_scores, key=lambda x: x[1])[0]
+            end = min(start + window, len(words))
+            return ' '.join(words[start:end])
+
+    # Fallback to all words if query is short, otherwise first 15
+    return ' '.join(words[:15])[:150]
 
 # Pre-compile regex patterns
 PATTERNS = {
@@ -124,7 +168,7 @@ PATTERNS = {
         re.compile(r"(?:youtube|netflix|amazon|hulu|disney|twitch|tiktok|instagram).+?(?:video|stream|content|channel)")
     ],
     'visual': [
-        re.compile(r"(?:show|display|see|look).+?(?:image|picture|photo|pic|thumbnail|screenshot)"),
+        re.compile(r"(?:show|display|see|look|send|search).+?(?:image|picture|photo|pic|thumbnail|screenshot)"),
         re.compile(r"(?:what|how).+?(?:looks|appears|displays|shown|visualized)"),
         re.compile(r"(?:new|latest|trending)?.+?(?:image|photo|picture|artwork|fanart|poster)"),
         re.compile(r"(?:show|display|see|look|view|check).+?(?:image|picture|photo|pic|photograph|snapshot|screenshot|thumbnail|preview|visual)"),
@@ -153,29 +197,40 @@ PATTERNS = {
 # Enhanced keywords with weights
 KEYWORDS = {
     'media': {
-        'high': set(['video', 'movie', 'show', 'trailer', 'episode', 'film', 'stream', 'watch']),
-        'medium': set(['tracklist', 'album', 'song', 'release', 'music', 'playlist']),
-        'low': set(['listen', 'hear', 'play', 'entertainment'])
+        'very_high': set(['youtube', 'netflix', 'prime video', 'hulu', 'twitch', 'disney+', 'spotify', 'apple music', 'tiktok', 'instagram reels']),
+        'high': set(['video', 'movie', 'show', 'trailer', 'episode', 'film', 'stream', 'watch', 'series', 'documentary', 'podcast', 'broadcast']),
+        'medium': set(['tracklist', 'album', 'song', 'release', 'music', 'playlist', 'channel', 'content creator', 'vlog', 'gaming']),
+        'low': set(['listen', 'hear', 'play', 'entertainment', 'audio', 'clip', 'preview'])
     },
     'visual': {
-        'high': set(['show me', 'picture of', 'image of', 'photo of', 'look like']),
-        'medium': set(['display', 'see', 'visual', 'artwork', 'screenshot']),
-        'low': set(['appear', 'looks', 'shown', 'preview'])
+        'very_high': set(['show me', 'display image', 'find picture', 'search photo', 'get image of', 'look up picture']),
+        'high': set(['picture of', 'image of', 'photo of', 'look like', 'appearance of', 'visual of', 'screenshot of']),
+        'medium': set(['display', 'see', 'visual', 'artwork', 'screenshot', 'illustration', 'graphic', 'poster', 'thumbnail']),
+        'low': set(['appear', 'looks', 'show', 'preview', 'view', 'visible', 'seen'])
     },
     'time': {
-        'high': set(['today', 'now', 'current', 'latest', 'live']),
-        'medium': set(['recent', 'upcoming', 'this', 'new']),
-        'low': set(['soon', 'later', 'next', 'future'])
+        'very_high': set(['right now', 'currently', 'real time', 'in progress', 'live update', 'as we speak', 'at this moment']),
+        'high': set(['today', 'now', 'current', 'latest', 'live', 'breaking', 'instant', 'immediate']),
+        'medium': set(['recent', 'upcoming', 'this', 'new', 'fresh', 'just in', 'trending']),
+        'low': set(['soon', 'later', 'next', 'future', 'coming', 'expected', 'scheduled'])
     },
     'query': {
-        'high': set(['what', 'who', 'where', 'when', 'how', 'why', 'which']),
-        'medium': set(['tell', 'show', 'give', 'find', 'search']),
-        'low': set(['know', 'get', 'see', 'explain'])
+        'very_high': set(['what exactly is', 'how specifically', 'where exactly', 'when precisely', 'tell me specifically', 'explain in detail']),
+        'high': set(['what is', 'how to', 'where can i', 'when will', 'why does', 'which one', 'who is', 'what are', 'how does']),
+        'medium': set(['tell', 'show', 'give', 'find', 'search', 'explain', 'describe', 'inform', 'guide']),
+        'low': set(['know', 'get', 'see', 'explain', 'what', 'who', 'where', 'when', 'how', 'why', 'which', 'check'])
     },
     'topic': {
-        'high': set(['weather', 'price', 'score', 'news', 'update', 'trending']),
-        'medium': set(['president', 'minister', 'leader', 'celebrity', 'influencer']),
-        'low': set(['about', 'info', 'details', 'facts'])
+        'very_high': set(['breaking news', 'live updates', 'emergency alert', 'critical update', 'urgent announcement', 'developing story']),
+        'high': set(['weather', 'price', 'score', 'news', 'update', 'trending', 'viral', 'popular', 'latest development']),
+        'medium': set(['president', 'minister', 'leader', 'celebrity', 'influencer', 'event', 'situation', 'incident', 'announcement']),
+        'low': set(['about', 'info', 'details', 'facts', 'information', 'status', 'condition', 'state'])
+    },
+    'status': {
+        'very_high': set(['current status', 'live status', 'real-time condition', 'active monitoring']),
+        'high': set(['tracking', 'monitoring', 'status update', 'condition report', 'latest status']),
+        'medium': set(['progress', 'development', 'situation', 'state', 'position']),
+        'low': set(['update', 'check', 'verify', 'confirm', 'track'])
     }
 }
 
@@ -188,24 +243,30 @@ def needs_realtime_data(query: str) -> bool:
         if any(pattern.search(query) for pattern in patterns):
             return True
             
+    # Detect question patterns about recent events/news
+    question_start = any(q in query for q in ['what', 'why', 'how', 'when', 'where', 'who'])
+    tense = any(w in query for w in ['did', 'was', 'were', 'had', 'happened', 'occurred', 'changed', 'going', 'done', 'doing', 'will', 'is', 'are'])
+    
+    if question_start and tense:
+        return True
+    
     # Lower threshold for scoring
     score = 0
     words = set(query.split())
     
     for category in KEYWORDS.values():
-        if words & category['high']:
+        if words & category['very_high']:
             score += 0.5
-        if words & category['medium']:
+        if words & category['high']:
             score += 0.3
+        if words & category['medium']:
+            score += 0.2
         if words & category['low']:
             score += 0.1
-            
-    if 'today' in query or 'now' in query:
-        score += 0.3
-    if any(term in query for term in ('latest', 'current', 'new')):
-        score += 0.2
+        if category in ['time', 'topic', 'status', 'query']:
+            score *= 1.5
         
-    return score >= 0.8
+    return score >= 0.7
 
 # Add link detection regex with enhanced pattern
 URL_PATTERN = re.compile(
@@ -368,11 +429,18 @@ async def get_search_results(query: str, num_results: int = 3) -> str:
                     timelimit='m',  # Last month
                     max_results=num_results
                 )
-            else: # video
+            elif search_type == 'video':
                 search_func = partial(ddgs.videos,
                     query, region='wt-wt',
                     safesearch='moderate',
                     max_results=num_results
+                )
+            else:
+                search_func = partial(ddgs.text,
+                    query, region='wt-wt', 
+                    safesearch='moderate',
+                    max_results=num_results,
+                    backend='html'
                 )
                 
             results = await loop.run_in_executor(None, search_func)
@@ -392,30 +460,60 @@ async def get_search_results(query: str, num_results: int = 3) -> str:
                     entry += f"Source: {domain}\n"
                     entry += f"URL: {url}\n"
                 
-                if search_type == 'news':
+                elif search_type == 'news':
                     title = r.get('title', 'No title')
                     desc = r.get('body', 'No description')
                     url = r.get('url', '#')
                     date = r.get('date', 'No date')
-                    source = r.get('source', 'Unknown source')
-                    entry = f"Title: {title}\nDate: {date}\nSource: {source}\n{desc}\nURL: {url}"
+                    domain = urlparse(url).netloc.replace("www.", "") if url != '#' else 'Unknown source'
+                    source = f"Source: [{domain}]({url})"
+                    entry = f"Title: {title}\nDate: {date}\n{source}\n{desc}"
                     
                 elif search_type == 'image':
-                    entry = f"Title: {r.get('title', 'No Title')}\n"
-                    entry += f"Source: {r.get('source', 'Unknown')}\n"
-                    entry += f"Image URL: {r.get('image', '#')}\n"
-                    entry += f"NOTE - Instruction to AI: Provide image link urls directly to user in [title](url) format. Send single best matching image result always and more than one or all results only if needed according to the context."
+                    title = r.get('title', 'No title')
+                    image_url = r.get('image', '#')
+                    source_url = r.get('url', '#')
+                    domain = urlparse(source_url).netloc.replace("www.", "") if source_url != '#' else 'Unknown source'
+                    source = f"Source: [{domain}]({source_url})"
+                    dimensions = f"{r.get('width','?')}x{r.get('height','?')}"
+                    entry = f"Title: {title}\n{source}\nSize: {dimensions}\nImage URL: {image_url}"
                     
-                else: # video
+                elif search_type == 'video':
+                    title = r.get('title', 'No title')
+                    link = r.get('content', '#')
+                    domain = urlparse(link).netloc.replace("www.", "") if link != '#' else 'Unknown source'
+                    duration = r.get('duration', 'Unknown duration')
+                    publisher = r.get('publisher', domain)
+                    published = r.get('published', 'Unknown date')
+                    
+                    # Safe handling of view count
+                    try:
+                        views = r.get('statistics', {}).get('viewCount', '0')
+                        view_count = f"{int(views):,}" if views and views.isdigit() else '0'
+                    except (ValueError, AttributeError):
+                        view_count = '0'
+                        
+                    entry = f"Title: {title}\nSource: [{publisher}]({link})\nDuration: {duration} | Views: {view_count} | Date: {published}"
+                else:
                     entry = f"Title: {r.get('title', 'No Title')}\n"
-                    if r.get('duration'):
-                        entry += f"Duration: {r.get('duration')}\n"
-                    entry += f"Source: {r.get('publisher', 'Unknown')}\n"
-                    entry += f"URL: {r.get('content', '#')}\n"
-                    entry += f"NOTE - Instruction to AI: Provide video link urls to user in **[Title](url)** format. Send single best matching video result always and more than one or all results only if needed according to the context."
+                    entry += f"Description: {r.get('body', 'No Description')}\n"
+                    if r.get('date'):
+                        entry += f"Date: {r['date']}\n" 
+                    url = r.get('href', '#')
+                    domain = urlparse(url).netloc.replace("www.", "") if url != '#' else 'Unknown'
+                    entry += f"Source: {domain}\n"
+                    entry += f"URL: {url}\n"
                 
                 formatted_results.append(entry)
-                
+            
+            if search_type == 'video':
+                instruction = f"NOTE - Instruction to AI: Provide only valid video links to user in **[Title](Link)** format. Always send single best matching video result, only send more than one results if needed according to the context."
+            elif search_type == 'image':
+                instruction = f"NOTE - Instruction to AI: Provide only valid image links to user in **[Title](Link)** format. Always send single best matching image result, only send more than one results if needed according to the context."
+            else:
+                instruction = ""
+            
+            formatted_results.insert(0, instruction)    
             return "\n\n".join(formatted_results)
             
     except Exception as e:

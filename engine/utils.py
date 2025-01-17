@@ -132,10 +132,20 @@ def is_image_request(message_content):
     return any(keyword in message_content_lower for keyword in image_keywords) or any(message_content_lower.endswith(keyword) for keyword in image_end_keywords)
 
 def extract_image_prompt(message_content):
+    message_content = message_content.lower().replace('seeyuh', '').strip()
+    
     for keyword in image_keywords:
-        if keyword in message_content.lower():
-            prompt = message_content.lower().split(keyword, 1)[1].strip()
-        elif message_content.lower().endswith(keyword):
-            prompt = message_content.lower().rsplit(keyword, 1)[0].strip()
+        if keyword in message_content:
+            # Get text after keyword if keyword is at start
+            if message_content.startswith(keyword):
+                prompt = message_content[len(keyword):].strip()
+            # Get text before keyword if keyword is at end
+            elif message_content.endswith(keyword):
+                prompt = message_content[:message_content.rfind(keyword)].strip()
+            # Get text before or after keyword if it's in middle 
+            else:
+                parts = message_content.split(keyword, 1)
+                prompt = parts[0].strip() if parts[0].strip() else parts[1].strip()
+                
             return prompt
     return message_content  # Use the whole message as the prompt if no keyword is found
