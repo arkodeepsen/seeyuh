@@ -119,8 +119,10 @@ def extract_current_query(prompt: str) -> str:
                 matched_query = match.group(0)
                 # Get surrounding context 
                 idx = query.find(matched_query)
-                before = query[:idx].split()[-3:] if idx > 0 else []  # Increased context
-                after = query[idx+len(matched_query):].split()[:3]    # Increased context
+                # Keep 3 words before match
+                before = query[:idx].split()[-3:] if idx > 0 else []
+                # Increase to 5 words after match for better context
+                after = query[idx+len(matched_query):].split()[:10]
                 context_query = ' '.join(filter(None, before + [matched_query] + after))
                 
                 # Only return pattern match if it captures most of original query

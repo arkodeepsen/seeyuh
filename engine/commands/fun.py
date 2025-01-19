@@ -788,7 +788,7 @@ async def download_image(url: str) -> Image.Image:
             raise Exception(f"Failed to download image: {response.status}")
 
 def add_text_to_image(image: Image.Image, top_text: str, bottom_text: str) -> Image.Image:
-    """Add top and bottom text to image in meme style"""
+    """Add single-line top and bottom text to image in meme style"""
     # Convert image to RGB mode if needed
     if image.mode not in ('RGB', 'RGBA'):
         image = image.convert('RGB')
@@ -797,42 +797,59 @@ def add_text_to_image(image: Image.Image, top_text: str, bottom_text: str) -> Im
     draw = ImageDraw.Draw(image)
     width, height = image.size
     
-    # Load font and calculate size (proportional to image width)
-    font_size = int(height/5) if height < width else int(width/5)
+    # Calculate initial font size based on image dimensions
+    font_size = int(min(width, height) / 8)  # Start with 1/8th of smallest dimension
+    margin = int(height * 0.05)  # 5% margin
+    
     try:
         font = ImageFont.truetype("assets/fonts/impact.ttf", font_size)
     except:
         font = ImageFont.load_default()
+        
+    # Adjust font size until text fits width with margin
+    top_text = top_text.upper()
+    bottom_text = bottom_text.upper()
     
-    # Wrap text
-    margin = 20
-    char_width = int(width/font_size)
-    top_lines = textwrap.wrap(top_text.upper(), width=char_width)
-    bottom_lines = textwrap.wrap(bottom_text.upper(), width=char_width)
+    def get_fitting_font_size(text: str, max_width: int) -> ImageFont.FreeTypeFont:
+        size = font_size
+        test_font = font
+        while draw.textlength(text, font=test_font) > (max_width - 2*margin):
+            size = int(size * 0.9)  # Reduce by 10%
+            try:
+                test_font = ImageFont.truetype("assets/fonts/impact.ttf", size)
+            except:
+                test_font = ImageFont.load_default()
+        return test_font
     
-    # Draw top text with outline
+    # Get font sizes that fit for both texts
+    top_font = get_fitting_font_size(top_text, width)
+    bottom_font = get_fitting_font_size(bottom_text, width)
+    
+    # Use smaller of the two fonts for consistency
+    final_font = top_font if top_font.size <= bottom_font.size else bottom_font
+    
+    # Draw top text
+    text_width = draw.textlength(top_text, font=final_font)
+    x = (width - text_width) / 2
     y = margin
-    for line in top_lines:
-        text_width = draw.textlength(line, font=font)
-        x = (width - text_width) / 2
-        # Draw text outline
-        for adj in range(-2, 3):
-            for adj2 in range(-2, 3):
-                draw.text((x+adj, y+adj2), line, font=font, fill='black')
-        draw.text((x, y), line, font=font, fill='white')
-        y += font_size
     
-    # Draw bottom text with outline
-    y = height - margin - font_size * len(bottom_lines)
-    for line in bottom_lines:
-        text_width = draw.textlength(line, font=font)
-        x = (width - text_width) / 2
-        # Draw text outline
-        for adj in range(-2, 3):
-            for adj2 in range(-2, 3):
-                draw.text((x+adj, y+adj2), line, font=font, fill='black')
-        draw.text((x, y), line, font=font, fill='white')
-        y += font_size
+    # Draw outline
+    outline_width = max(2, int(final_font.size * 0.05))  # Scale outline with font
+    for adj in range(-outline_width, outline_width + 1):
+        for adj2 in range(-outline_width, outline_width + 1):
+            draw.text((x+adj, y+adj2), top_text, font=final_font, fill='black')
+    draw.text((x, y), top_text, font=final_font, fill='white')
+    
+    # Draw bottom text
+    text_width = draw.textlength(bottom_text, font=final_font)
+    x = (width - text_width) / 2
+    y = height - margin - final_font.size
+    
+    # Draw outline
+    for adj in range(-outline_width, outline_width + 1):
+        for adj2 in range(-outline_width, outline_width + 1):
+            draw.text((x+adj, y+adj2), bottom_text, font=final_font, fill='black')
+    draw.text((x, y), bottom_text, font=final_font, fill='white')
     
     return image
     
@@ -930,18 +947,72 @@ IMGFLIP_USERNAME, IMGFLIP_PASSWORD = imgflip_env()
     top_text="Text for top of meme",
     bottom_text="Text for bottom of meme", 
     template="Optional: Specific meme template name",
-    custom_url="Optional: Custom image URL to create meme from"
+    custom_url="Optional: Custom image URL to create meme from",
+    search="Optional: Search for a meme template using keywords"
 )
 async def memegen_command(
     interaction: discord.Interaction,
     top_text: str,
     bottom_text: str,
     template: Optional[str] = None,
-    custom_url: Optional[str] = None
+    custom_url: Optional[str] = None,
+    search: Optional[str] = None
 ):
     await interaction.response.defer()
 
     try:
+        # Handle meme search and generation
+        if search:
+            try:
+                from engine.commands.utility import search_ddg
+                search_query = f"{search} meme template"
+                results = await search_ddg(search_query, num_results=5, search_type='image')
+                
+                if not results:
+                    await interaction.followup.send("❌ No meme templates found.")
+                    return
+
+                # Try each image URL until one works
+                success = False
+                for _, _, _, img_url in results:
+                    try:
+                        # Download and process image
+                        image = await download_image(img_url)
+                        if not image:
+                            continue
+                            
+                        image = add_text_to_image(image, top_text, bottom_text)
+                        
+                        # Convert to bytes for Discord upload
+                        with io.BytesIO() as image_binary:
+                            image.save(image_binary, 'PNG')
+                            image_binary.seek(0)
+                            
+                            # Send as Discord attachment
+                            file = discord.File(fp=image_binary, filename='meme.png')
+                            embed = discord.Embed(
+                                title="Generated Meme",
+                                description=f"Search query: {search}",
+                                color=discord.Color.blue()
+                            )
+                            embed.set_image(url="attachment://meme.png")
+                            await interaction.followup.send(embed=embed, file=file)
+                            success = True
+                            break
+                            
+                    except Exception as e:
+                        print(f"Failed with image {img_url}: {e}")
+                        continue
+                        
+                if not success:
+                    await interaction.followup.send("❌ Failed to generate meme with any of the found templates.")
+                return
+
+            except Exception as e:
+                print(f"Meme search error: {e}")
+                await interaction.followup.send("❌ Failed to search for meme templates.")
+                return
+            
         if custom_url:
             try:
                 # Download and process image
