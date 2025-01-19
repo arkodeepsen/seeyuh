@@ -4,7 +4,7 @@ from discord import app_commands, File
 from pathlib import Path
 from typing import Optional
 from pytube import Search
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, quote
 from bs4 import BeautifulSoup
 from PIL import Image
 from contextlib import contextmanager
@@ -796,10 +796,11 @@ async def news_command(
             color=discord.Color.blue()
         )
         
+        encoded_query = quote(query)
         main_embed.set_author(
             name="DuckDuckGo News",
             icon_url=SEARCH_ENGINE_AUTHOR_ICONS["duckduckgo"],
-            url=f"https://duckduckgo.com/?q={query}&ia=news"
+            url=f"https://duckduckgo.com/?q={encoded_query}&ia=news"
         )
 
         all_articles = []
@@ -1501,10 +1502,11 @@ async def image_command(
                 embed = discord.Embed(title=f"Image search: {query}", color=discord.Color.blue())
                 embed.set_image(url=image_url)
                 embed.add_field(name=title, value=f"{description}\n{source}", inline=False)
+                encoded_query = quote(query)
                 embed.set_author(
                     name="DuckDuckGo Image Search",
                     icon_url=SEARCH_ENGINE_AUTHOR_ICONS["duckduckgo"],
-                    url=f"https://duckduckgo.com/?q={query}&ia=images"
+                    url=f"https://duckduckgo.com/?q={encoded_query}&ia=images"
                 )
                 
         elif engine.value in ["bing", "yahoo"]:
