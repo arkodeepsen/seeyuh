@@ -1,4 +1,4 @@
-import discord, random, httpx, aiohttp, asyncio, urllib.parse, textwrap, io
+import discord, random, httpx, aiohttp, asyncio, urllib.parse, io, aiofiles, time, logging, os, tempfile
 from discord import app_commands
 from difflib import get_close_matches
 from PIL import Image, ImageDraw, ImageFont
@@ -6,11 +6,29 @@ from typing import Optional
 from engine.ai.gemini import slash_ai_response, slash_ai8b_response, mystery
 from engine.utils import load_env, giphy_env, get_reddit_access_token, imgflip_env, hf_env
 from html import unescape
-# Load environment variables
+from bs4 import BeautifulSoup
+from urllib.parse import quote
+from contextlib import contextmanager
+from pathlib import Path
+
+logging.basicConfig(level=logging.INFO)
+
 DISCORD_TOKEN, OWNER, url, key = load_env()
-# Your bot's token and Giphy API key
 GIPHY_API_KEY = giphy_env()
 
+@contextmanager
+def safe_tempfile(guild_id: int):
+    """Create a temporary file that gets cleaned up after use"""
+    temp_dir = Path("./temp")
+    temp_dir.mkdir(exist_ok=True)
+    
+    temp_path = temp_dir / f"sound_{guild_id}_{int(time.time())}.mp3"
+    try:
+        yield temp_path
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
+            
 # Define the roast command
 @app_commands.command(name="roast", description="Roast a user in a light-hearted way!")
 async def roast_command(interaction: discord.Interaction, user: discord.User):
@@ -1143,5 +1161,203 @@ async def memegen_command(
         print(f"Error generating meme: {str(e)}")
         await interaction.followup.send(
             "❌ Failed to generate meme. Please try again later.",
+            ephemeral=True
+        )
+
+async def search_sound_effects(query: str) -> list:
+    """Search MyInstants for sound effects"""
+    search_url = f'http://www.myinstants.com/search/?name={quote(query)}'
+    
+    async with aiohttp.ClientSession() as session:
+        async with session.get(search_url) as response:
+            if response.status != 200:
+                return []
+                
+            soup = BeautifulSoup(await response.text(), 'html.parser')
+            results = []
+            
+            for instant in soup.find_all("div", class_="instant"):
+                button_name = instant.find("a", class_="instant-link")
+                button_name = button_name.text.strip() if button_name else "Unknown"
+                
+                small_button = instant.find("button", class_="small-button")
+                if small_button and 'onclick' in small_button.attrs:
+                    onclick = small_button['onclick']
+                    # Fix URL extraction
+                    button_url = onclick.split("'")[1]  # Get first quoted string
+                    if button_url.endswith('.mp3'):
+                        results.append({
+                            "name": button_name,
+                            "url": f"https://www.myinstants.com{button_url}"
+                        })
+            
+            return results[:10]  # Limit to first 10 results
+
+async def download_sound(url: str, session: aiohttp.ClientSession) -> bytes:
+    """Download sound with proper headers"""
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'audio/mpeg, audio/*, */*',
+        'Accept-Encoding': 'gzip, deflate',  # Changed from identity
+        'Connection': 'keep-alive',
+        'Referer': 'https://www.myinstants.com/'
+        # Removed Range header to get full content
+    }
+    
+    async with session.get(url, headers=headers) as response:
+        if response.status not in (200, 206):  # Accept both 200 and 206
+            raise Exception(f"Failed to download sound: {response.status}")
+        return await response.read()
+    
+NUMBER_EMOJIS = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟']
+
+class SoundboardView(discord.ui.View):
+    def __init__(self, results: list, interaction: discord.Interaction):
+        super().__init__(timeout=300)
+        self.results = results
+        self.original_interaction = interaction
+        
+        # Add button for each result
+        for i, result in enumerate(results):
+            button = discord.ui.Button(
+                label=result['name'],
+                emoji=NUMBER_EMOJIS[i] if i < len(NUMBER_EMOJIS) else None,
+                style=discord.ButtonStyle.primary,
+                custom_id=f"sound_{i}"
+            )
+            button.callback = self.create_callback(i)
+            self.add_item(button)
+    
+    def create_callback(self, index):
+        async def button_callback(interaction: discord.Interaction):
+            if not interaction.user.voice:
+                try:
+                    await interaction.response.send_message(
+                        "❌ You need to be in a voice channel!", 
+                        ephemeral=True
+                    )
+                except discord.errors.InteractionResponded:
+                    await interaction.followup.send(
+                        "❌ You need to be in a voice channel!",
+                        ephemeral=True
+                    )
+                return
+
+            sound_url = self.results[index]['url']
+            temp_path = None
+            
+            try:
+                # Connect to voice if not already connected
+                if not interaction.guild.voice_client:
+                    voice_channel = interaction.user.voice.channel
+                    await voice_channel.connect()
+                
+                # Acknowledge the interaction first
+                try:
+                    await interaction.response.defer(ephemeral=True)
+                except discord.errors.InteractionResponded:
+                    pass
+
+                # Create temp file
+                with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
+                    temp_path = tmp.name
+                    
+                    # Download sound
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(sound_url, headers={
+                            'User-Agent': 'Mozilla/5.0',
+                            'Accept': '*/*'
+                        }) as response:
+                            if response.status != 200:
+                                raise Exception(f"Failed to download sound: {response.status}")
+                            
+                            # Write to temp file
+                            async with aiofiles.open(temp_path, 'wb') as f:
+                                await f.write(await response.read())
+                
+                # Create audio source
+                source = await discord.FFmpegOpusAudio.from_probe(
+                    temp_path,
+                    options='-filter:a volume=2.0'
+                )
+                
+                # Play audio
+                if interaction.guild.voice_client.is_playing():
+                    interaction.guild.voice_client.stop()
+                
+                def after_playing(error):
+                    if error:
+                        logging.error(f"Playback error: {error}")
+                    try:
+                        if os.path.exists(temp_path):
+                            os.unlink(temp_path)
+                    except Exception as e:
+                        logging.error(f"Cleanup error: {e}")
+                
+                interaction.guild.voice_client.play(source, after=after_playing)
+                await interaction.followup.send(
+                    f"▶️ Now playing: {self.results[index]['name']}",
+                    ephemeral=True
+                )
+                
+            except Exception as e:
+                logging.error(f"Sound playback error: {e}")
+                if temp_path and os.path.exists(temp_path):
+                    try:
+                        os.unlink(temp_path)
+                    except Exception:
+                        pass
+                try:
+                    await interaction.followup.send(
+                        f"❌ Error: {str(e)}",
+                        ephemeral=True
+                    )
+                except Exception:
+                    pass
+                    
+        return button_callback
+
+@app_commands.command(
+    name="soundboard",
+    description="Search and play sound effects from MyInstants"
+)
+@app_commands.describe(
+    query="Sound effect to search for",
+    play="Immediately play the first result"
+)
+async def soundboard_command(interaction: discord.Interaction, query: str, play: Optional[bool] = False):
+    await interaction.response.defer()
+    
+    try:
+        results = await search_sound_effects(query)
+        
+        if not results:
+            await interaction.followup.send("❌ No sound effects found.")
+            return
+
+        embed = discord.Embed(
+            title="🔊 Sound Effects",
+            description=f"Search results for '{query}'",
+            color=discord.Color.blue()
+        )
+        
+        for i, result in enumerate(results, 1):
+            embed.add_field(
+            name=f"{i}. {result['name']}",
+            value=f"[Click here to download]({result['url']})",
+            inline=False
+            )
+        
+        view = SoundboardView(results, interaction)
+        await interaction.followup.send(embed=embed, view=view)
+        
+        # Handle play=True option
+        if play and results:
+            await view.create_callback(0)(interaction)
+            
+    except Exception as e:
+        logging.error(f"Soundboard error: {e}")
+        await interaction.followup.send(
+            f"❌ Error: {str(e)}",
             ephemeral=True
         )
