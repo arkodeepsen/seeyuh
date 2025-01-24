@@ -1,4 +1,5 @@
 import discord, os, logging, sys, random, re, aiohttp, asyncio, tempfile, google.generativeai as genai
+from google import genai as palm
 from duckduckgo_search import DDGS
 from functools import partial
 from datetime import datetime
@@ -14,7 +15,7 @@ GOOGLE_API_KEY = os.getenv('GEMINI_API')
 
 # Configure the Google Generative AI SDK
 genai.configure(api_key=GOOGLE_API_KEY)
-
+genai_client = palm.Client(api_key=os.getenv('GEMINI_PRO_API_KEY'), http_options={'api_version':'v1alpha'})
 # Configure logging for Unicode
 logging.basicConfig(
     level=logging.INFO,
@@ -509,9 +510,9 @@ async def get_search_results(query: str, num_results: int = 3) -> str:
                 formatted_results.append(entry)
             
             if search_type == 'video':
-                instruction = f"NOTE - Instruction to AI: Provide only valid video links to user in **[Title](Link)** format. Always send single best matching video result, only send more than one results if needed according to the context."
+                instruction = f"NOTE - Instruction to AI: Provide only valid video links to user in [Title](Link) format. Always send single best matching video result, only send more than one results if needed according to the context."
             elif search_type == 'image':
-                instruction = f"NOTE - Instruction to AI: Provide only valid image links to user in **[Title](Link)** format. Always send single best matching image result, only send more than one results if needed according to the context."
+                instruction = f"NOTE - Instruction to AI: Provide only valid image links to user in [Title](Link) format. Always send single best matching image result, only send more than one results if needed according to the context."
             else:
                 instruction = ""
             
@@ -526,6 +527,17 @@ async def get_search_results(query: str, num_results: int = 3) -> str:
 async def get_ai_response(prompt, message):
     current_query = extract_current_query(prompt)
     logging.info(f"Extracted query: {current_query}")
+    
+    # Check if query needs thinking model
+    use_thinking = any(word in current_query.lower() for word in ['think', 'reason', 'reasoning'])
+    
+    # Configure model settings
+    config = {
+        'thinking_config': {'include_thoughts': True} if use_thinking else None
+    }
+    
+    # Set model based on query type
+    model_name = 'gemini-2.0-flash-thinking-exp-01-21' if use_thinking else 'flash2'
     
     # Check for URLs first
     urls = URL_PATTERN.findall(current_query)
@@ -556,11 +568,45 @@ async def get_ai_response(prompt, message):
     query = f"\n{systemInstruction} Today's date and time is {current_datetime}", f"\n{prompt}"
     logging.info(f"Query to AI: {query}")
     try:
-        response = await try_model_chain(query, 'flash2')
+        if use_thinking:
+            query = f"You are a discord bot named seeyuh.\n Today's date and time is {current_datetime}", f"\n{prompt}"
+            response = genai_client.models.generate_content(
+                model=model_name,
+                contents=query,
+                config=config
+            )
+            logging.info(f"Using thinking model.")
+
+            for part in response.candidates[0].content.parts:
+                if part.thought:
+                    thought_lines = part.text.split('\n')
+                    chunks = []
+                    current_chunk = []
+                    current_length = 0
+                    
+                    for line in thought_lines:
+                        line_length = len(line) + 2  # +2 for "> " prefix
+                        if current_length + line_length > 1900:  # Safe limit for Discord
+                            chunks.append(current_chunk)
+                            current_chunk = []
+                            current_length = 0
+                        current_chunk.append(line)
+                        current_length += line_length
+                    
+                    if current_chunk:
+                        chunks.append(current_chunk)
+                    
+                    # Send each chunk as a separate message
+                    for i, chunk in enumerate(chunks):
+                        formatted_thought = "> 💭 **Reasoning" + (f" (Part {i+1}/{len(chunks)})" if len(chunks) > 1 else "") + ":**\n" + "\n".join(f"> {line}" for line in chunk)
+                        await message.reply(formatted_thought[:2000])  # Discord message limit
+        else:
+            response = await try_model_chain(query, model_name)
+        
         if response.text:
             try:
                 logging.info(f"AI response: {response.text}")
-                
+               
                 if '```' in response.text:
                     with tempfile.TemporaryDirectory() as temp_dir:
                         message_components = []  # List of (type, content) tuples

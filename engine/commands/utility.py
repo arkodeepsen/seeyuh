@@ -1,5 +1,6 @@
 import discord, asyncio, aiohttp, random, httpx, re, json, io, base64, requests, os, logging, tempfile, aiofiles, time
 from duckduckgo_search import DDGS
+from google import genai
 from discord import app_commands, File
 from pathlib import Path
 from typing import Optional
@@ -2581,3 +2582,85 @@ async def musicgen(interaction: discord.Interaction, prompt: str):
     except Exception as e:
         logging.error(f"MusicGen error: {e}")
         await interaction.followup.send(f"❌ Error: {str(e)}")
+        
+genai_client = genai.Client(api_key=os.getenv('GEMINI_PRO_API_KEY'), http_options={'api_version':'v1alpha'})
+
+@app_commands.command(
+    name="reason",
+    description="Get AI's reasoning with code execution capability"
+)
+@app_commands.describe(
+    prompt="The topic or question to reason about"
+)
+async def reason_command(
+    interaction: discord.Interaction, 
+    prompt: str
+):
+    try:
+        await interaction.response.defer()
+        
+        config = {
+            'thinking_config': {'include_thoughts': True}
+        }
+        
+        response = genai_client.models.generate_content(
+            model='gemini-2.0-flash-thinking-exp-01-21',
+            contents=prompt,
+            config=config
+        )
+
+        def create_new_embed():
+            return discord.Embed(color=discord.Color.blue())
+
+        def chunk_text(text, limit=900):
+            chunks = []
+            while text:
+                if len(text) <= limit:
+                    chunks.append(text)
+                    break
+                
+                split_index = text.rfind('\n', 0, limit)
+                if split_index == -1:
+                    split_index = limit
+                
+                chunks.append(text[:split_index])
+                text = text[split_index:].lstrip()
+            return chunks
+
+        # Send initial embed with prompt
+        initial_embed = discord.Embed(
+            title="🤔 AI Reasoning",
+            description=f"{prompt}",
+            color=discord.Color.blue()
+        )
+        await interaction.followup.send(embed=initial_embed)
+
+        # Process thoughts and response
+        for part in response.candidates[0].content.parts:
+            if part.thought:
+                chunks = chunk_text(part.text)
+                for i, chunk in enumerate(chunks):
+                    embed = create_new_embed()
+                    embed.add_field(
+                        name=f"💭 Thought Process (Part {i+1})" if len(chunks) > 1 else "💭 Thought Process",
+                        value=f"{chunk}",  # Added code block formatting
+                        inline=False
+                    )
+                    await interaction.followup.send(embed=embed)
+            else:
+                chunks = chunk_text(part.text)
+                for i, chunk in enumerate(chunks):
+                    embed = create_new_embed()
+                    embed.add_field(
+                        name=f"🔍 Response (Part {i+1})" if len(chunks) > 1 else "🔍 Response",
+                        value=chunk,
+                        inline=False
+                    )
+                    await interaction.followup.send(embed=embed)
+
+    except Exception as e:
+        logging.error(f"Reason command error: {e}")
+        await interaction.followup.send(
+            f"❌ Error: {str(e)}",
+            ephemeral=True
+        )

@@ -318,6 +318,7 @@ utility.musicgen.category = "Utility"
 utility.aisearch_command.category = "Utility"
 utility.news_command.category = "Utility"
 utility.chat_command.category = "Utility"
+utility.reason_command.category = "Utility"
 bot.tree.add_command(utility.say_command)
 bot.tree.add_command(utility.emoji_command)
 bot.tree.add_command(utility.avatar_command)
@@ -346,6 +347,7 @@ bot.tree.add_command(utility.musicgen)
 bot.tree.add_command(utility.aisearch_command)
 bot.tree.add_command(utility.news_command)
 bot.tree.add_command(utility.chat_command)
+bot.tree.add_command(utility.reason_command)
 
 # Register the commands from fun.py
 fun.roast_command.category = "Fun"
@@ -839,7 +841,7 @@ async def on_message(message):
         for word in words:
             # Check if the command exists
             command = bot.tree.get_command(word)
-            if command:
+            if command and word != "seeyuh":
                 command_found = True
                 command_name = word
     
