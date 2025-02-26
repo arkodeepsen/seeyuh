@@ -84,6 +84,7 @@ Seeyuh Bot is a powerful, AI-driven Discord bot designed for dynamic and multimo
 ## 🛡️ **Security**
 - Tokens and sensitive data are stored securely in environment variables (`.env`).
 - No sensitive information is shared or logged by the bot.
+- Your messages might be saved for context but are deleted at regular intervals.
 
 ---
 
