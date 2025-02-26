@@ -103,8 +103,8 @@ def render_message_image(username: str, message: str, avatar_url: str = None, wi
     
     # Load fonts (fallback to default if not available)
     try:
-        font_username = ImageFont.truetype("arialbd.ttf", 38)
-        font_message = ImageFont.truetype("arial.ttf", 30)
+        font_username = ImageFont.truetype("assets/fonts/arialbd.ttf", 38)
+        font_message = ImageFont.truetype("assets/fonts/arial.ttf", 30)
     except Exception:
         font_username = ImageFont.load_default()
         font_message = ImageFont.load_default()
