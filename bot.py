@@ -8,6 +8,7 @@ from engine.utils import load_env, intents, update_presence, is_image_request, e
 from engine.db import fetch_recent_message, save_message_to_db, retry_check_and_update_guild_entry, generate_and_cache_invites, sync_guilds_and_users
 from engine.ai.gemini import get_ai_response, code_ai_response
 from engine.ai.gemini_multimodal import handle_attachment
+from engine.commands.video import generate_meme_video
 from supabase import create_client, Client
 from sqlalchemy.orm import declarative_base
 from sqlalchemy import Column, Integer, String, ForeignKey
@@ -651,7 +652,62 @@ async def on_message(message):
             response_message = " ".join(words[1:])
             await message.reply(response_message)
             return  # Stop further processing if this condition is met
-            
+
+    if (bot.user.mentioned_in(message) or "seeyuh" in message.content.lower()) and "chat meme" in message.content.lower():
+                await message.channel.send("Creating your next level chat meme... This may take a moment! 🔥")
+                try:
+                    messages = []
+                    processed_content = set()  # Track unique message content to avoid duplicates
+                    trigger_id = message.id  # Store the ID of the trigger message
+                    
+                    # Get more messages to account for filtering (increased from 50 to 100)
+                    async for msg in message.channel.history(limit=100):
+                        # Skip trigger message and any message containing "chat meme"
+                        if msg.id != trigger_id and not "chat meme" in msg.content.lower():
+                            
+                            # Handle regular user messages with content
+                            if not msg.author.bot and not msg.content.startswith('/') and not msg.content.startswith('$'):
+                                if msg.content.strip() and msg.content.strip() not in processed_content:
+                                    messages.append({
+                                        "name": msg.author.display_name,
+                                        "message": msg.content,
+                                        "avatar": str(msg.author.display_avatar.url),
+                                        "has_image": bool(msg.attachments and any(att.content_type and att.content_type.startswith("image/") for att in msg.attachments)),
+                                        "image_url": str(next((att.url for att in msg.attachments if att.content_type and att.content_type.startswith("image/")), None))
+                                    })
+                                    processed_content.add(msg.content.strip())
+                            
+                            # Include bot messages with images (but only if they're interesting)
+                            elif msg.author.bot and msg.attachments:
+                                image_attachments = [att for att in msg.attachments if att.content_type and att.content_type.startswith("image/")]
+                                if image_attachments and (msg.content.strip() or len(image_attachments) > 0):
+                                    messages.append({
+                                        "name": msg.author.display_name,
+                                        "message": msg.content if msg.content.strip() else "🖼️ *shared an image*",
+                                        "avatar": str(msg.author.display_avatar.url),
+                                        "has_image": True,
+                                        "image_url": str(image_attachments[0].url)
+                                    })
+                        
+                        # Limit to 40 valid messages (increased from 20)
+                        if len(messages) >= 40:
+                            break
+                            
+                    if len(messages) < 3:
+                        await message.reply("Not enough valid messages to create a meme! Need at least 3 messages.")
+                        return
+                        
+                    messages = messages[::-1]  # Reverse to get chronological order
+                    
+                    # Create a 22-second video (passing duration parameter)
+                    video_bytes = await generate_meme_video(messages, duration=22.0)
+                    file = discord.File(fp=video_bytes, filename="chat_meme_nextlevel.mp4")
+                    await message.reply("Here's your next level chat meme! 😎🔥", file=file)
+                    return
+                except Exception as e:
+                    await message.reply(f"Sorry, I couldn't create the meme: {str(e)}")
+                    return
+              
     if any(phrase in message.content.lower() for phrase in ["thick of it", "thickofit"]):
         link = "https://www.youtube.com/watch?v=At8v_Yc044Y"
         lyrics1 = """
