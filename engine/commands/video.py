@@ -10,6 +10,53 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 logging.basicConfig(level=logging.INFO)
 
+def format_mentions(content, guild=None):
+    """Convert Discord mention format to readable names."""
+    # Match user mentions: <@123456789> or <@!123456789>
+    import re
+    
+    # Format user mentions
+    user_mentions = re.findall(r'<@!?(\d+)>', content)
+    for user_id in user_mentions:
+        if guild:
+            member = guild.get_member(int(user_id))
+            if member:
+                display_name = member.display_name
+                content = content.replace(f'<@{user_id}>', f'@{display_name}')
+                content = content.replace(f'<@!{user_id}>', f'@{display_name}')
+            else:
+                content = content.replace(f'<@{user_id}>', f'@user')
+                content = content.replace(f'<@!{user_id}>', f'@user')
+        else:
+            content = content.replace(f'<@{user_id}>', f'@user')
+            content = content.replace(f'<@!{user_id}>', f'@user')
+    
+    # Format channel mentions: <#123456789>
+    channel_mentions = re.findall(r'<#(\d+)>', content)
+    for channel_id in channel_mentions:
+        if guild:
+            channel = guild.get_channel(int(channel_id))
+            if channel:
+                content = content.replace(f'<#{channel_id}>', f'#{channel.name}')
+            else:
+                content = content.replace(f'<#{channel_id}>', f'#channel')
+        else:
+            content = content.replace(f'<#{channel_id}>', f'#channel')
+    
+    # Format role mentions: <@&123456789>
+    role_mentions = re.findall(r'<@&(\d+)>', content)
+    for role_id in role_mentions:
+        if guild:
+            role = guild.get_role(int(role_id))
+            if role:
+                content = content.replace(f'<@&{role_id}>', f'@{role.name}')
+            else:
+                content = content.replace(f'<@&{role_id}>', f'@role')
+        else:
+            content = content.replace(f'<@&{role_id}>', f'@role')
+            
+    return content
+
 def get_text_size(draw, text, font):
     """
     Return the (width, height) of the given text using the provided font.
@@ -42,7 +89,8 @@ def fetch_avatar(avatar_url, size=(80,80)):
         return None
 
 def render_message_image(username: str, message: str, avatar_url: str = None, width: int = 640, 
-                         height: int = 480, style: str = "modern", image_url: str = None) -> Image.Image:
+                       height: int = 480, style: str = "modern", image_url: str = None, 
+                       is_video: bool = False) -> Image.Image:
     """
     Render an image for a chat message with enhanced visual styling.
     
@@ -53,7 +101,8 @@ def render_message_image(username: str, message: str, avatar_url: str = None, wi
         width: Image width
         height: Image height
         style: Visual style ("modern", "retro", "dark", "bubbly", "neon")
-        image_url: URL to an attached image (if any)
+        image_url: URL to an attached image/video (if any)
+        is_video: Whether the attachment is a video/GIF
     """
     # Style presets
     styles = {
@@ -156,10 +205,13 @@ def render_message_image(username: str, message: str, avatar_url: str = None, wi
     # Handle attached image if present
     if has_image:
         try:
-            # Download and process attached image
-            response = requests.get(image_url)
-            response.raise_for_status()
-            attached_img = Image.open(io.BytesIO(response.content))
+            # Load the image (from URL or local path)
+            if image_url.startswith(('http://', 'https://')):
+                response = requests.get(image_url)
+                response.raise_for_status()
+                attached_img = Image.open(io.BytesIO(response.content))
+            else:
+                attached_img = Image.open(image_url)
             
             # Calculate image size to fit within the message area
             # Maximum dimensions while maintaining aspect ratio
@@ -199,6 +251,39 @@ def render_message_image(username: str, message: str, avatar_url: str = None, wi
                 
                 # Paste onto main image
                 img.paste(border, (x_offset, text_start_y))
+            
+            # Update text starting position to be below the image
+            text_start_y += new_height + 20
+            
+            if is_video:
+                # Create a translucent play button
+                overlay_size = min(new_width, new_height) // 2
+                play_button = Image.new("RGBA", (overlay_size, overlay_size), (0, 0, 0, 0))
+                play_draw = ImageDraw.Draw(play_button)
+                
+                # Draw triangle (play button)
+                center_x = overlay_size // 2
+                center_y = overlay_size // 2
+                radius = overlay_size // 3
+                
+                # Create a polygon for the triangle
+                triangle_pts = [
+                    (center_x - radius//2, center_y - radius),
+                    (center_x - radius//2, center_y + radius),
+                    (center_x + radius, center_y)
+                ]
+                
+                # Draw a translucent circle behind the triangle
+                play_draw.ellipse([0, 0, overlay_size, overlay_size], fill=(0, 0, 0, 128))
+                # Draw the triangle in white
+                play_draw.polygon(triangle_pts, fill=(255, 255, 255, 220))
+                
+                # Calculate position to center the play button on the image
+                play_x = x_offset + (new_width - overlay_size) // 2
+                play_y = text_start_y + (new_height - overlay_size) // 2
+                
+                # Paste the play button onto the image
+                img.paste(play_button, (play_x, play_y), mask=play_button)
             
             # Update text starting position to be below the image
             text_start_y += new_height + 20
@@ -336,14 +421,14 @@ def generate_video_from_images(image_paths: list, fps: float = 1.0) -> io.BytesI
             video_data = f.read()
         return io.BytesIO(video_data)
 
-async def generate_meme_video(messages: list, duration: float = 22.0) -> io.BytesIO:
+async def generate_meme_video(messages: list, duration: float = 21.0) -> io.BytesIO:
     """
     Generate a meme video from Discord messages.
     Creates one image per message, then uses FFmpeg to stitch them into a video (MP4).
     
     Args:
-        messages (list): List of dicts with keys "name", "message", and "avatar".
-        duration (float): Total duration of the video in seconds (default 22.0).
+        messages (list): List of dicts with message data.
+        duration (float): Total duration of the video in seconds (default 21.0).
     
     Returns:
         io.BytesIO: Buffer containing the final video.
@@ -365,16 +450,73 @@ async def generate_meme_video(messages: list, duration: float = 22.0) -> io.Byte
             username = msg["name"]
             text = msg["message"]
             avatar_url = msg.get("avatar")
-            image_url = msg.get("image_url") if msg.get("has_image") else None
+            image_url = msg.get("image_url")
+            is_video = msg.get("is_video", False)
             
-            # Enhanced rendering with visual styles and image support
-            img = render_message_image(
-                username, 
-                text, 
-                avatar_url,
-                style=random.choice(["modern", "retro", "dark", "bubbly", "neon"]),
-                image_url=image_url
-            )
+            # Format mentions if guild is available
+            if "guild" in msg:
+                text = format_mentions(text, msg["guild"])
+            
+            # Enhanced rendering with visual styles
+            if is_video and image_url:
+                # For videos and GIFs, try to extract a thumbnail frame
+                try:
+                    # Use FFmpeg to extract a thumbnail frame from the video
+                    thumbnail_path = os.path.join(temp_dir, f"thumb_{i}.png")
+                    
+                    # Download the video/GIF temporarily
+                    video_path = os.path.join(temp_dir, f"temp_video_{i}.mp4")
+                    response = requests.get(image_url)
+                    with open(video_path, 'wb') as f:
+                        f.write(response.content)
+                    
+                    # Extract a frame at 0.5 seconds
+                    cmd = [
+                        "ffmpeg",
+                        "-y",
+                        "-i", video_path,
+                        "-ss", "00:00:00.5",
+                        "-vframes", "1",
+                        thumbnail_path
+                    ]
+                    subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    
+                    # If thumbnail extraction successful, use it
+                    if os.path.exists(thumbnail_path):
+                        img = render_message_image(
+                            username, 
+                            text, 
+                            avatar_url,
+                            style=random.choice(["modern", "retro", "dark", "bubbly", "neon"]),
+                            image_url=thumbnail_path,
+                            is_video=True  # Flag to add play button overlay
+                        )
+                    else:
+                        # If failed, render without thumbnail
+                        img = render_message_image(
+                            username, 
+                            text, 
+                            avatar_url,
+                            style=random.choice(["modern", "retro", "dark", "bubbly", "neon"])
+                        )
+                except Exception as e:
+                    logging.error(f"Error processing video thumbnail: {e}")
+                    # Fall back to regular rendering
+                    img = render_message_image(
+                        username, 
+                        text, 
+                        avatar_url,
+                        style=random.choice(["modern", "retro", "dark", "bubbly", "neon"])
+                    )
+            else:
+                # Regular image or text-only message
+                img = render_message_image(
+                    username, 
+                    text, 
+                    avatar_url,
+                    style=random.choice(["modern", "retro", "dark", "bubbly", "neon"]),
+                    image_url=image_url if msg.get("has_image") else None
+                )
             
             image_path = os.path.join(temp_dir, f"frame_{i:03d}.png")
             img.save(image_path)

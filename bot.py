@@ -1,4 +1,4 @@
-import discord, time, uvicorn, asyncio, logging, os, aiohttp, random, engine.commands.general as general, engine.commands.utility as utility, engine.commands.fun as fun, engine.commands.music as music, engine.commands.moderation as moderation, engine.commands.misc as misc, engine.commands.rpg as rpg, engine.eventloop as eventloop
+import discord, time, uvicorn, asyncio, logging, os, aiohttp, random, re, engine.commands.general as general, engine.commands.utility as utility, engine.commands.fun as fun, engine.commands.music as music, engine.commands.moderation as moderation, engine.commands.misc as misc, engine.commands.rpg as rpg, engine.eventloop as eventloop
 from discord.ext import commands, tasks
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import HTMLResponse
@@ -665,28 +665,70 @@ async def on_message(message):
                         # Skip trigger message and any message containing "chat meme"
                         if msg.id != trigger_id and not "chat meme" in msg.content.lower():
                             
+                            # Handle video/GIF attachments (prioritize these)
+                            video_attachments = [att for att in msg.attachments if att.content_type and 
+                                                (att.content_type.startswith("video/") or 
+                                                 att.filename.lower().endswith(".gif"))]
+                            
                             # Handle regular user messages with content
                             if not msg.author.bot and not msg.content.startswith('/') and not msg.content.startswith('$'):
                                 if msg.content.strip() and msg.content.strip() not in processed_content:
+                                    # Strip out custom emoji format (<:name:id>) but keep regular text
+                                    clean_content = re.sub(r'<a?:[a-zA-Z0-9_]+:[0-9]+>', '', msg.content)
+                                    
+                                    # Only proceed if there's meaningful text after cleaning
+                                    if clean_content.strip():
+                                        messages.append({
+                                            "name": msg.author.display_name,
+                                            "message": clean_content,
+                                            "avatar": str(msg.author.display_avatar.url),
+                                            "has_image": bool(msg.attachments and any(att.content_type and 
+                                                           (att.content_type.startswith("image/") or 
+                                                            att.content_type.startswith("video/") or 
+                                                            att.filename.lower().endswith(".gif")) 
+                                                           for att in msg.attachments)),
+                                            "image_url": str(next((att.url for att in msg.attachments if 
+                                                              att.content_type and (att.content_type.startswith("image/") or 
+                                                                                  att.content_type.startswith("video/") or 
+                                                                                  att.filename.lower().endswith(".gif"))), None)),
+                                            "is_video": bool(video_attachments),
+                                            "guild": message.guild  # Add guild reference for mention formatting
+                                        })
+                                        processed_content.add(msg.content.strip())
+                                # Include messages with videos/GIFs even if they have no text
+                                elif video_attachments:
                                     messages.append({
                                         "name": msg.author.display_name,
-                                        "message": msg.content,
-                                        "avatar": str(msg.author.display_avatar.url),
-                                        "has_image": bool(msg.attachments and any(att.content_type and att.content_type.startswith("image/") for att in msg.attachments)),
-                                        "image_url": str(next((att.url for att in msg.attachments if att.content_type and att.content_type.startswith("image/")), None))
-                                    })
-                                    processed_content.add(msg.content.strip())
-                            
-                            # Include bot messages with images (but only if they're interesting)
-                            elif msg.author.bot and msg.attachments:
-                                image_attachments = [att for att in msg.attachments if att.content_type and att.content_type.startswith("image/")]
-                                if image_attachments and (msg.content.strip() or len(image_attachments) > 0):
-                                    messages.append({
-                                        "name": msg.author.display_name,
-                                        "message": msg.content if msg.content.strip() else "🖼️ *shared an image*",
+                                        "message": "📹 *shared a video*" if video_attachments[0].content_type.startswith("video/") else "🎮 *shared a GIF*",
                                         "avatar": str(msg.author.display_avatar.url),
                                         "has_image": True,
-                                        "image_url": str(image_attachments[0].url)
+                                        "image_url": str(video_attachments[0].url),
+                                        "is_video": True,
+                                        "guild": message.guild
+                                    })
+                            
+                            # Include bot messages with videos/GIFs
+                            elif msg.author.bot and msg.attachments:
+                                media_attachments = [att for att in msg.attachments if 
+                                                  att.content_type and (att.content_type.startswith("image/") or 
+                                                                     att.content_type.startswith("video/") or
+                                                                     att.filename.lower().endswith(".gif"))]
+                                
+                                if media_attachments:
+                                    is_video = media_attachments[0].content_type.startswith("video/") or media_attachments[0].filename.lower().endswith(".gif")
+                                    
+                                    # Clean bot message content from emoji
+                                    clean_content = re.sub(r'<a?:[a-zA-Z0-9_]+:[0-9]+>', '', msg.content) if msg.content else ""
+                                    
+                                    messages.append({
+                                        "name": msg.author.display_name,
+                                        "message": clean_content if clean_content.strip() else 
+                                                  ("� *shared a video*" if is_video else "�🖼️ *shared an image*"),
+                                        "avatar": str(msg.author.display_avatar.url),
+                                        "has_image": True,
+                                        "image_url": str(media_attachments[0].url),
+                                        "is_video": is_video,
+                                        "guild": message.guild
                                     })
                         
                         # Limit to 40 valid messages (increased from 20)
@@ -696,7 +738,7 @@ async def on_message(message):
                     if len(messages) < 3:
                         await message.reply("Not enough valid messages to create a meme! Need at least 3 messages.")
                         return
-                        
+                    
                     messages = messages[::-1]  # Reverse to get chronological order
                     
                     # Create a 22-second video (passing duration parameter)
