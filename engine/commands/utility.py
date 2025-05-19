@@ -7,7 +7,7 @@ from typing import Optional
 from pytube import Search
 from urllib.parse import urlparse, parse_qs, quote
 from bs4 import BeautifulSoup
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 from contextlib import contextmanager
 from filelock import FileLock
 from engine.utils import load_env, get_reddit_access_token, unsplash_env, hf_env, pexels_env
@@ -2664,3 +2664,121 @@ async def reason_command(
             f"❌ Error: {str(e)}",
             ephemeral=True
         )
+
+@app_commands.command(name="edit-image", description="Edit an image using Seeyuh Native Image Editor. Upload an image and describe the edit you want.")
+@app_commands.describe(
+    image="The image to edit (attachment)",
+    prompt="Describe the edit you want (e.g., 'add a llama next to me')"
+)
+async def edit_image_command(
+    interaction: discord.Interaction,
+    image: discord.Attachment,
+    prompt: str
+):
+    await interaction.response.defer()
+
+    # Check file type and size
+    if not image.content_type or not image.content_type.startswith("image/"):
+        await interaction.followup.send("Please upload a valid image file.")
+        return
+    if image.size > 10 * 1024 * 1024:
+        await interaction.followup.send("Image size exceeds 10 MB limit. Please upload a smaller image.")
+        return
+
+    try:
+        # Download the image
+        async with aiohttp.ClientSession() as session:
+            async with session.get(image.url) as resp:
+                if resp.status != 200:
+                    await interaction.followup.send("Failed to download the image.")
+                    return
+                img_bytes = await resp.read()
+
+        pil_image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+
+        # Send initial embed with original image as thumbnail
+        embed = discord.Embed(
+            title="Editing Image with Seeyuh Native Image Editor (powered by Google Gemini)",
+            description=f"**Prompt:** {prompt}",
+            color=discord.Color.blue()
+        )
+        embed.set_thumbnail(url=image.url)
+        embed.set_footer(text="Original image preview")
+        await interaction.followup.send(embed=embed)
+
+        # Prepare Gemini client and call
+        client = genai.Client()
+        text_input = prompt
+        response = client.models.generate_content(
+            model="gemini-2.0-flash-preview-image-generation",
+            contents=[text_input, pil_image],
+            config=genai.types.GenerateContentConfig(
+                response_modalities=["TEXT", "IMAGE"]
+            )
+        )
+
+        # Process response
+        sent = False
+        for part in response.candidates[0].content.parts:
+            if hasattr(part, 'text') and part.text:
+                await interaction.followup.send(part.text)
+                sent = True
+            elif hasattr(part, 'inline_data') and part.inline_data is not None:
+                img_result = Image.open(io.BytesIO(part.inline_data.data)).convert("RGBA")
+
+                # Add watermark: 'AI' text and bot avatar at bottom right
+                draw = ImageDraw.Draw(img_result)
+                font_size = max(16, img_result.width // 32)
+                try:
+                    font = ImageFont.truetype("arial.ttf", font_size)
+                except Exception:
+                    font = ImageFont.load_default()
+                text = "AI"
+                # PIL >= 8.0.0: use font.getbbox, else fallback to font.getsize
+                try:
+                    bbox = font.getbbox(text)
+                    text_width, text_height = bbox[2] - bbox[0], bbox[3] - bbox[1]
+                except AttributeError:
+                    text_width, text_height = font.getsize(text)
+                margin = 8
+                x = img_result.width - text_width - font_size - margin * 2
+                y = img_result.height - text_height - margin
+                # Draw text with shadow for visibility
+                draw.text((x+1, y+1), text, font=font, fill=(0,0,0,180))
+                draw.text((x, y), text, font=font, fill=(255,255,255,220))
+
+                # Add bot avatar as small circle
+                try:
+                    avatar_bytes = None
+                    if interaction.client.user.avatar:
+                        avatar_url = interaction.client.user.avatar.url
+                        async with aiohttp.ClientSession() as session:
+                            async with session.get(avatar_url) as resp:
+                                if resp.status == 200:
+                                    avatar_bytes = await resp.read()
+                    if avatar_bytes:
+                        avatar_img = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
+                        avatar_size = font_size * 2
+                        avatar_img = avatar_img.resize((avatar_size, avatar_size), Image.LANCZOS)
+                        # Make avatar circular
+                        mask = Image.new("L", (avatar_size, avatar_size), 0)
+                        mask_draw = ImageDraw.Draw(mask)
+                        mask_draw.ellipse((0, 0, avatar_size, avatar_size), fill=255)
+                        avatar_img.putalpha(mask)
+                        avatar_x = img_result.width - avatar_size - margin
+                        avatar_y = img_result.height - avatar_size - margin
+                        img_result.alpha_composite(avatar_img, (avatar_x, avatar_y))
+                except Exception as e:
+                    logging.warning(f"Failed to add avatar watermark: {e}")
+
+                with io.BytesIO() as output:
+                    img_result.save(output, format="PNG")
+                    output.seek(0)
+                    file = discord.File(fp=output, filename="edited_image.png")
+                    await interaction.followup.send(file=file)
+                    sent = True
+        if not sent:
+            await interaction.followup.send("No result was returned by the AI.")
+    except Exception as e:
+        logging.error(f"edit-image error: {e}")
+        await interaction.followup.send(f"❌ Error: {str(e)}")

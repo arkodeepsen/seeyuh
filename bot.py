@@ -320,6 +320,7 @@ utility.aisearch_command.category = "Utility"
 utility.news_command.category = "Utility"
 utility.chat_command.category = "Utility"
 utility.reason_command.category = "Utility"
+utility.edit_image_command.category = "Utility"
 bot.tree.add_command(utility.say_command)
 bot.tree.add_command(utility.emoji_command)
 bot.tree.add_command(utility.avatar_command)
@@ -349,6 +350,7 @@ bot.tree.add_command(utility.aisearch_command)
 bot.tree.add_command(utility.news_command)
 bot.tree.add_command(utility.chat_command)
 bot.tree.add_command(utility.reason_command)
+bot.tree.add_command(utility.edit_image_command)
 
 # Register the commands from fun.py
 fun.roast_command.category = "Fun"

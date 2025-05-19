@@ -195,6 +195,45 @@ async def handle_attachment(bot, message, attachment):
                     await message.reply("Failed to download the file.")
                     return
 
+        # If the file is an image, use Gemini image generation model for editing
+        if content_type.startswith('image/'):
+            from PIL import Image
+            import io
+            from google import genai
+            try:
+                pil_image = Image.open(file_path).convert("RGB")
+                # Use the message content as the prompt
+                text_input = message.content.strip().replace(f"<@{bot.user.id}>", "").replace("seeyuh", "").strip()
+                if not text_input:
+                    text_input = "Explain the content of the image."
+                client = genai.Client()
+                response = client.models.generate_content(
+                    model="gemini-2.0-flash-preview-image-generation",
+                    contents=[text_input, pil_image],
+                    config=genai.types.GenerateContentConfig(
+                        response_modalities=["TEXT", "IMAGE"]
+                    )
+                )
+                sent = False
+                for part in response.candidates[0].content.parts:
+                    if hasattr(part, 'text') and part.text:
+                        await message.reply(part.text)
+                        sent = True
+                    elif hasattr(part, 'inline_data') and part.inline_data is not None:
+                        img_result = Image.open(io.BytesIO(part.inline_data.data))
+                        with io.BytesIO() as output:
+                            img_result.save(output, format="PNG")
+                            output.seek(0)
+                            file = discord.File(fp=output, filename="edited_image.png")
+                            await message.reply(file=file)
+                            sent = True
+                if sent:
+                    return "Image edited and sent."
+            except Exception as e:
+                logging.error(f"Gemini image edit error: {e}")
+                await message.reply(f"❌ Error editing image: {str(e)}")
+                return f"Error editing image: {str(e)}"
+
         # Check if file is video
         is_av = attachment.content_type.startswith(('video/', 'audio/'))
         
@@ -209,7 +248,7 @@ async def handle_attachment(bot, message, attachment):
 
         # Upload file with video flag
         sample_file = prep_file(file_path, attachment.filename, is_av=is_av)
-        
+
         # Retrieve the last relevant message, prioritizing the user’s recent message
         last_message = fetch_recent_message(supabase, guild_id=str(message.guild.id), user_id=str(message.author.id))
 
