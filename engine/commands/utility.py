@@ -2698,7 +2698,7 @@ async def edit_image_command(
 
         # Send initial embed with original image as thumbnail
         embed = discord.Embed(
-            title="Editing Image with Seeyuh Native Image Editor (powered by Google Gemini)",
+            title="Editing Image with Seeyuh Native Image Editor...",
             description=f"**Prompt:** {prompt}",
             color=discord.Color.blue()
         )

@@ -508,6 +508,116 @@ greeting_emojis = ["👋", "😊", "😃", "🙌", "🤗"]
 
 @bot.event
 async def on_message(message):
+    # Also check for direct image URLs in replied-to messages
+    if (bot.user.mentioned_in(message) or "seeyuh" in message.content.lower()) and message.reference and not is_image_request(message.content):
+        try:
+            original_message = await message.channel.fetch_message(message.reference.message_id)
+            import re, io
+            from PIL import Image
+            image_url_pattern = r'(https?://[^\s]+\.(?:png|jpg|jpeg|webp|gif|bmp|tiff|svg)(?:\?[^\s]*)?)'
+            matches = re.findall(image_url_pattern, original_message.content, re.IGNORECASE)
+            if matches:
+                img_url = matches[0]
+                async with message.channel.typing():
+                    try:
+                        import aiohttp
+                        async with aiohttp.ClientSession() as session:
+                            async with session.get(img_url) as resp:
+                                if resp.status == 200:
+                                    img_bytes = await resp.read()
+                                    pil_image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+                                else:
+                                    await message.reply("Failed to download the image from the replied message's URL.")
+                                    return
+                        # Use Gemini image generation model
+                        from google import genai
+                        text_input = message.content.strip().replace(f"<@{bot.user.id}>", "").replace("seeyuh", "").replace(img_url, "").strip()
+                        if not text_input:
+                            text_input = "Explain the content of this image."
+                        client = genai.Client()
+                        response = client.models.generate_content(
+                            model="gemini-2.0-flash-preview-image-generation",
+                            contents=[text_input, pil_image],
+                            config=genai.types.GenerateContentConfig(
+                                response_modalities=["TEXT", "IMAGE"]
+                            )
+                        )
+                        sent = False
+                        for part in response.candidates[0].content.parts:
+                            if hasattr(part, 'text') and part.text:
+                                await message.reply(part.text)
+                                sent = True
+                            elif hasattr(part, 'inline_data') and part.inline_data is not None:
+                                img_result = Image.open(io.BytesIO(part.inline_data.data))
+                                with io.BytesIO() as output:
+                                    img_result.save(output, format="PNG")
+                                    output.seek(0)
+                                    file = discord.File(fp=output, filename="edited_image.png")
+                                    await message.reply(file=file)
+                                    sent = True
+                        if sent:
+                            return
+                    except Exception as e:
+                        import logging
+                        logging.error(f"Error processing replied image URL: {e}")
+                        await message.reply(f"❌ Error processing replied image URL: {str(e)}")
+                        return
+        except discord.NotFound:
+            await message.reply("The original message could not be found.")
+            return
+    # Check for direct image URLs in the message content
+    import re, io
+    from PIL import Image
+    # Improved image URL pattern: supports http/https, query params, and more extensions
+    image_url_pattern = r'(https?://[^\s]+\.(?:png|jpg|jpeg|webp|gif|bmp|tiff|svg)(?:\?[^\s]*)?)'
+    matches = re.findall(image_url_pattern, message.content, re.IGNORECASE)
+    # Also check for http (not just https)
+    if (bot.user.mentioned_in(message) or "seeyuh" in message.content.lower()) and matches and not is_image_request(message.content):
+        img_url = matches[0]
+        async with message.channel.typing():
+            try:
+                import aiohttp
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(img_url) as resp:
+                        if resp.status == 200:
+                            img_bytes = await resp.read()
+                            pil_image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+                        else:
+                            await message.reply("Failed to download the image from the provided URL.")
+                            return
+                # Use Gemini image generation model
+                from google import genai
+                text_input = message.content.strip().replace(f"<@{bot.user.id}>", "").replace("seeyuh", "").replace(img_url, "").strip()
+                if not text_input:
+                    text_input = "Explain the content of this image."
+                client = genai.Client()
+                response = client.models.generate_content(
+                    model="gemini-2.0-flash-preview-image-generation",
+                    contents=[text_input, pil_image],
+                    config=genai.types.GenerateContentConfig(
+                        response_modalities=["TEXT", "IMAGE"]
+                    )
+                )
+                sent = False
+                for part in response.candidates[0].content.parts:
+                    if hasattr(part, 'text') and part.text:
+                        await message.reply(part.text)
+                        sent = True
+                    elif hasattr(part, 'inline_data') and part.inline_data is not None:
+                        img_result = Image.open(io.BytesIO(part.inline_data.data))
+                        with io.BytesIO() as output:
+                            img_result.save(output, format="PNG")
+                            output.seek(0)
+                            file = discord.File(fp=output, filename="edited_image.png")
+                            await message.reply(file=file)
+                            sent = True
+                if sent:
+                    return
+            except Exception as e:
+                import logging
+                logging.error(f"Error processing image URL: {e}")
+                await message.reply(f"❌ Error processing image URL: {str(e)}")
+                return
     if message.author.bot:
         return
     
