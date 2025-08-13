@@ -23,6 +23,32 @@ GOOGLE_API_KEY = os.getenv('GEMINI_PRO_API_KEY')
 genai.configure(api_key=GOOGLE_API_KEY)
 from engine.ai.gemini import genai_client
 
+async def wait_for_file_active(file_obj, timeout_seconds: int = 300, poll_interval: float = 1.5):
+    """Poll Gemini Files API until the uploaded file becomes ACTIVE.
+
+    Returns the refreshed file object once ACTIVE. Raises on FAILED or timeout.
+    """
+    start_time = time.time()
+    name = getattr(file_obj, 'name', file_obj)
+    last_state = None
+    while True:
+        try:
+            refreshed = await asyncio.to_thread(genai.get_file, name)
+            state = getattr(getattr(refreshed, 'state', None), 'name', None) or getattr(refreshed, 'state', None)
+            if state != last_state:
+                logging.info(f"File {name} state: {state}")
+                last_state = state
+            if state == 'ACTIVE':
+                return refreshed
+            if state == 'FAILED':
+                raise RuntimeError(f"File {name} processing failed")
+        except Exception as e:
+            logging.debug(f"wait_for_file_active polling error: {e}")
+
+        if time.time() - start_time > timeout_seconds:
+            raise TimeoutError(f"File {name} did not become ACTIVE within {timeout_seconds}s")
+        await asyncio.sleep(poll_interval)
+
 async def get_media_duration(file_path: str, content_type: str) -> float:
     """Get media duration using ffprobe with fallback"""
     if not os.path.exists(file_path):
@@ -247,8 +273,14 @@ async def handle_attachment(bot, message, attachment):
                 return
             processing_msg = await message.reply(f"Processing {duration:.1f} second media file, please wait...")
 
-        # Upload file with video flag
+        # Upload file with video flag and wait ACTIVE
         sample_file = prep_file(file_path, attachment.filename, is_av=is_av)
+        try:
+            sample_file = await wait_for_file_active(sample_file)
+        except Exception as e:
+            logging.error(f"File did not become ACTIVE: {e}")
+            await message.reply("❌ File upload failed to process. Please try again.")
+            return
 
         # Retrieve the last relevant message, prioritizing the user’s recent message
         last_message = fetch_recent_message(supabase, guild_id=str(message.guild.id), user_id=str(message.author.id))
@@ -489,7 +521,11 @@ async def handle_message_files(bot, message):
                     if isinstance(res, Exception):
                         continue
                     uploaded_imgs.append(res)
-                contents.extend(uploaded_imgs)
+                # Ensure all uploaded files are ACTIVE before usage
+                active_imgs = await asyncio.gather(
+                    *[wait_for_file_active(f) for f in uploaded_imgs], return_exceptions=True
+                )
+                contents.extend([f for f in active_imgs if not isinstance(f, Exception)])
             else:
                 # Inline small images
                 for p in image_paths[:10]:
@@ -537,6 +573,11 @@ async def handle_message_files(bot, message):
                 if isinstance(res, Exception):
                     continue
                 uploaded.append(res)
+            # Wait for ACTIVE state on all files before generation
+            if uploaded:
+                uploaded = [f for f in await asyncio.gather(
+                    *[wait_for_file_active(f) for f in uploaded], return_exceptions=False
+                )]
             if not uploaded:
                 return None
             model = genai.GenerativeModel(PRIMARY_MODEL)
@@ -635,6 +676,12 @@ async def handle_interaction(
             await interaction.followup.send(f"Processing {duration:.1f} second media file, please wait...")
 
         sample_file = prep_file(file_path, file.filename, is_av=is_av)
+        try:
+            sample_file = await wait_for_file_active(sample_file)
+        except Exception as e:
+            logging.error(f"File did not become ACTIVE: {e}")
+            await interaction.followup.send("❌ File upload failed to process. Please try again.")
+            return
 
         # Determine the prompt
         if not prompt:

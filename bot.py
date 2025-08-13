@@ -5,7 +5,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Template
 from engine.utils import load_env, intents, update_presence
-from engine.db import fetch_recent_message, save_message_to_db, retry_check_and_update_guild_entry, generate_and_cache_invites, sync_guilds_and_users
+from engine.db import fetch_recent_message, save_message_to_db, retry_check_and_update_guild_entry, generate_and_cache_invites, sync_guilds_and_users, get_welcome_settings
 from engine.ai.gemini import get_ai_response, code_ai_response
 from engine.ai.gemini_multimodal import handle_attachment
 from engine.commands.video import generate_meme_video
@@ -329,6 +329,12 @@ utility.news_command.category = "Utility"
 utility.chat_command.category = "Utility"
 utility.reason_command.category = "Utility"
 utility.edit_image_command.category = "Utility"
+utility.welcome_enable.category = "Utility"
+utility.welcome_disable.category = "Utility"
+utility.welcome_message.category = "Utility"
+utility.welcome_channel.category = "Utility"
+utility.welcome_show.category = "Utility"
+utility.welcome_reset.category = "Utility"
 bot.tree.add_command(utility.say_command)
 bot.tree.add_command(utility.emoji_command)
 bot.tree.add_command(utility.avatar_command)
@@ -359,6 +365,12 @@ bot.tree.add_command(utility.news_command)
 bot.tree.add_command(utility.chat_command)
 bot.tree.add_command(utility.reason_command)
 bot.tree.add_command(utility.edit_image_command)
+bot.tree.add_command(utility.welcome_enable)
+bot.tree.add_command(utility.welcome_disable)
+bot.tree.add_command(utility.welcome_message)
+bot.tree.add_command(utility.welcome_channel)
+bot.tree.add_command(utility.welcome_show)
+bot.tree.add_command(utility.welcome_reset)
 
 # Register the commands from fun.py
 fun.roast_command.category = "Fun"
@@ -513,6 +525,428 @@ async def on_guild_join(guild):
 
 # List of greeting emojis
 greeting_emojis = ["👋", "😊", "😃", "🙌", "🤗"]
+
+def _build_welcome_video_bytes(avatar_png_bytes: bytes, display_name: str, guild_name: str, guild_icon_bytes: bytes = None, bot_avatar_bytes: bytes = None) -> bytes:
+    from io import BytesIO
+    from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps
+    import numpy as np
+    from moviepy.editor import ImageClip, AudioFileClip
+    from moviepy.video.VideoClip import VideoClip
+    from moviepy.video.compositing.CompositeVideoClip import CompositeVideoClip
+    from gtts import gTTS
+    import edge_tts
+    import asyncio
+    import tempfile, os, random
+
+    width, height = 1280, 720
+    # Gradient background
+    bg = Image.new('RGB', (width, height), '#0b1021')
+    draw = ImageDraw.Draw(bg)
+    for y in range(height):
+        blend = y / height
+        color = (
+            int(11 + (25 - 11) * blend),
+            int(16 + (55 - 16) * blend),
+            int(33 + (105 - 33) * blend)
+        )
+        draw.line([(0, y), (width, y)], fill=color)
+
+    # Soft vignette
+    vignette = Image.new('L', (width, height), 0)
+    vd = ImageDraw.Draw(vignette)
+    vd.ellipse([(-int(width*0.2), -int(height*0.2)), (int(width*1.2), int(height*1.2))], fill=255)
+    vignette = vignette.filter(ImageFilter.GaussianBlur(120))
+    bg = Image.composite(bg, Image.new('RGB', (width, height), 'black'), ImageOps.invert(vignette).filter(ImageFilter.GaussianBlur(0)))
+
+    # Enhanced decorative elements
+    for cx, cy, r, color in [
+        (width*0.15, height*0.25, 200, (52, 152, 219)),
+        (width*0.85, height*0.75, 240, (155, 89, 182)),
+        (width*0.75, height*0.2, 180, (46, 204, 113)),
+        (width*0.3, height*0.8, 160, (241, 196, 15)),
+    ]:
+        # Multiple layered glows for depth
+        for layer, (scale, alpha) in enumerate([(1.2, 120), (0.8, 160), (0.5, 200)]):
+            blob = Image.new('RGBA', (int(r*2*scale), int(r*2*scale)), (0, 0, 0, 0))
+            bd = ImageDraw.Draw(blob)
+            bd.ellipse([(0, 0), (r*2*scale, r*2*scale)], fill=color + (alpha,))
+            blob = blob.filter(ImageFilter.GaussianBlur(int(80*scale)))
+            bg.paste(blob, (int(cx - r*scale), int(cy - r*scale)), blob)
+
+    # Avatar circle with ring and shadow
+    avatar = Image.open(BytesIO(avatar_png_bytes)).convert('RGBA')
+    avatar = avatar.resize((360, 360), Image.LANCZOS)
+    mask = Image.new('L', (360, 360), 0)
+    ImageDraw.Draw(mask).ellipse([(0, 0), (360, 360)], fill=255)
+    avatar = Image.composite(avatar, Image.new('RGBA', (360, 360), (0, 0, 0, 0)), mask)
+    # Shadow
+    shadow = Image.new('RGBA', (380, 380), (0, 0, 0, 0))
+    sd = ImageDraw.Draw(shadow)
+    sd.ellipse([(0, 0), (380, 380)], fill=(0, 0, 0, 160))
+    shadow = shadow.filter(ImageFilter.GaussianBlur(20))
+    bg.paste(shadow, (int(width*0.08) - 10, int(height*0.45) - 10), shadow)
+    bg.paste(avatar, (int(width*0.08), int(height*0.45)), avatar)
+    # Ring
+    ring = Image.new('RGBA', (380, 380), (0, 0, 0, 0))
+    ring_d = ImageDraw.Draw(ring)
+    ring_d.ellipse([(10, 10), (370, 370)], outline=(255, 255, 255, 220), width=6)
+    ring = ring.filter(ImageFilter.GaussianBlur(1))
+    bg.paste(ring, (int(width*0.08) - 10, int(height*0.45) - 10), ring)
+
+    # Fonts
+    def load_font(path_candidates, size):
+        for p in path_candidates:
+            if os.path.exists(p):
+                try:
+                    return ImageFont.truetype(p, size)
+                except Exception:
+                    pass
+        return ImageFont.load_default()
+
+    bold_font = load_font([
+        "assets/fonts/arialbd.ttf",
+        "assets/fonts/ARIALBD 1.TTF",
+        "assets/fonts/ARIALNB.TTF",
+    ], 78)
+    regular_font = load_font([
+        "assets/fonts/arial.ttf",
+        "assets/fonts/ArialCE.ttf",
+        "assets/fonts/ARIALN.TTF",
+    ], 44)
+
+    # Text with shadow
+    def draw_text_with_shadow(img, xy, text, font, fill=(255, 255, 255), shadow=(0, 0, 0), offset=(2, 2)):
+        d = ImageDraw.Draw(img)
+        x, y = xy
+        d.text((x + offset[0], y + offset[1]), text, font=font, fill=shadow)
+        d.text((x, y), text, font=font, fill=fill)
+
+    # Add server icon and bot avatar
+    if guild_icon_bytes:
+        try:
+            guild_icon = Image.open(BytesIO(guild_icon_bytes)).convert('RGBA')
+            guild_icon = guild_icon.resize((120, 120), Image.LANCZOS)
+            # Circular mask for guild icon
+            mask = Image.new('L', (120, 120), 0)
+            ImageDraw.Draw(mask).ellipse([(0, 0), (120, 120)], fill=255)
+            guild_icon = Image.composite(guild_icon, Image.new('RGBA', (120, 120), (0, 0, 0, 0)), mask)
+            # Position in top-right
+            bg.paste(guild_icon, (width - 180, 40), guild_icon)
+        except Exception:
+            pass
+    
+    if bot_avatar_bytes:
+        try:
+            bot_avatar = Image.open(BytesIO(bot_avatar_bytes)).convert('RGBA')
+            bot_avatar = bot_avatar.resize((100, 100), Image.LANCZOS)
+            # Circular mask for bot avatar
+            mask = Image.new('L', (100, 100), 0)
+            ImageDraw.Draw(mask).ellipse([(0, 0), (100, 100)], fill=255)
+            bot_avatar = Image.composite(bot_avatar, Image.new('RGBA', (100, 100), (0, 0, 0, 0)), mask)
+            # Position in bottom-right
+            bg.paste(bot_avatar, (width - 140, height - 140), bot_avatar)
+        except Exception:
+            pass
+
+    title = f"Welcome, {display_name}!"
+    subtitle = f"to {guild_name}"
+
+    # Text positioning (more left, balanced to avoid avatar and cutoff)
+    tx = int(width*0.15)
+    ty = int(height*0.15)
+    draw_text_with_shadow(bg, (tx, ty), title, bold_font)
+    draw_text_with_shadow(bg, (tx, ty + 90), subtitle, regular_font, fill=(220, 240, 255))
+
+    # Convert to frame
+    frame = np.array(bg)
+    video_duration = 6.0
+    base_clip = (
+        ImageClip(frame)
+        .set_duration(video_duration)
+        .resize(lambda t: 1.0 + 0.04 * np.sin(2 * np.pi * t / video_duration) + 0.015 * t)  # breathing zoom
+        .set_position(lambda t: (
+            -6 + 12 * (t / video_duration) + 3 * np.sin(3 * np.pi * t / video_duration),
+            -4 + 8 * (t / video_duration) + 2 * np.cos(2 * np.pi * t / video_duration)
+        ))  # reduced movement to prevent cutoff
+    )
+
+    # Random TTS selection
+    spoken = f"Welcome {display_name} to {guild_name}."
+    
+    async def generate_audio(text, path):
+        # Updated list with verified working voices from Edge TTS 7.2.0
+        edge_voices = [
+            "en-US-AriaNeural",         # Female
+            "en-US-JennyNeural",        # Female  
+            "en-US-GuyNeural",          # Male
+            "en-US-ChristopherNeural",  # Male
+            "en-US-AndrewNeural",       # Male
+            "en-US-EmmaNeural",         # Female
+            "en-US-BrianNeural",        # Male
+            "en-US-AvaNeural",          # Female
+            "en-US-EricNeural",         # Male
+            "en-US-MichelleNeural",     # Female
+            "en-US-RogerNeural",        # Male
+            "en-US-SteffanNeural"       # Male
+        ]
+        
+        use_edge = random.choice([True, True, True, True, True, True, True, True, True, True, True, True, False])  # 95% chance for Edge TTS
+        
+        if use_edge:
+            # Try multiple voices if one fails
+            tried_voices = set()
+            max_attempts = min(3, len(edge_voices))
+            
+            for attempt in range(max_attempts):
+                try:
+                    remaining_voices = [v for v in edge_voices if v not in tried_voices]
+                    if not remaining_voices:
+                        remaining_voices = edge_voices  # Reset if all tried
+                        
+                    voice = random.choice(remaining_voices)
+                    tried_voices.add(voice)
+                    
+                    print(f"[WELCOME] Attempt {attempt + 1}: Using Edge TTS voice: {voice}")
+                    
+                    # Clean up any existing file first
+                    if os.path.exists(path):
+                        try:
+                            os.remove(path)
+                        except:
+                            pass
+                    
+                    communicate = edge_tts.Communicate(text, voice)
+                    await communicate.save(path)
+                    
+                    # Verify the file was created and has content
+                    if os.path.exists(path) and os.path.getsize(path) > 0:
+                        size = os.path.getsize(path)
+                        print(f"[WELCOME] ✅ Edge TTS succeeded with {voice} ({size} bytes)")
+                        return
+                    else:
+                        print(f"[WELCOME] ⚠️ Edge TTS created empty/no file with {voice}")
+                        
+                except Exception as e:
+                    print(f"[WELCOME] ❌ Edge TTS failed with {voice}: {e}")
+                    continue
+            
+            print(f"[WELCOME] All Edge TTS attempts failed, falling back to gTTS")
+        
+        # gTTS fallback
+        print(f"[WELCOME] Using gTTS {'(fallback)' if use_edge else '(by choice)'}")
+        try:
+            tts = gTTS(text=text, lang='en', tld='com', slow=False)
+            tts.save(path)
+            
+            if os.path.exists(path) and os.path.getsize(path) > 0:
+                size = os.path.getsize(path)
+                print(f"[WELCOME] ✅ gTTS succeeded ({size} bytes)")
+            else:
+                print(f"[WELCOME] ❌ gTTS failed to create valid file")
+        except Exception as e:
+            print(f"[WELCOME] ❌ gTTS error: {e}")
+            raise
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        audio_path = os.path.join(tmpdir, 'welcome.mp3')
+        video_path = os.path.join(tmpdir, 'welcome.mp4')
+        
+        # Generate audio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(generate_audio(spoken, audio_path))
+        finally:
+            loop.close()
+        audio_clip = None
+        final = None
+        glow_clip = None
+        try:
+            audio_clip = AudioFileClip(audio_path)
+            # Align durations to avoid reading past audio end
+            safe_duration = min(base_clip.duration or 0, audio_clip.duration or 0) or (audio_clip.duration or base_clip.duration)
+            base_clip = base_clip.set_duration(safe_duration)
+            audio_clip = audio_clip.subclip(0, safe_duration)
+            # Multiple dynamic overlays
+            width_i, height_i = frame.shape[1], frame.shape[0]
+            
+            # Prismatic light sweep
+            def prismatic_frame(t: float):
+                overlay = Image.new('RGBA', (width_i, height_i), (0, 0, 0, 0))
+                d = ImageDraw.Draw(overlay)
+                progress = t / safe_duration
+                
+                # Multiple sweeping bands
+                for band_idx, (speed, color, thickness) in enumerate([
+                    (1.2, (52, 152, 219), 80),
+                    (0.8, (155, 89, 182), 60),
+                    (1.5, (46, 204, 113), 40),
+                ]):
+                    band_x = int((progress * speed) * (width_i + thickness*2)) - thickness
+                    for i in range(-thickness, thickness, 2):
+                        alpha = max(0, 200 - abs(i) * 3)
+                        d.rectangle([(band_x + i, 0), (band_x + i + 1, height_i)], 
+                                  fill=color + (alpha // 12,))
+                return np.array(overlay.convert('RGB'))
+            
+            # Particle effects
+            def particle_frame(t: float):
+                overlay = Image.new('RGBA', (width_i, height_i), (0, 0, 0, 0))
+                d = ImageDraw.Draw(overlay)
+                rng = np.random.RandomState(int(t * 1000) % 1000)
+                
+                num_particles = 40
+                for i in range(num_particles):
+                    # Floating particles
+                    x = (rng.random() * width_i + 50 * np.sin(t * 2 + i)) % width_i
+                    y = (rng.random() * height_i + 30 * np.cos(t * 1.5 + i)) % height_i
+                    size = 2 + int(3 * np.sin(t * 3 + i))
+                    alpha = int(100 + 80 * np.sin(t * 4 + i * 0.5))
+                    colors = [(52, 152, 219), (155, 89, 182), (46, 204, 113), (241, 196, 15)]
+                    color = colors[i % len(colors)]
+                    d.ellipse([(x-size, y-size), (x+size, y+size)], fill=color + (max(0, alpha),))
+                
+                return np.array(overlay.convert('RGB'))
+            
+            prismatic_clip = VideoClip(prismatic_frame).set_duration(safe_duration).set_fps(30).set_opacity(0.25)
+            particle_clip = VideoClip(particle_frame).set_duration(safe_duration).set_fps(24).set_opacity(0.15)
+            
+            final = CompositeVideoClip([base_clip, prismatic_clip, particle_clip]).set_audio(audio_clip)
+            final.write_videofile(
+                video_path,
+                fps=30,
+                codec='libx264',
+                audio_codec='aac',
+                preset='medium',
+                threads=2,
+                verbose=False,
+                logger=None
+            )
+        finally:
+            if final is not None:
+                try:
+                    final.close()
+                except Exception:
+                    pass
+            try:
+                base_clip.close()
+            except Exception:
+                pass
+            if audio_clip is not None:
+                try:
+                    audio_clip.close()
+                except Exception:
+                    pass
+            for clip in [prismatic_clip, particle_clip]:
+                try:
+                    if clip is not None:
+                        clip.close()
+                except Exception:
+                    pass
+        with open(video_path, 'rb') as f:
+            return f.read()
+
+@bot.event
+async def on_member_join(member):
+    # Check welcome settings first
+    try:
+        from engine.db import get_welcome_settings
+        settings = get_welcome_settings(str(member.guild.id))
+        
+        # If welcome is disabled, do nothing
+        if not settings.get('enabled', True):
+            print(f"[WELCOME] Welcome disabled for guild {member.guild.name}")
+            return
+            
+        # Determine channel - use configured channel or fallback to default
+        channel = None
+        if settings.get('channel_id'):
+            try:
+                channel = member.guild.get_channel(int(settings['channel_id']))
+                if not channel or not channel.permissions_for(member.guild.me).send_messages:
+                    channel = None
+            except (ValueError, AttributeError):
+                channel = None
+        
+        # Fallback to default channel selection
+        if not channel:
+            preferred_names = ["welcome", "w3lcome", "welcome-channel"]
+            for name in preferred_names:
+                channel = discord.utils.get(member.guild.text_channels, name=name)
+                if channel and channel.permissions_for(member.guild.me).send_messages:
+                    break
+            else:
+                channel = member.guild.system_channel or next((c for c in member.guild.text_channels if c.permissions_for(member.guild.me).send_messages), None)
+
+        if not channel:
+            print(f"[WELCOME] No valid channel found for guild {member.guild.name}")
+            return
+
+        # Get custom message or use default
+        custom_message = settings.get('message')
+        if custom_message:
+            # Replace placeholders in custom message
+            welcome_text = custom_message.format(
+                mention=member.mention,
+                user=member.display_name,
+                guild=member.guild.name,
+                intro=f"Welcome {member.display_name}",
+                roles=len(member.guild.roles)
+            )
+        else:
+            # Default message
+            welcome_text = f"Welcome {member.mention} to {member.guild.name}."
+
+        avatar_url = member.display_avatar.replace(size=256, static_format='png').url
+        async with aiohttp.ClientSession() as session:
+            async with session.get(avatar_url) as resp:
+                avatar_bytes = await resp.read() if resp.status == 200 else None
+        
+        if not avatar_bytes:
+            await channel.send(welcome_text)
+            return
+
+        # Get guild icon and bot avatar
+        guild_icon_bytes = None
+        bot_avatar_bytes = None
+        
+        try:
+            if member.guild.icon:
+                icon_url = member.guild.icon.replace(size=256, static_format='png').url
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(icon_url) as resp:
+                        if resp.status == 200:
+                            guild_icon_bytes = await resp.read()
+        except Exception:
+            pass
+        
+        try:
+            if bot.user.avatar:
+                bot_url = bot.user.avatar.replace(size=256, static_format='png').url
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(bot_url) as resp:
+                        if resp.status == 200:
+                            bot_avatar_bytes = await resp.read()
+        except Exception:
+            pass
+
+        # Offload heavy rendering
+        loop = asyncio.get_running_loop()
+        video_bytes = await loop.run_in_executor(None, _build_welcome_video_bytes, avatar_bytes, member.display_name, member.guild.name, guild_icon_bytes, bot_avatar_bytes)
+        import io
+        file = discord.File(fp=io.BytesIO(video_bytes), filename='welcome.mp4')
+        await channel.send(content=welcome_text, file=file)
+        
+    except Exception as e:
+        logging.exception(f"Failed to send welcome for {member}: {e}")
+        # Fallback to simple message
+        try:
+            # Try to find any channel to send fallback message
+            fallback_channel = member.guild.system_channel or next((c for c in member.guild.text_channels if c.permissions_for(member.guild.me).send_messages), None)
+            if fallback_channel:
+                await fallback_channel.send(f"Welcome {member.mention} to {member.guild.name}.")
+        except Exception:
+            pass  # If even fallback fails, just log and continue
 
 @bot.event
 async def on_message(message):

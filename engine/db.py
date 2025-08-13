@@ -28,6 +28,8 @@ BACKUP_DIR = Path("backups")
 MESSAGES_FILE = BACKUP_DIR / "messages.json"
 LOCK_FILE = BACKUP_DIR / "messages.json.lock"
 MAX_MESSAGES = 1000  # Limit number of stored messages
+SETTINGS_FILE = BACKUP_DIR / "guild_settings.json"
+SETTINGS_LOCK = BACKUP_DIR / "guild_settings.json.lock"
 
 def save_to_json(data):
     # Ensure backup directory exists
@@ -361,3 +363,92 @@ async def save_message_to_db(guild_id, author, user_message, bot_response, retri
 
     logging.error(f"Failed to save message to DB after {retries} attempts")
     return False
+
+# ---------------- Guild Welcome Settings (local JSON) ----------------
+def _read_settings_store() -> dict:
+    BACKUP_DIR.mkdir(exist_ok=True)
+    if not SETTINGS_FILE.exists():
+        with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
+            json.dump({}, f)
+    try:
+        with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
+            content = f.read().strip()
+            return json.loads(content) if content else {}
+    except Exception:
+        return {}
+
+def _write_settings_store(store: dict) -> None:
+    BACKUP_DIR.mkdir(exist_ok=True)
+    with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(store, f, indent=2, ensure_ascii=False)
+
+def get_welcome_settings(guild_id: str) -> dict:
+    """Return welcome settings for a guild.
+    Attempts Supabase first; falls back to local JSON store.
+    Schema: { enabled: bool, channel_id: str|None, message: str|None }
+    Defaults: enabled=True, channel_id=None, message=None
+    """
+    # Try Supabase
+    try:
+        resp = supabase.table('welcome_settings').select('*').eq('guild_id', guild_id).limit(1).execute()
+        if resp.data:
+            row = resp.data[0]
+            return {
+                'enabled': bool(row.get('enabled', True)),
+                'channel_id': row.get('channel_id'),
+                'message': row.get('message'),
+            }
+    except Exception:
+        pass
+
+    # Fallback: local JSON
+    if not SETTINGS_LOCK.exists():
+        SETTINGS_LOCK.touch()
+    with FileLock(SETTINGS_LOCK):
+        store = _read_settings_store()
+        settings = store.get(guild_id) or {}
+        return {
+            'enabled': bool(settings.get('enabled', True)),
+            'channel_id': settings.get('channel_id'),
+            'message': settings.get('message'),
+        }
+
+def set_welcome_settings(guild_id: str, *, enabled: bool | None = None, channel_id: str | None = None, message: str | None = None) -> dict:
+    """Update welcome settings for a guild. Returns updated settings.
+    Attempts to upsert in Supabase first; falls back to local JSON if that fails.
+    """
+    # Try Supabase upsert
+    try:
+        # Read existing to merge
+        current = get_welcome_settings(guild_id)
+        if enabled is not None:
+            current['enabled'] = bool(enabled)
+        if channel_id is not None:
+            current['channel_id'] = str(channel_id)
+        if message is not None:
+            current['message'] = message[:1000]
+        supabase.table('welcome_settings').upsert({
+            'guild_id': guild_id,
+            'enabled': current.get('enabled', True),
+            'channel_id': current.get('channel_id'),
+            'message': current.get('message'),
+        }, on_conflict=['guild_id']).execute()
+        return current
+    except Exception:
+        pass
+
+    # Fallback to local JSON
+    if not SETTINGS_LOCK.exists():
+        SETTINGS_LOCK.touch()
+    with FileLock(SETTINGS_LOCK):
+        store = _read_settings_store()
+        current = store.get(guild_id) or {}
+        if enabled is not None:
+            current['enabled'] = bool(enabled)
+        if channel_id is not None:
+            current['channel_id'] = str(channel_id)
+        if message is not None:
+            current['message'] = message[:1000]
+        store[guild_id] = current
+        _write_settings_store(store)
+        return get_welcome_settings(guild_id)

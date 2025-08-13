@@ -15,6 +15,7 @@ from PIL import Image, ImageDraw, ImageFont
 from contextlib import contextmanager
 from filelock import FileLock
 from engine.utils import load_env, get_reddit_access_token, unsplash_env, hf_env, pexels_env
+from engine.db import get_welcome_settings, set_welcome_settings
 from engine.ai.gemini_multimodal import handle_interaction
 from engine.ai.gemini import code_ai_response, explain_ai_response, ask_ai_response, translate, prompt_ai_response, get_tts_text
 from engine.ai.gemini_models import (
@@ -2858,3 +2859,111 @@ async def edit_image_command(
     except Exception as e:
         logging.error(f"edit-image error: {e}")
         await interaction.followup.send(f"❌ Error: {str(e)}")
+
+# ---------------- Welcome configuration commands ----------------
+
+def has_welcome_permissions(user_permissions) -> bool:
+    """Check if user has permissions to manage welcome settings"""
+    return (user_permissions.administrator or 
+            user_permissions.manage_guild or 
+            user_permissions.manage_channels)
+
+@app_commands.command(name="welcome-enable", description="Enable welcome messages for this server")
+async def welcome_enable(interaction: discord.Interaction):
+    if not has_welcome_permissions(interaction.user.guild_permissions):
+        await interaction.response.send_message("❌ You need **Administrator**, **Manage Server**, or **Manage Channels** permission to configure welcome messages.", ephemeral=True)
+        return
+    set_welcome_settings(str(interaction.guild.id), enabled=True)
+    await interaction.response.send_message("✅ Welcome messages **enabled** for this server!")
+
+
+@app_commands.command(name="welcome-disable", description="Disable welcome messages for this server")
+async def welcome_disable(interaction: discord.Interaction):
+    if not has_welcome_permissions(interaction.user.guild_permissions):
+        await interaction.response.send_message("❌ You need **Administrator**, **Manage Server**, or **Manage Channels** permission to configure welcome messages.", ephemeral=True)
+        return
+    set_welcome_settings(str(interaction.guild.id), enabled=False)
+    await interaction.response.send_message("🚫 Welcome messages **disabled** for this server.")
+
+
+@app_commands.command(name="welcome-message", description="Set a custom welcome message")
+@app_commands.describe(message="Use placeholders: {mention}, {user}, {guild}, {intro}, {roles}")
+async def welcome_message(interaction: discord.Interaction, message: str):
+    if not has_welcome_permissions(interaction.user.guild_permissions):
+        await interaction.response.send_message("❌ You need **Administrator**, **Manage Server**, or **Manage Channels** permission to configure welcome messages.", ephemeral=True)
+        return
+    
+    if len(message) > 1000:
+        await interaction.response.send_message("❌ Welcome message must be 1000 characters or less.", ephemeral=True)
+        return
+        
+    set_welcome_settings(str(interaction.guild.id), message=message)
+    await interaction.response.send_message(f"✍️ Custom welcome message saved:\n> {message[:200]}{'...' if len(message) > 200 else ''}")
+
+
+@app_commands.command(name="welcome-channel", description="Choose the channel for welcome messages")
+@app_commands.describe(channel="Text channel to post welcome messages in")
+async def welcome_channel(interaction: discord.Interaction, channel: discord.TextChannel):
+    if not has_welcome_permissions(interaction.user.guild_permissions):
+        await interaction.response.send_message("❌ You need **Administrator**, **Manage Server**, or **Manage Channels** permission to configure welcome messages.", ephemeral=True)
+        return
+    if not channel.permissions_for(interaction.guild.me).send_messages:
+        await interaction.response.send_message("❌ I don't have permission to send messages in that channel.", ephemeral=True)
+        return
+    set_welcome_settings(str(interaction.guild.id), channel_id=str(channel.id))
+    await interaction.response.send_message(f"📢 Welcome channel set to {channel.mention}")
+
+
+@app_commands.command(name="welcome-show", description="Show current welcome configuration")
+async def welcome_show(interaction: discord.Interaction):
+    settings = get_welcome_settings(str(interaction.guild.id))
+    ch = interaction.guild.get_channel(int(settings['channel_id'])) if settings.get('channel_id') else None
+    
+    embed = discord.Embed(
+        title="🎉 Welcome Configuration",
+        color=discord.Color.blue()
+    )
+    
+    embed.add_field(
+        name="Status", 
+        value="✅ Enabled" if settings.get('enabled', True) else "🚫 Disabled",
+        inline=True
+    )
+    
+    embed.add_field(
+        name="Channel", 
+        value=ch.mention if ch else "🔍 Auto-detect",
+        inline=True
+    )
+    
+    custom_msg = settings.get('message')
+    if custom_msg:
+        embed.add_field(
+            name="Custom Message", 
+            value=f"```{custom_msg[:100]}{'...' if len(custom_msg) > 100 else ''}```",
+            inline=False
+        )
+    else:
+        embed.add_field(
+            name="Message", 
+            value="📝 Default: `Welcome {mention} to {guild}.`",
+            inline=False
+        )
+    
+    embed.add_field(
+        name="Available Placeholders",
+        value="`{mention}` - User mention\n`{user}` - Display name\n`{guild}` - Server name\n`{intro}` - Welcome intro\n`{roles}` - Role count",
+        inline=False
+    )
+    
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@app_commands.command(name="welcome-reset", description="Reset welcome settings to default")
+async def welcome_reset(interaction: discord.Interaction):
+    if not has_welcome_permissions(interaction.user.guild_permissions):
+        await interaction.response.send_message("❌ You need **Administrator**, **Manage Server**, or **Manage Channels** permission to configure welcome messages.", ephemeral=True)
+        return
+    
+    set_welcome_settings(str(interaction.guild.id), enabled=True, channel_id=None, message=None)
+    await interaction.response.send_message("🔄 Welcome settings **reset** to default:\n✅ Enabled\n📢 Auto-detect channel\n📝 Default message")
