@@ -1,6 +1,10 @@
 import discord, asyncio, aiohttp, random, httpx, re, json, io, base64, requests, os, logging, tempfile, aiofiles, time
-from duckduckgo_search import DDGS
+try:
+    from ddgs import DDGS
+except Exception:
+    from duckduckgo_search import DDGS
 from google import genai
+from engine.ai.gemini import genai_client
 from discord import app_commands, File
 from pathlib import Path
 from typing import Optional
@@ -38,6 +42,16 @@ logging.basicConfig(
 
 TEMP_DIR = Path('/tmp/discord_tts')
 os.makedirs(TEMP_DIR, mode=0o777, exist_ok=True)
+
+# DuckAI config
+ALLOWED_DUCKAI_MODELS = {
+    "gpt-4o-mini",
+    "llama-3.3-70b",
+    "claude-3-haiku",
+    "o3-mini",
+    "mistral-small-3",
+}
+_last_duckai_chat_ts: float | None = None
 
 @contextmanager
 def safe_tempfile(guild_id: int):
@@ -665,12 +679,15 @@ async def search_ddg(query: str, num_results: int = 3, search_type: str = 'text'
                     results.append((title, description, source, thumbnail))
                     
             elif search_type == 'text':
-                search_results = list(ddgs.text(
-                    query, region='wt-wt',
-                    safesearch='moderate', 
-                    max_results=num_results,
-                    backend='html'
-                ))
+                try:
+                    search_results = list(ddgs.text(
+                        query, region='wt-wt',
+                        safesearch='moderate', 
+                        max_results=num_results
+                    ))
+                except Exception as e:
+                    logging.warning(f"DDGS text failed: {e}")
+                    search_results = []
                 
                 for r in search_results:
                     title = r.get('title', 'No title')
@@ -719,18 +736,78 @@ async def search_ddg(query: str, num_results: int = 3, search_type: str = 'text'
                     results.append((title, description, source, image))
                     
             elif search_type == 'chat':
-                chat_response = ddgs.chat(
-                    query,
-                    model=model if model else "claude-3-haiku",
-                    timeout=30
-                )
-                if chat_response:
-                    results.append((
-                        "AI Response",
-                        chat_response,
-                        "Source: DuckDuckGo AI",
-                        "No image"
-                    ))
+                # DuckAI chat with model validation and rate limiting per docs:
+                # Ratelimit ~1 request per 15 seconds. Models: gpt-4o-mini, llama-3.3-70b, claude-3-haiku, o3-mini, mistral-small-3
+                try:
+                    from duckai import DuckAI
+                    try:
+                        from duckai.exceptions import (
+                            RatelimitException,
+                            TimeoutException,
+                            ConversationLimitException,
+                            DuckAIException,
+                        )
+                    except Exception:
+                        # Older versions may not expose exceptions; treat all as generic
+                        RatelimitException = TimeoutException = ConversationLimitException = DuckAIException = Exception
+                    global _last_duckai_chat_ts
+                    now_ts = time.time()
+                    if _last_duckai_chat_ts and (now_ts - _last_duckai_chat_ts) < 15:
+                        raise Exception("DuckAI ratelimit: wait 15s between requests")
+                    dm = (model or "gpt-4o-mini").strip()
+                    if dm not in ALLOWED_DUCKAI_MODELS:
+                        dm = "gpt-4o-mini"
+                    proxy = os.getenv("DUCKAI_PROXY") or None
+                    try:
+                        chat_response = DuckAI(proxy=proxy, timeout=30).chat(query, model=dm, timeout=30)
+                    except (RatelimitException, ConversationLimitException) as _e:
+                        _last_duckai_chat_ts = now_ts
+                        raise _e
+                    except (TimeoutException, DuckAIException) as _e:
+                        raise _e
+                    _last_duckai_chat_ts = now_ts
+                    if chat_response:
+                        results.append((
+                            "AI Response",
+                            chat_response,
+                            "Source: DuckAI",
+                            "No image"
+                        ))
+                except Exception as _e:
+                    logging.warning(f"DuckAI chat failed: {_e}")
+                    # Fallback to Gemini text models
+                    try:
+                        g_resp = genai_client.models.generate_content(
+                            model="models/gemini-1.5-flash",
+                            contents=query
+                        )
+                        g_text = getattr(g_resp, 'text', None)
+                        if g_text:
+                            results.append((
+                                "AI Response",
+                                g_text,
+                                "Source: Seeyuh News AI powered by DuckDuckGo",
+                                "No image"
+                            ))
+                        else:
+                            raise Exception("Empty Gemini 1.5 Flash response")
+                    except Exception as _g1:
+                        logging.warning(f"Gemini 1.5 Flash fallback failed: {_g1}")
+                        try:
+                            g_resp2 = genai_client.models.generate_content(
+                                model="models/gemini-1.5-flash-8b",
+                                contents=query
+                            )
+                            g_text2 = getattr(g_resp2, 'text', None)
+                            if g_text2:
+                                results.append((
+                                    "AI Response",
+                                    g_text2,
+                                    "Source: Seeyuh News AI powered by DuckDuckGo",
+                                    "No image"
+                                ))
+                        except Exception as _g2:
+                            logging.warning(f"Gemini 1.5 Flash 8B fallback failed: {_g2}")
                     
             return results
             
@@ -1631,7 +1708,7 @@ async def generate_image(
     width=None,
     height=None,
     steps=None,
-    model="stable-diffusion-3.5-turbo",
+    model="FLUX.1-schnell",
     seed=random.randint(0, 3999999999),
     retries=10,
     backoff_factor=2
@@ -1640,7 +1717,7 @@ async def generate_image(
     model_info = AVAILABLE_MODELS.get(model)
     if not model_info:
         logging.error(f"Model '{model}' not found. Using default model.")
-        model_info = AVAILABLE_MODELS["stable-diffusion-3.5-turbo"]
+        model_info = AVAILABLE_MODELS["FLUX.1-schnell"]
     hf_model_id = model_info["model_id"]
 
     headers = {
@@ -1697,15 +1774,35 @@ async def generate_image(
             logging.error(f"Unexpected exception during image generation: {e}")
             return None
         
+# Generate both text and image using Gemini image generation model from text-only prompt
+async def generate_image_and_text_gemini(prompt: str) -> tuple[str | None, io.BytesIO | None]:
+    try:
+        client = genai.Client()
+        response = client.models.generate_content(
+            model="gemini-2.0-flash-preview-image-generation",
+            contents=[prompt]
+        )
+        out_text: str | None = None
+        out_image: io.BytesIO | None = None
+        for part in response.candidates[0].content.parts:
+            if hasattr(part, 'text') and part.text and not out_text:
+                out_text = part.text
+            elif hasattr(part, 'inline_data') and part.inline_data is not None and out_image is None:
+                out_image = io.BytesIO(part.inline_data.data)
+        return out_text, out_image
+    except Exception as e:
+        logging.error(f"Gemini image generation error: {e}")
+        return None, None
+
 # Define available models and their descriptions
 AVAILABLE_MODELS = {
-    "stable-diffusion-3.5-turbo": {
-        "model_id": "stabilityai/stable-diffusion-3.5-large-turbo",
-        "description": "Image generated using Stable Diffusion 3.5 Turbo."
-    },
     "FLUX.1-schnell": {
         "model_id": "black-forest-labs/FLUX.1-schnell",
         "description": "Image generated using FLUX.1 [schnell]"
+    },
+    "stable-diffusion-3.5-turbo": {
+        "model_id": "stabilityai/stable-diffusion-3.5-large-turbo",
+        "description": "Image generated using Stable Diffusion 3.5 Turbo."
     },
     "stable-diffusion-3.5-large": {
         "model_id": "stabilityai/stable-diffusion-3.5-large",
@@ -1904,7 +2001,7 @@ MODEL_CHOICES = [
 async def imagine_command(
     interaction: discord.Interaction,
     prompt: str,
-    model: str = "stable-diffusion-3.5-turbo",
+    model: str = "FLUX.1-schnell",
     negative_prompt: Optional[str] = None,  # Changed to Optional
     width: Optional[int] = None,
     height: Optional[int] = None,
@@ -2189,46 +2286,28 @@ async def refine_command(
 
 async def modify_image(image_bytes, instruction):
     try:
-        # Convert bytes to PIL Image and validate
         with Image.open(io.BytesIO(image_bytes)) as img:
-            # Convert to RGB if needed
-            if img.mode in ('RGBA', 'LA'):
-                img = img.convert('RGB')
-            
-            # Save as PNG
-            png_buffer = io.BytesIO()
-            img.save(png_buffer, format='PNG')
-            png_bytes = png_buffer.getvalue()
+            pil_image = img.convert('RGB')
     except Exception as e:
         logging.error(f"Image validation error: {e}")
         return None
 
-    headers = {
-        "Authorization": f"Bearer {HF_API_KEY}"
-        # Remove Content-Type header to let aiohttp handle it
-    }
-
-    # Create form data
-    form = aiohttp.FormData()
-    form.add_field('image', 
-                  png_bytes,
-                  filename='image.png',
-                  content_type='image/png')
-    form.add_field('text', instruction)
-
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-            "https://api-inference.huggingface.co/models/timbrooks/instruct-pix2pix",
-            headers=headers,
-            data=form,
-            timeout=120
-        ) as response:
-            if response.status == 200:
-                return io.BytesIO(await response.read())
-            else:
-                text = await response.text()
-                logging.error(f"Error {response.status}: {text}")
-                return None
+    try:
+        client = genai.Client()
+        response = client.models.generate_content(
+            model="gemini-2.0-flash-preview-image-generation",
+            contents=[instruction, pil_image],
+            config=genai.types.GenerateContentConfig(
+                response_modalities=["IMAGE"]
+            )
+        )
+        for part in response.candidates[0].content.parts:
+            if hasattr(part, 'inline_data') and part.inline_data is not None:
+                return io.BytesIO(part.inline_data.data)
+        return None
+    except Exception as e:
+        logging.error(f"Gemini image modify error: {e}")
+        return None
 
 @app_commands.command(name="modify", description="Modify an image based on an instruction.")
 @app_commands.describe(
@@ -2711,10 +2790,7 @@ async def edit_image_command(
         text_input = prompt
         response = client.models.generate_content(
             model="gemini-2.0-flash-preview-image-generation",
-            contents=[text_input, pil_image],
-            config=genai.types.GenerateContentConfig(
-                response_modalities=["TEXT", "IMAGE"]
-            )
+            contents=[text_input, pil_image]
         )
 
         # Process response

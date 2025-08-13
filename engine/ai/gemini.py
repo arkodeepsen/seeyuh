@@ -1,6 +1,9 @@
-import discord, os, logging, sys, random, re, aiohttp, asyncio, tempfile, google.generativeai as genai
+import discord, os, logging, sys, random, re, aiohttp, asyncio, tempfile, io, google.generativeai as genai
 from google import genai as palm
-from duckduckgo_search import DDGS
+try:
+    from ddgs import DDGS  # New package name per upstream rename
+except Exception:  # Fallback for older envs
+    from duckduckgo_search import DDGS
 from functools import partial
 from datetime import datetime
 from bs4 import BeautifulSoup
@@ -8,6 +11,7 @@ from functools import lru_cache
 from typing import List, Any
 from dotenv import load_dotenv
 from urllib.parse import quote_plus, urlparse
+from engine.utils import is_image_request, extract_image_prompt
 
 # Load environment variables
 load_dotenv()
@@ -407,102 +411,86 @@ def get_search_type(query: str) -> str:
     return max_type
 
 async def enhance_search_query(query: str, context: str) -> str:
-    """Generate better search query using AI based on context and query"""
+    """Use Gemini to produce a concise search query when helpful; otherwise return input.
+    Avoids external DDG chat dependency per upstream changes.
+    """
     try:
-        # Create prompt for query enhancement
-        enhancement_prompt = f"""Based on this context:
-{context}
-
-Current question: "{query}"
-
-Generate an optimized search query that will find the most relevant and up-to-date information.
-Today's date and time is {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}.
-Make the query specific, include key terms, and focus on retrieving factual information.
-Generate a search query inside ```query``` delimiters that will find relevant information.
-Keep it concise but specific, provide latest info, it is 2025, don't be vague use chat context if available.
-Your response should ONLY contain the query inside the delimiters, nothing else.
-Example Response:
-```query
-who is the president of united states
-```"""
-
-        logging.debug(f"Sending prompt to chat: {enhancement_prompt}")
-        
-        # Get chat response
-        with DDGS() as ddgs:
-            chat_response = ddgs.chat(
-                enhancement_prompt,
-                model="gpt-4o-mini",
-                timeout=30
-            )
-            logging.debug(f"Raw chat response: {chat_response}")
-            
-            # Extract query from code blocks
-            enhanced_query = query  # fallback
-            if chat_response:
-                matches = re.findall(r'```query\n(.*?)\n```', chat_response, re.DOTALL)
-                if matches:
-                    enhanced_query = matches[0].strip()
-                    logging.info(f"Enhanced search query: {enhanced_query}")
-                else:
-                    logging.warning("No query delimiters found in chat response")
-            else:
-                logging.warning("No response from chat model")
-            return enhanced_query
-        
+        # Keep this tiny; models should not hallucinate beyond user prompt.
+        systemInstruction = (
+            "Given a user's question and minimal context, produce a concise web search query. "
+            "Return only the query text without quotes."
+        )
+        prompt = f"Context: {context[:500]}\nQuestion: {query}\nQuery:"
+        response = await try_model_chain((systemInstruction, prompt), 'flash2')
+        if response and response.text:
+            candidate = response.text.strip().splitlines()[0][:200]
+            # fallback to original if too short
+            return candidate if len(candidate) >= max(8, len(query)//2) else query
     except Exception as e:
-        logging.error(f"Query enhancement error: {e}")
-        return query  # Fall back to original query on error
+        logging.warning(f"Gemini query enhancement fallback: {e}")
+    return query
 
 @lru_cache(maxsize=100)
 async def get_search_results(query: str, prompt: str, num_results: int = 3) -> str:    
     search_type = get_search_type(query)
     enhanced_query = await enhance_search_query(query, prompt)
     try:
-        loop = asyncio.get_event_loop()
+        backends = [b.strip() for b in os.getenv('DDG_TEXT_BACKENDS', 'google,brave,yahoo,auto').split(',') if b.strip()]
+        results = None
         with DDGS() as ddgs:
             if search_type == 'text':
-                search_func = partial(ddgs.text,
-                    query, region='wt-wt', 
-                    safesearch='moderate',
-                    max_results=num_results,
-                    backend='html'
-                )
+                # ddgs no longer supports 'html/lite/api' backends; let engine auto-select
+                try:
+                    results = ddgs.text(
+                        enhanced_query,
+                        region='wt-wt',
+                        safesearch='moderate',
+                        max_results=num_results
+                    )
+                except Exception as e:
+                    logging.warning(f"DuckDuckGo text search failed: {e}")
             elif search_type == 'image':
-                search_func = partial(ddgs.images,
-                    query, region='wt-wt',
-                    safesearch='moderate',
-                    max_results=num_results
-                )
+                # Try up to 3 times with small backoff
+                for attempt in range(3):
+                    try:
+                        results = ddgs.images(
+                            enhanced_query,
+                            region='wt-wt',
+                            safesearch='moderate',
+                            max_results=num_results
+                        )
+                        if results:
+                            break
+                    except Exception as e:
+                        logging.warning(f"DuckDuckGo images failed (attempt {attempt+1}/3): {e}")
+                    await asyncio.sleep(0.8 + 0.4 * attempt)
             elif search_type == 'news':
-                search_func = partial(ddgs.news,
-                    query,
-                    region='wt-wt',
-                    safesearch='moderate',
-                    timelimit='m',  # Last month
-                    max_results=num_results
-                )
+                try:
+                    results = ddgs.news(
+                        enhanced_query,
+                        region='wt-wt',
+                        safesearch='moderate',
+                        timelimit='m',
+                        max_results=num_results
+                    )
+                except Exception as e:
+                    logging.warning(f"DuckDuckGo news failed: {e}")
             elif search_type == 'video':
-                search_func = partial(ddgs.videos,
-                    query, region='wt-wt',
-                    safesearch='moderate',
-                    max_results=num_results
-                )
-            else:
-                search_func = partial(ddgs.text,
-                    query, region='wt-wt', 
-                    safesearch='moderate',
-                    max_results=num_results,
-                    backend='html'
-                )
-                
-            results = await loop.run_in_executor(None, search_func)
-            
-            if not results:
-                return "No results found."
-                
-            formatted_results = []
-            for r in results:
+                try:
+                    results = ddgs.videos(
+                        enhanced_query,
+                        region='wt-wt',
+                        safesearch='moderate',
+                        max_results=num_results
+                    )
+                except Exception as e:
+                    logging.warning(f"DuckDuckGo videos failed: {e}")
+
+        if not results:
+            return "No results found."
+
+        formatted_results = []
+        for r in results:
                 if search_type == 'text':
                     entry = f"Title: {r.get('title', 'No Title')}\n"
                     entry += f"Description: {r.get('body', 'No Description')}\n"
@@ -559,15 +547,21 @@ async def get_search_results(query: str, prompt: str, num_results: int = 3) -> s
                 
                 formatted_results.append(entry)
             
-            if search_type == 'video':
-                instruction = f"NOTE - Instruction to AI: Provide only valid video links to user in [Title](Link) format. Always send single best matching video result, only send more than one results if needed according to the context."
-            elif search_type == 'image':
-                instruction = f"NOTE - Instruction to AI: Provide only valid image links to user in [Title](Link) format. Always send single best matching image result, only send more than one results if needed according to the context."
-            else:
-                instruction = ""
-            
-            formatted_results.insert(0, instruction)    
-            return "\n\n".join(formatted_results)
+        if search_type == 'video':
+            instruction = (
+                "NOTE - Instruction to AI: Provide only valid video links to user in [Title](Link) format. "
+                "Always send single best matching video result, only send more than one results if needed according to the context."
+            )
+        elif search_type == 'image':
+            instruction = (
+                "NOTE - Instruction to AI: Provide only valid image links to user in [Title](Link) format. "
+                "Always send single best matching image result, only send more than one results if needed according to the context."
+            )
+        else:
+            instruction = ""
+
+        formatted_results.insert(0, instruction)
+        return "\n\n".join(formatted_results)
             
     except Exception as e:
         logging.error(f"DuckDuckGo search error: {e}")
@@ -578,47 +572,87 @@ async def get_ai_response(prompt, message):
     current_query = extract_current_query(prompt)
     logging.info(f"Extracted query: {current_query}")
     
+    # (Removed duplicate early image branch; handled below via model switch)
+    
     # Check if query needs thinking model
     use_thinking = any(word in current_query.lower() for word in ['think', 'reason', 'reasoning'])
+    # Image requests take precedence over thinking
+    is_image = is_image_request(current_query)
     
     # Configure model settings
     config = {
-        'thinking_config': {'include_thoughts': True} if use_thinking else None
+        'thinking_config': {'include_thoughts': True} if (use_thinking and not is_image) else None
     }
     
     # Set model based on query type
-    model_name = 'gemini-2.0-flash-thinking-exp-01-21' if use_thinking else 'flash2'
-    
-    # Check for URLs first
-    urls = URL_PATTERN.findall(current_query)
-    if urls:
-        content = await scrape_url(urls[0])
-        if content:
-            domain = urlparse(urls[0]).netloc.replace("www.", "")
-            prompt = (
-                f"Content from {domain}:\n{content[:20000]}...\n\n"
-                f"{prompt}"
-            )
-    # Only check realtime data if no URLs found
-    elif needs_realtime_data(current_query) and not "NOTE - Image automatically generated by stable diffusion for:" in prompt:
-        logging.info(f"Real-time data needed (query: {current_query})")
-        search_results = await get_search_results(current_query, prompt)
-        if search_results:
-            prompt = (
-                f"Based on current data for '{current_query}':\n\n"
-                f"{search_results}\n\n"
-                f"{prompt}"
-            )
-        
-    if "NOTE - Image automatically generated by stable diffusion for:" in prompt:
-        systemInstruction = f"You are a discord bot named seeyuh. arkodeep is your developer, your responses are chill asf and very informal gen-z style. You are an automoderation, entertainment, music and games bot but also designed to help users with their queries. You will generate responses using AI and remember images will be generated using stable diffusion automatically when user prompts it, so you need not worry. You can provide information about the bot, list available commands, respond to user queries and access latest data from internet. You can use the `/help` command to see available commands."
+    if is_image:
+        model_name = 'gemini-2.0-flash-preview-image-generation'
     else:
-        systemInstruction = f"You are a discord bot named seeyuh. arkodeep is your developer, your responses are chill asf and very informal gen-z style. You are an automoderation, entertainment, music and games bot but also designed to help users with their queries. You will generate responses using AI and try using same languge as the query. You can provide information about the bot, list available commands, respond to user queries and access latest data from internet. You can use the `/help` command to see available commands."
+        model_name = 'gemini-2.0-flash-thinking-exp-01-21' if use_thinking else 'flash2'
+    
+    # Skip web scraping/search enrichment for image-generation requests
+    if not is_image:
+        # Check for URLs first and skip image-like URLs
+        urls = URL_PATTERN.findall(current_query)
+        def _looks_like_image(u: str) -> bool:
+            u = u.lower()
+            return any(u.endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.tiff', '.svg']) or 'format=webp' in u
+        if urls and not any(_looks_like_image(u) for u in urls):
+            content = await scrape_url(urls[0])
+            if content:
+                domain = urlparse(urls[0]).netloc.replace("www.", "")
+                prompt = (
+                    f"Content from {domain}:\n{content[:20000]}...\n\n"
+                    f"{prompt}"
+                )
+        # Only check realtime data if no URLs found
+        elif needs_realtime_data(current_query):
+            logging.info(f"Real-time data needed (query: {current_query})")
+            search_results = await get_search_results(current_query, prompt)
+            if search_results:
+                prompt = (
+                    f"Based on current data for '{current_query}':\n\n"
+                    f"{search_results}\n\n"
+                    f"{prompt}"
+                )
+        
+    systemInstruction = f"You are a discord bot named seeyuh. arkodeep is your developer, your responses are chill asf and very informal gen-z style. You are an automoderation, entertainment, music and games bot but also designed to help users with their queries. You will generate responses using AI and try using same languge as the query. You can provide information about the bot, list available commands, respond to user queries and access latest data from internet. You can use the `/help` command to see available commands."
     current_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     query = f"\n{systemInstruction} Today's date and time is {current_datetime}", f"\n{prompt}"
     logging.info(f"Query to AI: {query}")
     try:
-        if use_thinking:
+        if is_image:
+            # For image generation, pass prompt twice as provided by user
+            img_response = genai_client.models.generate_content(
+                model=model_name,
+                contents=(f"You are a discord bot named seeyuh.", f"\n{prompt}") if isinstance(prompt, str) else prompt,
+                config={
+                    'response_modalities': ['TEXT', 'IMAGE']
+                }
+            )
+            # Gather first image and any accompanying text
+            out_text = None
+            out_image_bytes = None
+            for part in img_response.candidates[0].content.parts:
+                if hasattr(part, 'inline_data') and part.inline_data is not None and out_image_bytes is None:
+                    out_image_bytes = part.inline_data.data
+                elif hasattr(part, 'text') and part.text and not out_text:
+                    out_text = part.text
+            # Send both together in a single message if possible
+            if out_image_bytes is not None:
+                try:
+                    await message.reply(content=(out_text or None), file=discord.File(fp=io.BytesIO(out_image_bytes), filename="image.png"))
+                except Exception as e:
+                    logging.error(f"Failed sending image+text: {e}")
+                    # Fallback to image only
+                    try:
+                        await message.reply(file=discord.File(fp=io.BytesIO(out_image_bytes), filename="image.png"))
+                    except Exception:
+                        pass
+            elif out_text:
+                await message.reply(out_text)
+            return ("", True)
+        elif use_thinking:
             query = f"You are a discord bot named seeyuh.\n Today's date and time is {current_datetime}", f"\n{prompt}"
             response = genai_client.models.generate_content(
                 model=model_name,
@@ -720,7 +754,28 @@ async def get_ai_response(prompt, message):
                         
                         return (text_only.strip() or "Generated files have been sent.", True)
                     
-                return (response.text, False)
+                # Chunk long responses into <=2000 chars at meaningful boundaries
+                text = response.text.strip()
+                if len(text) <= 2000:
+                    return (text, False)
+                chunks = []
+                remaining = text
+                while len(remaining) > 2000:
+                    slice_ = remaining[:2000]
+                    # Prefer to break at paragraph / section / newline boundaries
+                    cut = max(slice_.rfind('\n\n'), slice_.rfind('\n'), slice_.rfind('  '))
+                    if cut < 1000:  # fallback if no good boundary near the end
+                        cut = slice_.rfind('. ')
+                    if cut < 0:
+                        cut = 2000
+                    chunks.append(remaining[:cut].strip())
+                    remaining = remaining[cut:].lstrip()
+                if remaining:
+                    chunks.append(remaining)
+                # Send chunks sequentially
+                for i, chunk in enumerate(chunks):
+                    await message.reply(chunk[:2000])
+                return ("", True)
                 
             except Exception as e:
                 logging.error(f"Error in code block handling: {str(e)}")

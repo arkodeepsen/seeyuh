@@ -1,10 +1,11 @@
 import google.generativeai as genai
-import os, discord, logging, aiohttp, datetime, asyncio, time, tempfile
+import os, discord, logging, aiohttp, datetime, asyncio, time, tempfile, io
 from engine.db import fetch_recent_message, supabase
 from dotenv import load_dotenv
 from google.generativeai import caching
 from typing import Optional
 import subprocess
+import re
             
 load_dotenv()
 
@@ -20,6 +21,7 @@ logging.basicConfig(
 
 GOOGLE_API_KEY = os.getenv('GEMINI_PRO_API_KEY')
 genai.configure(api_key=GOOGLE_API_KEY)
+from engine.ai.gemini import genai_client
 
 async def get_media_duration(file_path: str, content_type: str) -> float:
     """Get media duration using ffprobe with fallback"""
@@ -64,7 +66,7 @@ def prep_file(file_path, display_name, is_av=False):
     logging.info(f"Uploaded file '{sample_file.display_name}' as: {sample_file.uri}")
     return sample_file
 
-PRIMARY_MODEL = "models/gemini-2.0-flash-exp"
+PRIMARY_MODEL = "models/gemini-2.0-flash"
 FALLBACK_MODEL = "models/gemini-1.5-flash"
 
 # Quota tracking
@@ -199,36 +201,35 @@ async def handle_attachment(bot, message, attachment):
         if content_type.startswith('image/'):
             from PIL import Image
             import io
-            from google import genai
+            from engine.ai.gemini import genai_client
             try:
                 pil_image = Image.open(file_path).convert("RGB")
                 # Use the message content as the prompt
                 text_input = message.content.strip().replace(f"<@{bot.user.id}>", "").replace("seeyuh", "").strip()
                 if not text_input:
                     text_input = "Explain the content of the image."
-                client = genai.Client()
-                response = client.models.generate_content(
+                response = genai_client.models.generate_content(
                     model="gemini-2.0-flash-preview-image-generation",
                     contents=[text_input, pil_image],
-                    config=genai.types.GenerateContentConfig(
-                        response_modalities=["TEXT", "IMAGE"]
-                    )
+                    config={'response_modalities': ['TEXT', 'IMAGE']}
                 )
-                sent = False
+                # Collect image + text to send together
+                out_text = None
+                out_img_bytes = None
                 for part in response.candidates[0].content.parts:
-                    if hasattr(part, 'text') and part.text:
-                        await message.reply(part.text)
-                        sent = True
-                    elif hasattr(part, 'inline_data') and part.inline_data is not None:
-                        img_result = Image.open(io.BytesIO(part.inline_data.data))
-                        with io.BytesIO() as output:
-                            img_result.save(output, format="PNG")
-                            output.seek(0)
-                            file = discord.File(fp=output, filename="edited_image.png")
-                            await message.reply(file=file)
-                            sent = True
-                if sent:
-                    return "Image edited and sent."
+                    if hasattr(part, 'text') and part.text and not out_text:
+                        out_text = part.text
+                    elif hasattr(part, 'inline_data') and part.inline_data is not None and out_img_bytes is None:
+                        out_img_bytes = part.inline_data.data
+                if out_img_bytes:
+                    with io.BytesIO(out_img_bytes) as output:
+                        output.seek(0)
+                        file = discord.File(fp=output, filename="edited_image.png")
+                        await message.reply(content=(out_text or None), file=file)
+                        return "Image edited and sent."
+                if out_text:
+                    await message.reply(out_text)
+                    return "Image edited."
             except Exception as e:
                 logging.error(f"Gemini image edit error: {e}")
                 await message.reply(f"❌ Error editing image: {str(e)}")
@@ -390,6 +391,194 @@ async def handle_attachment(bot, message, attachment):
         if file_path and os.path.exists(file_path):
             os.remove(file_path)
             logging.info("Deleted temporary file.")
+
+async def handle_message_files(bot, message):
+    """Collect multiple attachments and URLs from the message/thread, send to Gemini in one call."""
+    try:
+        # Collect file sources: attachments + URLs in message and referenced message
+        urls = []
+        url_pattern = re.compile(r"https?://[^\s]+", re.IGNORECASE)
+        urls.extend(url_pattern.findall(message.content or ""))
+        if message.reference:
+            try:
+                ref = await message.channel.fetch_message(message.reference.message_id)
+                urls.extend(url_pattern.findall(ref.content or ""))
+            except Exception:
+                pass
+
+        # Download attachments and URLs
+        temp_paths = []
+        async with aiohttp.ClientSession() as session:
+            # Handle attachments
+            for att in (message.attachments or []):
+                # Skip overly large files (>20MB videos, >10MB others)
+                limit = 20 * 1024 * 1024 if att.content_type and att.content_type.startswith('video/') else 10 * 1024 * 1024
+                if att.size and att.size > limit:
+                    continue
+                _, ext = os.path.splitext(att.filename)
+                local_path = f"downloaded_file_{att.id}{ext}"
+                async with session.get(att.url) as resp:
+                    if resp.status == 200:
+                        with open(local_path, 'wb') as f:
+                            f.write(await resp.read())
+                        temp_paths.append(local_path)
+
+            # Handle URLs
+            for u in urls[:10]:
+                try:
+                    async with session.get(u) as resp:
+                        if resp.status != 200:
+                            continue
+                        # Best-effort filename
+                        ct = resp.headers.get('Content-Type', '')
+                        ext = '.bin'
+                        if 'pdf' in ct:
+                            ext = '.pdf'
+                        elif 'image/' in ct:
+                            subtype = ct.split('/')[-1].split(';')[0]
+                            ext = f'.{subtype}' if subtype else '.img'
+                        elif 'video/' in ct:
+                            subtype = ct.split('/')[-1].split(';')[0]
+                            ext = f'.{subtype}' if subtype else '.mp4'
+                        elif 'audio/' in ct:
+                            subtype = ct.split('/')[-1].split(';')[0]
+                            ext = f'.{subtype}' if subtype else '.mp3'
+                        elif 'text/' in ct:
+                            ext = '.txt'
+                        local_path = f"downloaded_link_{abs(hash(u))}{ext}"
+                        with open(local_path, 'wb') as f:
+                            f.write(await resp.read())
+                        temp_paths.append(local_path)
+                except Exception:
+                    continue
+
+        if not temp_paths:
+            return None
+
+        # Compute total size and decide inline vs upload
+        total_bytes = 0
+        for p in temp_paths:
+            try:
+                total_bytes += os.path.getsize(p)
+            except Exception:
+                pass
+        use_uploads = total_bytes > 20 * 1024 * 1024
+
+        # Decide intent and build contents
+        prompt_text = message.content.strip().replace(f"<@{bot.user.id}>", "").replace("seeyuh", "").strip()
+        if not prompt_text:
+            prompt_text = "Analyze all provided files together and answer succinctly."
+
+        image_exts = {'.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'}
+        image_paths = [p for p in temp_paths if os.path.splitext(p)[1].lower() in image_exts]
+        total_files = max(1, len(temp_paths))
+        image_ratio = len(image_paths) / total_files
+        # If >= 90% of provided files are images, route to image generation model (it can also return text)
+        want_image_output = image_ratio >= 0.5 and len(image_paths) >= 1
+
+        if want_image_output:
+            # Use image generation model; pass prompt + all images
+            from PIL import Image
+            # Use same working invocation style as gemini.py via genai_client
+            contents = [prompt_text]
+            if use_uploads:
+                # Upload images via Files API concurrently
+                tasks = [asyncio.to_thread(genai.upload_file, path=p, display_name=os.path.basename(p)) for p in image_paths[:10]]
+                uploaded_imgs = []
+                for res in await asyncio.gather(*tasks, return_exceptions=True):
+                    if isinstance(res, Exception):
+                        continue
+                    uploaded_imgs.append(res)
+                contents.extend(uploaded_imgs)
+            else:
+                # Inline small images
+                for p in image_paths[:10]:
+                    try:
+                        contents.append(Image.open(p).convert('RGB'))
+                    except Exception:
+                        continue
+            response = genai_client.models.generate_content(
+                model="gemini-2.0-flash-preview-image-generation",
+                contents=contents,
+                config={'response_modalities': ['TEXT', 'IMAGE']}
+            )
+            try:
+                preview_text = ""
+                if response and getattr(response, 'text', None):
+                    preview_text = response.text[:300].replace("\n", " ")
+                logging.info(f"Multimodal image-gen response preview: {preview_text}")
+            except Exception:
+                pass
+            out_text = None
+            out_img = None
+            if response and response.candidates and response.candidates[0].content.parts:
+                for part in response.candidates[0].content.parts:
+                    if hasattr(part, 'text') and part.text and not out_text:
+                        out_text = part.text
+                    elif hasattr(part, 'inline_data') and part.inline_data is not None and out_img is None:
+                        out_img = part.inline_data.data
+            if out_img:
+                with io.BytesIO(out_img) as buf:
+                    buf.seek(0)
+                    file = discord.File(fp=buf, filename="generated_image.png")
+                    await message.reply(content=(out_text or None), file=file)
+                    return "Generated image from multiple files."
+            if out_text:
+                await message.reply(out_text[:2000])
+                return "Generated description from multiple files."
+            await message.reply("No output from the image model.")
+            return None
+        else:
+            # Upload all files and do multimodal analysis
+            uploaded = []
+            # Upload concurrently to avoid long blocking
+            tasks = [asyncio.to_thread(genai.upload_file, path=p, display_name=os.path.basename(p)) for p in temp_paths]
+            for res in await asyncio.gather(*tasks, return_exceptions=True):
+                if isinstance(res, Exception):
+                    continue
+                uploaded.append(res)
+            if not uploaded:
+                return None
+            model = genai.GenerativeModel(PRIMARY_MODEL)
+            response = model.generate_content([*uploaded, prompt_text])
+            try:
+                preview_text = ""
+                if response and getattr(response, 'text', None):
+                    preview_text = response.text[:300].replace("\n", " ")
+                logging.info(f"Multimodal analysis response preview: {preview_text}")
+            except Exception:
+                pass
+            if response and response.candidates and response.candidates[0].content.parts:
+                full_text = []
+                for part in response.candidates[0].content.parts:
+                    if hasattr(part, 'text') and part.text:
+                        full_text.append(part.text)
+                text_out = "\n".join(t for t in full_text if t).strip()
+                if text_out:
+                    # Chunk into <=2000 with meaningful boundaries
+                    remaining = text_out
+                    while len(remaining) > 2000:
+                        slice_ = remaining[:2000]
+                        cut = max(slice_.rfind('\n\n'), slice_.rfind('\n'), slice_.rfind('. '))
+                        if cut < 1000:
+                            cut = 2000
+                        await message.reply(remaining[:cut].strip())
+                        remaining = remaining[cut:].lstrip()
+                    if remaining:
+                        await message.reply(remaining)
+            return "Processed files with Gemini."
+    except Exception as e:
+        logging.error(f"handle_message_files error: {e}")
+        await message.reply("❌ Error processing your files/links.")
+        return None
+    finally:
+        # Clean up temp files
+        for p in list(locals().get('temp_paths', [])):
+            try:
+                if os.path.exists(p):
+                    os.remove(p)
+            except Exception:
+                pass
 
 async def handle_interaction(
     interaction: discord.Interaction,

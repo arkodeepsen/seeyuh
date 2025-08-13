@@ -4,7 +4,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Template
-from engine.utils import load_env, intents, update_presence, is_image_request, extract_image_prompt
+from engine.utils import load_env, intents, update_presence
 from engine.db import fetch_recent_message, save_message_to_db, retry_check_and_update_guild_entry, generate_and_cache_invites, sync_guilds_and_users
 from engine.ai.gemini import get_ai_response, code_ai_response
 from engine.ai.gemini_multimodal import handle_attachment
@@ -238,7 +238,15 @@ async def github_webhook(request: Request):
         return {"status": "error", "message": str(e)}
 
 def run_http_server():
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+    try:
+        port = int(os.getenv("PORT", "8080"))
+    except Exception:
+        port = 8080
+    try:
+        uvicorn.run(app, host="0.0.0.0", port=port)
+    except OSError as e:
+        logging.error(f"HTTP server bind failed on port {port}: {e}")
+        return
 
 # Load slash commands
 @bot.event
@@ -509,7 +517,7 @@ greeting_emojis = ["👋", "😊", "😃", "🙌", "🤗"]
 @bot.event
 async def on_message(message):
     # Also check for direct image URLs in replied-to messages
-    if (bot.user.mentioned_in(message) or "seeyuh" in message.content.lower()) and message.reference and not is_image_request(message.content):
+    if (bot.user.mentioned_in(message) or "seeyuh" in message.content.lower()) and message.reference:
         try:
             original_message = await message.channel.fetch_message(message.reference.message_id)
             import re, io
@@ -529,33 +537,10 @@ async def on_message(message):
                                 else:
                                     await message.reply("Failed to download the image from the replied message's URL.")
                                     return
-                        # Use Gemini image generation model
-                        from google import genai
-                        text_input = message.content.strip().replace(f"<@{bot.user.id}>", "").replace("seeyuh", "").replace(img_url, "").strip()
-                        if not text_input:
-                            text_input = "Explain the content of this image."
-                        client = genai.Client()
-                        response = client.models.generate_content(
-                            model="gemini-2.0-flash-preview-image-generation",
-                            contents=[text_input, pil_image],
-                            config=genai.types.GenerateContentConfig(
-                                response_modalities=["TEXT", "IMAGE"]
-                            )
-                        )
-                        sent = False
-                        for part in response.candidates[0].content.parts:
-                            if hasattr(part, 'text') and part.text:
-                                await message.reply(part.text)
-                                sent = True
-                            elif hasattr(part, 'inline_data') and part.inline_data is not None:
-                                img_result = Image.open(io.BytesIO(part.inline_data.data))
-                                with io.BytesIO() as output:
-                                    img_result.save(output, format="PNG")
-                                    output.seek(0)
-                                    file = discord.File(fp=output, filename="edited_image.png")
-                                    await message.reply(file=file)
-                                    sent = True
-                        if sent:
+                        # Defer to unified multimodal handler for links as well
+                        from engine.ai.gemini_multimodal import handle_message_files
+                        handled = await handle_message_files(bot, message)
+                        if handled is not None:
                             return
                     except Exception as e:
                         import logging
@@ -565,59 +550,14 @@ async def on_message(message):
         except discord.NotFound:
             await message.reply("The original message could not be found.")
             return
-    # Check for direct image URLs in the message content
-    import re, io
-    from PIL import Image
-    # Improved image URL pattern: supports http/https, query params, and more extensions
-    image_url_pattern = r'(https?://[^\s]+\.(?:png|jpg|jpeg|webp|gif|bmp|tiff|svg)(?:\?[^\s]*)?)'
-    matches = re.findall(image_url_pattern, message.content, re.IGNORECASE)
-    # Also check for http (not just https)
-    if (bot.user.mentioned_in(message) or "seeyuh" in message.content.lower()) and matches and not is_image_request(message.content):
-        img_url = matches[0]
-        async with message.channel.typing():
-            try:
-                import aiohttp
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(img_url) as resp:
-                        if resp.status == 200:
-                            img_bytes = await resp.read()
-                            pil_image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-                        else:
-                            await message.reply("Failed to download the image from the provided URL.")
-                            return
-                # Use Gemini image generation model
-                from google import genai
-                text_input = message.content.strip().replace(f"<@{bot.user.id}>", "").replace("seeyuh", "").replace(img_url, "").strip()
-                if not text_input:
-                    text_input = "Explain the content of this image."
-                client = genai.Client()
-                response = client.models.generate_content(
-                    model="gemini-2.0-flash-preview-image-generation",
-                    contents=[text_input, pil_image],
-                    config=genai.types.GenerateContentConfig(
-                        response_modalities=["TEXT", "IMAGE"]
-                    )
-                )
-                sent = False
-                for part in response.candidates[0].content.parts:
-                    if hasattr(part, 'text') and part.text:
-                        await message.reply(part.text)
-                        sent = True
-                    elif hasattr(part, 'inline_data') and part.inline_data is not None:
-                        img_result = Image.open(io.BytesIO(part.inline_data.data))
-                        with io.BytesIO() as output:
-                            img_result.save(output, format="PNG")
-                            output.seek(0)
-                            file = discord.File(fp=output, filename="edited_image.png")
-                            await message.reply(file=file)
-                            sent = True
-                if sent:
-                    return
-            except Exception as e:
-                import logging
-                logging.error(f"Error processing image URL: {e}")
-                await message.reply(f"❌ Error processing image URL: {str(e)}")
-                return
+    # If the message includes attachments/links, always route to multimodal and stop further handling
+    if bot.user.mentioned_in(message) or "seeyuh" in message.content.lower():
+        import re
+        if message.attachments or re.search(r"https?://[^\s]+", message.content or "", re.IGNORECASE):
+            async with message.channel.typing():
+                from engine.ai.gemini_multimodal import handle_message_files
+                await handle_message_files(bot, message)
+            return
     if message.author.bot:
         return
     
@@ -639,7 +579,7 @@ async def on_message(message):
             pass
         
     # Check if the message has attachments and bot is mentioned
-    if (bot.user.mentioned_in(message) or "seeyuh" in message.content.lower()) and not is_image_request(message.content):
+    if (bot.user.mentioned_in(message) or "seeyuh" in message.content.lower()):
         if message.attachments:
             async with message.channel.typing():  # Show typing indicator
                 responses = []
@@ -985,26 +925,14 @@ async def on_message(message):
                     current_query = current_query.replace(f"<@!{user.id}>", user.name)
                 ai_prompt = context_message + f"\nCurrent query from {author_name}: " + current_query
 
-            # Initialize image generation variables
+            # Initialize image generation variables (handled downstream if needed)
             image_data = None
+            image_text = None
             image_prompt = None
     
-            # Check if the message is requesting an image
-            if is_image_request(command_content):
-                image_prompt = extract_image_prompt(command_content)
-                # Append note to ai_prompt
-                ai_prompt += f"\nNOTE - Image automatically generated by stable diffusion for: {image_prompt}"
-                # Create tasks for image generation and AI response
-                generate_image_task = utility.generate_image(image_prompt)
-                get_ai_response_task = get_ai_response(ai_prompt, message)
-                # Show typing indicator
-                async with message.channel.typing():
-                    # Await both tasks concurrently
-                    image_data, (response, code_handled) = await asyncio.gather(generate_image_task, get_ai_response_task)
-            else:
-                # Only need to get AI response
-                async with message.channel.typing():
-                    response, code_handled = await get_ai_response(ai_prompt, message)
+            # Always let the Gemini responder decide if this is an image request
+            async with message.channel.typing():
+                response, code_handled = await get_ai_response(ai_prompt, message)
 
             # Prepare file object if image data is available
             file = None
@@ -1031,16 +959,11 @@ async def on_message(message):
                 if current_part:
                     response_parts.append(current_part)
 
-                # Send the first part along with the image if image_data is available
-                if file:
-                    await message.reply(content=response_parts[0], file=file)
-                    # Send the remaining parts if any
-                    for part in response_parts[1:]:
-                        await message.channel.send(part)
-                else:
-                    # No image, send all parts
-                    for part in response_parts:
-                        await message.reply(part)
+                # Send the first part
+                await message.reply(response_parts[0])
+                # Send the remaining parts if any
+                for part in response_parts[1:]:
+                    await message.channel.send(part)
 
             # Save the user message and bot response
             bot.loop.create_task(save_message_to_db(str(message.guild.id), message.author, current_query, response))
@@ -1173,31 +1096,9 @@ async def on_message(message):
                     current_query = current_query.replace(f"<@!{user.id}>", user.name)
                 ai_prompt = context_message + f"\nCurrent query from {author_name}: " + current_query
             
-            # Initialize image generation variables
-            image_data = None
-            image_prompt = None
-    
-            # Check if the message is requesting an image
-            if is_image_request(command_content):
-                image_prompt = extract_image_prompt(command_content)
-                # Append note to ai_prompt
-                ai_prompt += f"\nNOTE - Image automatically generated by stable diffusion for: {image_prompt}"
-                # Create tasks for image generation and AI response
-                generate_image_task = utility.generate_image(image_prompt)
-                get_ai_response_task = get_ai_response(ai_prompt, message)
-                # Show typing indicator
-                async with message.channel.typing():
-                    # Await both tasks concurrently
-                    image_data, (response, code_handled) = await asyncio.gather(generate_image_task, get_ai_response_task)
-            else:
-                # Only need to get AI response
-                async with message.channel.typing():
-                    response, code_handled = await get_ai_response(ai_prompt, message)
-
-            # Prepare file object if image data is available
-            file = None
-            if image_data:
-                file = discord.File(fp=image_data, filename="image.png")
+            # Always delegate to AI responder (handles image requests internally)
+            async with message.channel.typing():
+                response, code_handled = await get_ai_response(ai_prompt, message)
 
             # Only send text responses if code wasn't handled already
             if not code_handled:

@@ -1,4 +1,4 @@
-import discord, yt_dlp as youtube_dl, asyncio, engine.eventloop as eventloop, re, os, lyricsgenius, logging, time, backoff
+import discord, yt_dlp as youtube_dl, asyncio, engine.eventloop as eventloop, re, os, lyricsgenius, logging, time, backoff, shlex
 from youtube_transcript_api import YouTubeTranscriptApi
 from requests.exceptions import HTTPError
 from typing import Optional, Tuple, List
@@ -79,9 +79,10 @@ async def get_genius_lyrics(song: str, artist: str) -> Optional[str]:
             (f"{artist} {song}", None)
         ]:
             try:
-                # Add delay between retries
-                time.sleep(1)
-                result = genius.search_song(*search_query)
+                # Add delay between retries without blocking the event loop
+                await asyncio.sleep(1)
+                # Run blocking Genius API in a thread
+                result = await asyncio.to_thread(genius.search_song, *search_query)
                 if result and result.lyrics:
                     lyrics = result.lyrics
                     lyrics = re.sub(r'\[[^\]]*\]', '', lyrics)
@@ -104,6 +105,12 @@ async def get_genius_lyrics(song: str, artist: str) -> Optional[str]:
 # Load environment variables
 DISCORD_TOKEN, OWNER, url, key = load_env()
 
+# SMART COOKIE STRATEGY FOR RAILWAY:
+# 1. Default: No cookies (works locally)
+# 2. Bot Detection: Auto-retry with cookies only when needed
+# 3. Prevents: Format restrictions that cookies can cause
+# 4. Environment: Set YT_COOKIES_FILE and YT_USER_AGENT for Railway
+
 # Define available audio effects
 AUDIO_EFFECTS = {
     'bassboost': 'bass=g=10',
@@ -123,52 +130,231 @@ active_filters = {}  # Key: guild.id, Value: set of active filters
 ytdl_options = {
     'format': 'bestaudio/best',
     'noplaylist': False,
+    'playlist_items': '1',  # Only get first item from playlists
     'quiet': True,
     'no_warnings': True,
-    'default_search': 'auto',
+    'default_search': 'ytsearch',  # Changed from 'auto' for better search
     'source_address': '0.0.0.0',
     "cachedir": False,
     'options': '-vn -bufsize 64k',
     'extract_flat': False,  # Get full video info
-    'force_generic_extractor': False
+    'force_generic_extractor': False,
+    # Help evade player issues/detection; let yt-dlp try multiple clients
+    'extractor_args': {
+        'youtube': {
+            'player_client': ['android', 'web', 'ios', 'tv_embedded']
+        }
+    }
 }
+
+# Set up Railway-compatible User-Agent (no cookies by default - smart handling)
+user_agent = os.getenv('YT_USER_AGENT')
+if user_agent:
+    ytdl_options['user_agent'] = user_agent
+    logging.info("🌐 Using custom User-Agent for Railway")
+else:
+    ytdl_options['user_agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    logging.info("🌐 Using default User-Agent")
+
+logging.info("🧠 SMART MODE: No cookies by default, will use cookies only for bot detection")
+
 
 ffmpeg_options = {
     'before_options': (
         '-reconnect 1 '
         '-reconnect_streamed 1 '
         '-reconnect_delay_max 5 '
+        '-reconnect_at_eof 1 '
         '-multiple_requests 1 '
-        '-rw_timeout 15000000'
+        '-rw_timeout 15000000 '
+        '-nostdin'
     ),
     'options': (
         '-vn '
-        '-bufsize 16M '
-        '-maxrate 4M '
+        '-bufsize 64k '
         '-acodec libopus '
-        '-ab 192k '
-        '-loglevel warning'
+        '-ab 128k '
+        '-loglevel error'
     )
 }
 
 # Replace create_audio_source function
 @backoff.on_exception(backoff.expo, Exception, max_tries=3)
-async def create_audio_source(url: str) -> discord.FFmpegOpusAudio:
-    """Create audio source with direct FFmpeg"""
+async def create_audio_source(url: str, headers: dict | None = None) -> discord.FFmpegOpusAudio:
+    """Create audio source with robust header handling"""
     try:
-        # Skip probe and use direct creation
+        # Build base options
+        opts = dict(ffmpeg_options)
+        
+        # Handle headers properly for Railway authentication
+        if headers:
+            # Add important headers individually to before_options for better compatibility
+            bo = opts.get('before_options', '')
+            
+            # Add User-Agent if present (most important for auth)
+            if 'User-Agent' in headers:
+                ua = headers['User-Agent'].replace('"', '\\"')  # Escape quotes
+                bo += f' -user_agent "{ua}"'
+                
+            # Add Referer if present (helps with auth)  
+            if 'Referer' in headers:
+                ref = headers['Referer'].replace('"', '\\"')
+                bo += f' -referer "{ref}"'
+                
+            opts['before_options'] = bo
+            logging.debug(f"FFmpeg with auth headers: UA={headers.get('User-Agent', 'none')[:50]}...")
+        
+        # Validate URL before passing to FFmpeg
+        if not url or not url.startswith(('http://', 'https://')):
+            raise ValueError(f"Invalid URL for FFmpeg: {url}")
+            
+        logging.info(f"Creating FFmpeg source for: {url[:100]}...")
+        
+        # Use from_probe with fallback method for better compatibility
         return await discord.FFmpegOpusAudio.from_probe(
             url,
             method='fallback',
-            **ffmpeg_options
+            **opts
         )
     except Exception as e:
-        logging.error(f"FFmpeg error: {e}")
-        # Try one more time with basic options
-        return await discord.FFmpegOpusAudio.create(
-            url,
-            **ffmpeg_options
-        )
+        logging.error(f"FFmpeg probe failed: {e}")
+        # Fallback: try basic creation without probe
+        try:
+            opts = dict(ffmpeg_options)  # Reset to base options
+            logging.info("Retrying FFmpeg with basic options (no headers)")
+            return await discord.FFmpegOpusAudio.create(url, **opts)
+        except Exception as e2:
+            logging.error(f"FFmpeg create also failed: {e2}")
+            raise e2
+
+async def create_audio_source_smart(url: str, headers: dict, info: dict) -> discord.FFmpegOpusAudio:
+    """Smart audio source creation: tries without cookies first, uses cookies only for bot detection"""
+    try:
+        # First attempt: No cookies (like local environment)
+        return await create_audio_source(url, headers=headers)
+    except Exception as e:
+        error_msg = str(e).lower()
+        
+        # Check if this is bot detection (not format restriction)
+        bot_detection_errors = [
+            'sign in to confirm you\'re not a bot',
+            'this helps protect our community',
+            'automated traffic',
+            'unusual traffic',
+            'captcha',
+            'verify you\'re human'
+        ]
+        
+        is_bot_detection = any(phrase in error_msg for phrase in bot_detection_errors)
+        
+        if is_bot_detection:
+            logging.warning(f"🤖 BOT DETECTION on Railway - Retrying with cookies: {e}")
+            
+            # Get cookie file path
+            cookies_file = os.getenv('YT_COOKIES_FILE')
+            if not cookies_file:
+                cookies_file = os.path.join(os.path.dirname(__file__), 'youtube', 'cookies.txt')
+            
+            if os.path.isfile(cookies_file) and os.path.getsize(cookies_file) > 0:
+                # Create temporary ytdl with cookies for re-extraction
+                cookie_options = dict(ytdl_options)
+                cookie_options['cookiefile'] = cookies_file
+                cookie_ytdl = youtube_dl.YoutubeDL(cookie_options)
+                
+                try:
+                    # Re-extract with cookies
+                    logging.info("🍪 Re-extracting with cookies for bot bypass...")
+                    cookie_info = cookie_ytdl.extract_info(info.get('webpage_url'), download=False)
+                    if 'entries' in cookie_info:
+                        cookie_info = cookie_info['entries'][0]
+                    
+                    cookie_url = cookie_info.get('url') or cookie_info.get('webpage_url')
+                    if not cookie_url:
+                        raise ValueError("Cookie re-extraction produced no URL")
+                        
+                    cookie_headers = cookie_info.get('http_headers') or headers
+                    logging.info(f"🍪 ✅ Got new URL from cookies: {cookie_url[:100]}...")
+                    
+                    return await create_audio_source(cookie_url, headers=cookie_headers)
+                except Exception as cookie_e:
+                    logging.error(f"🍪 Cookie retry failed: {cookie_e}")
+                    raise cookie_e
+            else:
+                logging.error("🍪 No cookies file available for bot detection bypass")
+                raise e
+        else:
+            # Not bot detection, probably format/network issue
+            logging.error(f"❌ Audio source creation failed (not bot detection): {e}")
+            raise e
+
+async def extract_info_smart(query: str) -> dict:
+    """Smart info extraction: tries without cookies first, uses cookies only for bot detection"""
+    try:
+        # First attempt: No cookies (like local environment)
+        logging.info(f"Extracting info for: {query}")
+        info = ytdl.extract_info(query, download=False)
+        if 'entries' in info:
+            info = info['entries'][0]
+            
+        # Validate that we got a playable URL
+        if not info.get('url'):
+            raise ValueError("No playable URL found in extracted info")
+            
+        logging.info(f"✅ Extracted: {info.get('title', 'Unknown')} - URL: {info.get('url', '')[:100]}...")
+        return info
+    except Exception as e:
+        error_msg = str(e).lower()
+        
+        # Check if this is bot detection
+        bot_detection_errors = [
+            'sign in to confirm you\'re not a bot',
+            'this helps protect our community', 
+            'automated traffic',
+            'unusual traffic',
+            'captcha',
+            'verify you\'re human',
+            'too many requests',
+            'rate limit'
+        ]
+        
+        is_bot_detection = any(phrase in error_msg for phrase in bot_detection_errors)
+        
+        if is_bot_detection:
+            logging.warning(f"🤖 BOT DETECTION during extraction - Retrying with cookies: {e}")
+            
+            # Get cookie file path
+            cookies_file = os.getenv('YT_COOKIES_FILE')
+            if not cookies_file:
+                cookies_file = os.path.join(os.path.dirname(__file__), 'youtube', 'cookies.txt')
+            
+            if os.path.isfile(cookies_file) and os.path.getsize(cookies_file) > 0:
+                # Create temporary ytdl with cookies
+                cookie_options = dict(ytdl_options)
+                cookie_options['cookiefile'] = cookies_file
+                cookie_ytdl = youtube_dl.YoutubeDL(cookie_options)
+                
+                try:
+                    logging.info("🍪 Re-extracting with cookies for bot bypass...")
+                    cookie_info = cookie_ytdl.extract_info(query, download=False)
+                    if 'entries' in cookie_info:
+                        cookie_info = cookie_info['entries'][0]
+                        
+                    # Validate cookie extraction result
+                    if not cookie_info.get('url'):
+                        raise ValueError("Cookie extraction produced no playable URL")
+                        
+                    logging.info(f"🍪 ✅ Cookie extraction successful: {cookie_info.get('title', 'Unknown')}")
+                    return cookie_info
+                except Exception as cookie_e:
+                    logging.error(f"🍪 Cookie extraction failed: {cookie_e}")
+                    raise cookie_e
+            else:
+                logging.error("🍪 No cookies file available for bot detection bypass")
+                raise e
+        else:
+            # Not bot detection, probably network/video issue
+            logging.error(f"❌ Info extraction failed (not bot detection): {e}")
+            raise e
 
 ytdl = youtube_dl.YoutubeDL(ytdl_options)
 
@@ -324,24 +510,25 @@ class MusicView(discord.ui.View):
             video_id = is_valid_youtube_url(self.youtube_url)
             
             try:
-                transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+                # Run blocking transcript fetch in a thread
+                transcript_list = await asyncio.to_thread(YouTubeTranscriptApi.list_transcripts, video_id)
                 
                 # Try different transcript types
                 transcript = None
                 for lang in ['en', 'en-US', 'en-GB']:
                     try:
-                        transcript = transcript_list.find_transcript([lang])
+                        transcript = await asyncio.to_thread(transcript_list.find_transcript, [lang])
                         break
                     except:
                         continue
                         
                 if not transcript:
                     try:
-                        transcript = transcript_list.find_manually_created_transcript()
+                        transcript = await asyncio.to_thread(transcript_list.find_manually_created_transcript)
                     except:
-                        transcript = transcript_list.find_generated_transcript()
+                        transcript = await asyncio.to_thread(transcript_list.find_generated_transcript)
                         
-                transcript_data = transcript.fetch()
+                transcript_data = await asyncio.to_thread(transcript.fetch)
                 formatted_lyrics = []
                 current_chunk = ""
                 
@@ -454,11 +641,8 @@ async def play(interaction: discord.Interaction, query: str):
                 await interaction.followup.send(embed=embed)
                 return
 
-        # Resolve the query to get song info
-        info = ytdl.extract_info(query, download=False)
-        if 'entries' in info:
-            # If it's a playlist, take the first entry
-            info = info['entries'][0]
+        # Resolve the query to get song info with smart bot detection handling
+        info = await extract_info_smart(query)
 
         # Add the song to the queue
         song_queue.append((interaction, query, info))
@@ -515,15 +699,22 @@ async def play_next_song():
 
     try:
         url2 = info['url']
+        headers = info.get('http_headers') or {}
         duration = info.get('duration', 0)
         current_song_start = time.time()
 
-        # Create FFmpeg source with retries and better error handling
-        source = await create_audio_source(url2)
+        # Create FFmpeg source with smart cookie handling for Railway
+        source = await create_audio_source_smart(url2, headers, info)
 
         def after_playing(error):
             if error:
-                logging.error(f"Playback error: {error}")
+                # Log more details about FFmpeg errors to help diagnose Railway issues
+                error_msg = str(error)
+                if "return code" in error_msg.lower():
+                    logging.error(f"🔥 FFmpeg process error: {error}")
+                    logging.error(f"This may indicate invalid URL or auth headers on Railway")
+                else:
+                    logging.error(f"Playback error: {error}")
             eventloop.event_loop.call_soon_threadsafe(
                 lambda: asyncio.create_task(play_next_song())
             )
