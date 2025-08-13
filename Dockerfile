@@ -10,6 +10,7 @@ COPY . /app
 # Update and install required dependencies
 RUN apt-get update && \
     apt-get install -y ffmpeg python3-pip && \
+    python3 -m pip install --upgrade pip setuptools wheel && \
     bash install_ffmpeg.sh && \
     pip install -r requirements.txt
 
