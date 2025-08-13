@@ -13,6 +13,14 @@ from supabase import create_client, Client
 from sqlalchemy.orm import declarative_base
 from sqlalchemy import Column, Integer, String, ForeignKey
 
+# Fix for Pillow compatibility with MoviePy
+try:
+    from PIL import Image
+    if not hasattr(Image, 'ANTIALIAS'):
+        Image.ANTIALIAS = Image.LANCZOS
+except ImportError:
+    pass
+
 logging.basicConfig(level=logging.INFO)
 
 # Load environment variables
