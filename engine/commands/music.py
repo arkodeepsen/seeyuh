@@ -260,7 +260,10 @@ async def create_audio_source_smart(url: str, headers: dict, info: dict) -> disc
             'automated traffic',
             'unusual traffic',
             'captcha',
-            'verify you\'re human'
+            'verify you\'re human',
+            'forbidden',
+            '403',
+            'access denied'
         ]
         
         is_bot_detection = any(phrase in error_msg for phrase in bot_detection_errors)
@@ -290,7 +293,9 @@ async def create_audio_source_smart(url: str, headers: dict, info: dict) -> disc
                     if not cookie_url:
                         raise ValueError("Cookie re-extraction produced no URL")
                         
-                    cookie_headers = cookie_info.get('http_headers') or headers
+                    cookie_headers = dict(cookie_info.get('http_headers') or headers)
+                    if 'Referer' not in cookie_headers and cookie_info.get('webpage_url'):
+                        cookie_headers['Referer'] = cookie_info['webpage_url']
                     logging.info(f"🍪 ✅ Got new URL from cookies: {cookie_url[:100]}...")
                     
                     return await create_audio_source(cookie_url, headers=cookie_headers)
@@ -722,6 +727,9 @@ async def play_next_song():
     try:
         url2 = info['url']
         headers = info.get('http_headers') or {}
+        # Ensure Referer is set to the YouTube page URL for auth on Railway
+        if 'Referer' not in headers and info.get('webpage_url'):
+            headers['Referer'] = info['webpage_url']
         duration = info.get('duration', 0)
         current_song_start = time.time()
 
