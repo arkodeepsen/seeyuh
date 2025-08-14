@@ -2585,83 +2585,17 @@ def sync_cleanup(file_path: str):
 @app_commands.command(name="musicgen", description="Generate music using AI.")
 @app_commands.describe(prompt="Description of the music you want to generate")
 async def musicgen(interaction: discord.Interaction, prompt: str):
-    try:
-        await interaction.response.defer()
-        
-        if not HF_API_KEY:
-            await interaction.followup.send("❌ HuggingFace API key not configured!")
-            return
-            
-        # Generate music
-        audio_data = await generate_music(prompt)
-        
-        # Save to temp file
-        with tempfile.NamedTemporaryFile(suffix='.flac', delete=False) as tmp:
-            tmp.write(audio_data)
-            tmp_path = tmp.name
-            
-        # Verify file
-        if not os.path.exists(tmp_path):
-            raise FileNotFoundError(f"File not found: {tmp_path}")
-        
-        if os.path.getsize(tmp_path) == 0:
-            raise ValueError("Empty audio file created")
-        
-        # Send file in chat
-        await interaction.followup.send(
-            f"🎵 Generated music for: **{prompt}**",
-            file=File(tmp_path, f'{prompt[:200]}.flac')  # Limit filename to 200 chars
-        )
-        
-        # Join voice channel if user is in one
-        if interaction.user.voice:
-            channel = interaction.user.voice.channel
-            
-            # Connect to voice
-            voice_client = None
-            for region in PREFERRED_REGIONS:
-                try:
-                    await channel.edit(rtc_region=region)
-                    if not interaction.guild.voice_client:
-                        voice_client = await channel.connect()
-                    else:
-                        voice_client = interaction.guild.voice_client
-                        if voice_client.channel != channel:
-                            await voice_client.move_to(channel)
-                    await asyncio.sleep(1)
-                    break
-                except Exception as e:
-                    logging.error(f"Voice connection error: {e}")
-                    continue
-
-            # Create audio source like TTS
-            try:
-                source = await discord.FFmpegOpusAudio.from_probe(
-                    tmp_path,
-                    options='-filter:a volume=2.0'
-                )
-                
-                def after_playing(error):
-                    if error:
-                        logging.error(f"Playback error: {error}")
-                    try:
-                        if os.path.exists(tmp_path):
-                            os.unlink(tmp_path)
-                            logging.info(f"Cleaned up temp file: {tmp_path}")
-                    except Exception as e:
-                        logging.error(f"Cleanup error: {e}")
-
-                voice_client.play(source, after=after_playing)
-                
-            except Exception as e:
-                logging.error(f"FFmpeg error: {e}")
-                if os.path.exists(tmp_path):
-                    os.unlink(tmp_path)
-                await interaction.followup.send("❌ Failed to play audio", ephemeral=True)
-                
-    except Exception as e:
-        logging.error(f"MusicGen error: {e}")
-        await interaction.followup.send(f"❌ Error: {str(e)}")
+    await interaction.response.send_message(
+        "🎵 **Music Generation**\n\n"
+        "This feature is currently only available to supporters and donors! "
+        "Help keep the bot running and unlock exclusive AI music generation capabilities.\n\n"
+        "💎 **Support us to access:**\n"
+        "• AI Music Generation\n"
+        "• Premium AI Models\n"
+        "• Priority Support\n\n"
+        "Contact the bot owner for donation/support options.",
+        ephemeral=True
+    )
         
 genai_client = genai.Client(api_key=os.getenv('GEMINI_PRO_API_KEY'), http_options={'api_version':'v1alpha'})
 

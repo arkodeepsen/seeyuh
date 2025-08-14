@@ -195,14 +195,32 @@ async def create_audio_source(url: str, headers: dict | None = None) -> discord.
             if 'User-Agent' in headers:
                 ua = headers['User-Agent'].replace('"', '\\"')  # Escape quotes
                 bo += f' -user_agent "{ua}"'
-                
-            # Add Referer if present (helps with auth)  
+            
+            # Add Referer if present (helps with auth)
             if 'Referer' in headers:
                 ref = headers['Referer'].replace('"', '\\"')
                 bo += f' -referer "{ref}"'
-                
+
+            # Add full header block using -headers for everything yt-dlp provided (Cookie, Accept, etc.)
+            # Sanitize CRLF to prevent header injection issues
+            try:
+                hdr_lines = []
+                for k, v in headers.items():
+                    if v is None:
+                        continue
+                    key = str(k).replace('\r', ' ').replace('\n', ' ')
+                    val = str(v).replace('\r', ' ').replace('\n', ' ')
+                    hdr_lines.append(f"{key}: {val}")
+                if hdr_lines:
+                    header_block = "\\r\\n".join(hdr_lines) + "\\r\\n"
+                    bo += f' -headers "{header_block}"'
+            except Exception as _:
+                pass
+
             opts['before_options'] = bo
-            logging.debug(f"FFmpeg with auth headers: UA={headers.get('User-Agent', 'none')[:50]}...")
+            logging.debug(
+                f"FFmpeg with auth headers: UA={headers.get('User-Agent', 'none')[:50]}..., Has-Cookie={'Cookie' in headers}"
+            )
         
         # Validate URL before passing to FFmpeg
         if not url or not url.startswith(('http://', 'https://')):
@@ -220,8 +238,8 @@ async def create_audio_source(url: str, headers: dict | None = None) -> discord.
         logging.error(f"FFmpeg probe failed: {e}")
         # Fallback: try basic creation without probe
         try:
-            opts = dict(ffmpeg_options)  # Reset to base options
-            logging.info("Retrying FFmpeg with basic options (no headers)")
+            # Keep the same header options for fallback attempt as well
+            logging.info("Retrying FFmpeg with basic options (preserving headers)")
             return await discord.FFmpegOpusAudio.create(url, **opts)
         except Exception as e2:
             logging.error(f"FFmpeg create also failed: {e2}")
@@ -672,6 +690,8 @@ async def play_next_song():
     if previous_message:
         try:
             # Get info from current song that just finished
+            if not current_song:
+                raise ValueError("No current_song to summarize")
             _, _, old_info = current_song
             played_embed = discord.Embed(
                 title="Played",
@@ -683,7 +703,9 @@ async def play_next_song():
                 seconds = duration % 60
                 played_embed.add_field(name="Duration", value=f"{minutes:02d}:{seconds:02d}")
             
-            played_embed.set_thumbnail(url=old_info['thumbnail'])
+            thumb = old_info.get('thumbnail')
+            if thumb:
+                played_embed.set_thumbnail(url=thumb)
             await previous_message.edit(embed=played_embed, view=None)
         except Exception as e:
             logging.error(f"Failed to edit previous message: {e}")
