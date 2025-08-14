@@ -303,6 +303,8 @@ async def create_audio_source_smart(url: str, headers: dict, info: dict) -> disc
                 # Create temporary ytdl with cookies for re-extraction
                 cookie_options = dict(ytdl_options)
                 cookie_options['cookiefile'] = cookies_file
+                # Broaden format to avoid 'bestaudio not available' on cookies; we'll strip video in FFmpeg (-vn)
+                cookie_options['format'] = 'best'
                 cookie_ytdl = youtube_dl.YoutubeDL(cookie_options)
                 
                 try:
@@ -312,9 +314,21 @@ async def create_audio_source_smart(url: str, headers: dict, info: dict) -> disc
                     if 'entries' in cookie_info:
                         cookie_info = cookie_info['entries'][0]
                     
-                    cookie_url = cookie_info.get('url') or cookie_info.get('webpage_url')
+                    cookie_url = cookie_info.get('url')
                     if not cookie_url:
-                        raise ValueError("Cookie re-extraction produced no URL")
+                        # Final fallback: attempt to pick an audio-capable format manually
+                        fmts = cookie_info.get('formats') or []
+                        best_f = _choose_best_audio_format(fmts)
+                        if best_f and best_f.get('url'):
+                            cookie_url = best_f['url']
+                            # Merge headers from selected format if present
+                            fmt_headers = best_f.get('http_headers') or {}
+                            headers = cookie_info.get('http_headers') or headers
+                            merged_headers = dict(headers)
+                            merged_headers.update(fmt_headers)
+                            cookie_headers = merged_headers
+                        else:
+                            raise ValueError("Cookie re-extraction produced no playable URL")
                         
                     cookie_headers = dict(cookie_info.get('http_headers') or headers)
                     if 'Referer' not in cookie_headers and cookie_info.get('webpage_url'):
@@ -380,6 +394,8 @@ async def extract_info_smart(query: str) -> dict:
                 # Create temporary ytdl with cookies
                 cookie_options = dict(ytdl_options)
                 cookie_options['cookiefile'] = cookies_file
+                # Broaden format for cookie extraction to avoid missing bestaudio
+                cookie_options['format'] = 'best'
                 cookie_ytdl = youtube_dl.YoutubeDL(cookie_options)
                 
                 try:
@@ -416,6 +432,39 @@ skip_votes = set()
 previous_message = None
 # Add at top with other globals
 current_song_start = None
+
+def _choose_best_audio_format(formats: list) -> dict | None:
+    """Pick an audio-capable format URL from yt-dlp formats list.
+
+    Preference order:
+    - Audio-only (vcodec == 'none')
+    - Preferred itags: 251 (webm/opus), 140 (m4a/aac), 250/249
+    - Highest abr
+    Fallback: any entry with acodec present and url available
+    """
+    if not formats:
+        return None
+    preferred_itags = {'251': 3, '140': 2, '250': 2, '249': 1}
+    candidates = []
+    for f in formats:
+        url = f.get('url')
+        if not url:
+            continue
+        acodec = (f.get('acodec') or '').lower()
+        vcodec = (f.get('vcodec') or '').lower()
+        has_audio = acodec and acodec != 'none'
+        audio_only = vcodec == 'none'
+        if not has_audio and not audio_only:
+            continue
+        itag = str(f.get('format_id') or '')
+        itag_score = preferred_itags.get(itag, 0)
+        abr = f.get('abr') or 0
+        candidates.append((audio_only, itag_score, abr, f))
+    if not candidates:
+        return None
+    # Sort by: audio_only desc, itag_score desc, abr desc
+    candidates.sort(key=lambda t: (t[0], t[1], t[2]), reverse=True)
+    return candidates[0][3]
 
 def is_valid_youtube_url(url: str) -> Optional[str]:
     """Validate YouTube URL and extract video ID"""
