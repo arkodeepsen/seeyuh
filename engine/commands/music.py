@@ -1,4 +1,4 @@
-import discord, yt_dlp as youtube_dl, asyncio, engine.eventloop as eventloop, re, os, lyricsgenius, logging, time, backoff, shlex
+import discord, yt_dlp as youtube_dl, asyncio, engine.eventloop as eventloop, re, os, lyricsgenius, logging, time, backoff, shlex, aiohttp
 from youtube_transcript_api import YouTubeTranscriptApi
 from requests.exceptions import HTTPError
 from typing import Optional, Tuple, List
@@ -247,10 +247,33 @@ async def create_audio_source(url: str, headers: dict | None = None) -> discord.
 
 async def create_audio_source_smart(url: str, headers: dict, info: dict) -> discord.FFmpegOpusAudio:
     """Smart audio source creation: tries without cookies first, uses cookies only for bot detection"""
-    try:
-        # First attempt: No cookies (like local environment)
-        return await create_audio_source(url, headers=headers)
-    except Exception as e:
+    async def _is_accessible(test_url: str, test_headers: dict) -> bool:
+        try:
+            async with aiohttp.ClientSession() as session:
+                # Try HEAD first
+                async with session.head(test_url, headers=test_headers, allow_redirects=True) as resp:
+                    if resp.status in (200, 206):
+                        return True
+                    # Some endpoints disallow HEAD; try small ranged GET
+                get_headers = dict(test_headers or {})
+                get_headers.setdefault('Range', 'bytes=0-1')
+                async with session.get(test_url, headers=get_headers, allow_redirects=True) as resp2:
+                    return resp2.status in (200, 206)
+        except Exception:
+            return False
+
+    # Preflight check: if direct URL is not accessible (403/401/etc.), treat as bot detection early
+    if not await _is_accessible(url, headers or {}):
+        e = Exception("preflight access denied")
+    else:
+        try:
+            # First attempt: No cookies (like local environment)
+            return await create_audio_source(url, headers=headers)
+        except Exception as e:
+            pass  # Handle in the common error handling block below
+    
+    # Common error handling for both preflight failure and try block failure
+    if 'e' in locals():
         error_msg = str(e).lower()
         
         # Check if this is bot detection (not format restriction)
@@ -297,6 +320,9 @@ async def create_audio_source_smart(url: str, headers: dict, info: dict) -> disc
                     if 'Referer' not in cookie_headers and cookie_info.get('webpage_url'):
                         cookie_headers['Referer'] = cookie_info['webpage_url']
                     logging.info(f"🍪 ✅ Got new URL from cookies: {cookie_url[:100]}...")
+                    # Ensure the cookie URL is accessible before feeding to FFmpeg
+                    if not await _is_accessible(cookie_url, cookie_headers):
+                        raise Exception("Cookie URL still not accessible (403)")
                     
                     return await create_audio_source(cookie_url, headers=cookie_headers)
                 except Exception as cookie_e:

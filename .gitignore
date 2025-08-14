@@ -13,3 +13,4 @@ guild_settings.json
 backups/
 backups/message.json.lock
 backups/guild_settings.json.lock
+.claude/
