@@ -590,7 +590,7 @@ async def get_ai_response(prompt, message):
     else:
         model_name = 'gemini-2.0-flash-thinking-exp-01-21' if use_thinking else 'flash2'
     
-    # Skip web scraping/search enrichment for image-generation requests
+    # Handle web enrichment for both text and image requests
     if not is_image:
         # Check for URLs first and skip image-like URLs
         urls = URL_PATTERN.findall(current_query)
@@ -615,6 +615,24 @@ async def get_ai_response(prompt, message):
                     f"{search_results}\n\n"
                     f"{prompt}"
                 )
+    else:
+        # For image requests that ask for information + image (like "who is X show me image")
+        # Extract the information query part and search for it
+        info_query = current_query.lower()
+        for keyword in ["show me image", "show me picture", "show image", "show picture", "find image", "find picture", "get image", "get picture"]:
+            if keyword in info_query:
+                info_query = info_query.replace(keyword, "").strip()
+                break
+        
+        if info_query and len(info_query) > 3:  # Only search if there's substantial content
+            logging.info(f"Image request with info query: {info_query}")
+            search_results = await get_search_results(info_query, prompt)
+            if search_results:
+                prompt = (
+                    f"Based on information about '{info_query}':\n\n"
+                    f"{search_results}\n\n"
+                    f"{prompt}\n\nGenerate both informative text and a relevant image."
+                )
         
     systemInstruction = f"You are a discord bot named seeyuh. arkodeep is your developer, your responses are chill asf and very informal gen-z style. You are an automoderation, entertainment, music and games bot but also designed to help users with their queries. You will generate responses using AI and try using same languge as the query. You can provide information about the bot, list available commands, respond to user queries and access latest data from internet. You can use the `/help` command to see available commands."
     current_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -633,11 +651,25 @@ async def get_ai_response(prompt, message):
             # Gather first image and any accompanying text
             out_text = None
             out_image_bytes = None
-            for part in img_response.candidates[0].content.parts:
-                if hasattr(part, 'inline_data') and part.inline_data is not None and out_image_bytes is None:
-                    out_image_bytes = part.inline_data.data
-                elif hasattr(part, 'text') and part.text and not out_text:
-                    out_text = part.text
+            
+            # Check if response has candidates and content
+            if (img_response and 
+                hasattr(img_response, 'candidates') and 
+                img_response.candidates and 
+                len(img_response.candidates) > 0 and
+                hasattr(img_response.candidates[0], 'content') and
+                img_response.candidates[0].content and
+                hasattr(img_response.candidates[0].content, 'parts') and
+                img_response.candidates[0].content.parts):
+                
+                for part in img_response.candidates[0].content.parts:
+                    if hasattr(part, 'inline_data') and part.inline_data is not None and out_image_bytes is None:
+                        out_image_bytes = part.inline_data.data
+                    elif hasattr(part, 'text') and part.text and not out_text:
+                        out_text = part.text
+            else:
+                logging.error("Invalid Gemini image response structure")
+                out_text = "Sorry, I couldn't generate an image right now. Please try again later."
             # Send both together in a single message if possible
             if out_image_bytes is not None:
                 try:

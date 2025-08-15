@@ -117,7 +117,8 @@ image_keywords = ["draw an image of", "generate an image of", "generate a pictur
     "design artwork", "can you render illustration", "I need visual", "illustrate scenario", "show concept art", "draw scene",
     "develop creative depiction", "create image that features", "craft detailed artwork", "draw vivid representation", "sketch idea", "illustrate scene",
     "make digital rendering", "give me visual impression", "paint striking image", "I'd like to see concept", "make artistic interpretation", "compose scenic view", 
-    "craft imaginative artwork" ] 
+    "craft imaginative artwork", "show me a picture", "show me an image", "find image", "find picture", "search image", "search picture",
+    "get image", "get picture", "look up image", "look up picture", "fetch image", "fetch picture", "display image", "display picture" ] 
 image_end_keywords = [
     "generate an image", "create an illustration", "draw a picture", "make an artwork", 
     "produce a rendering", "visualize this", "render an image",
