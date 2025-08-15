@@ -1562,16 +1562,12 @@ async def on_message(message):
                 if current_part:
                     response_parts.append(current_part)
 
-                # Send the first part along with the image if image_data is available
-                if file:
-                    await message.reply(content=response_parts[0], file=file)
-                    # Send the remaining parts if any
-                    for part in response_parts[1:]:
-                        await message.channel.send(part)
-                else:
-                    # No image, send all parts
-                    for part in response_parts:
+                # Send all response parts
+                for i, part in enumerate(response_parts):
+                    if i == 0:
                         await message.reply(part)
+                    else:
+                        await message.channel.send(part)
 
             # Save the user message and bot response
             bot.loop.create_task(save_message_to_db(str(message.guild.id), message.author, current_query, response))
@@ -1985,7 +1981,7 @@ async def on_message(message):
     if any(phrase in message.content.lower() for phrase in ["ded chat", "dead chat", "deadchat", "dedchat"]) and random.random() < 0.05:
         await message.channel.send("Ded chat? I'm here to revive it! 😎")
         return
-    if any(phrase in message.content.lower() for phrase in ["yamete", "kudasai"]) and random.random() < 0.05:
+    if any(phrase in message.content.lower() for phrase in ["yamete", "yamate", "kudasai"]) and random.random() < 0.05:
         await message.channel.send("⣿⣿⣷⡁⢆⠈⠕⢕⢂⢕⢂⢕⢂⢔⢂⢕⢄⠂⣂⠂⠆⢂⢕⢂⢕⢂⢕⢂⢕⢂\n"
                                 "⣿⣿⣿⡷⠊⡢⡹⣦⡑⢂⢕⢂⢕⢂⢕⢂⠕⠔⠌⠝⠛⠶⠶⢶⣦⣄⢂⢕⢂⢕\n"
                                 "⣿⣿⠏⣠⣾⣦⡐⢌⢿⣷⣦⣅⡑⠕⠡⠐⢿⠿⣛⠟⠛⠛⠛⠛⠡⢷⡈⢂⢕⢂\n"
