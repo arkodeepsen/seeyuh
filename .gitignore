@@ -14,3 +14,4 @@ backups/
 backups/message.json.lock
 backups/guild_settings.json.lock
 .claude/
+downloaded_file.mp4

@@ -8,7 +8,7 @@ from engine.utils import load_env, intents, update_presence
 from engine.db import fetch_recent_message, save_message_to_db, retry_check_and_update_guild_entry, generate_and_cache_invites, sync_guilds_and_users, get_welcome_settings
 from engine.ai.gemini import get_ai_response, code_ai_response
 from engine.ai.gemini_multimodal import handle_attachment
-from engine.commands.video import generate_meme_video
+from engine.commands.video import generate_meme_video, generate_meme_video_with_progress
 from supabase import create_client, Client
 from sqlalchemy.orm import declarative_base
 from sqlalchemy import Column, Integer, String, ForeignKey
@@ -535,6 +535,7 @@ async def on_guild_join(guild):
 greeting_emojis = ["👋", "😊", "😃", "🙌", "🤗"]
 
 def _build_welcome_video_bytes(avatar_png_bytes: bytes, display_name: str, guild_name: str, guild_icon_bytes: bytes = None, bot_avatar_bytes: bytes = None) -> bytes:
+    """Build a unique welcome video with floating animations and dynamic effects, returning the video as bytes."""
     from io import BytesIO
     from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps
     import numpy as np
@@ -545,143 +546,559 @@ def _build_welcome_video_bytes(avatar_png_bytes: bytes, display_name: str, guild
     import edge_tts
     import asyncio
     import tempfile, os, random
+    import math
+    import colorsys
 
+    # Video dimensions
     width, height = 1280, 720
-    # Gradient background
-    bg = Image.new('RGB', (width, height), '#0b1021')
-    draw = ImageDraw.Draw(bg)
-    for y in range(height):
-        blend = y / height
-        color = (
-            int(11 + (25 - 11) * blend),
-            int(16 + (55 - 16) * blend),
-            int(33 + (105 - 33) * blend)
-        )
-        draw.line([(0, y), (width, y)], fill=color)
-
-    # Soft vignette
-    vignette = Image.new('L', (width, height), 0)
-    vd = ImageDraw.Draw(vignette)
-    vd.ellipse([(-int(width*0.2), -int(height*0.2)), (int(width*1.2), int(height*1.2))], fill=255)
-    vignette = vignette.filter(ImageFilter.GaussianBlur(120))
-    bg = Image.composite(bg, Image.new('RGB', (width, height), 'black'), ImageOps.invert(vignette).filter(ImageFilter.GaussianBlur(0)))
-
-    # Enhanced decorative elements
-    for cx, cy, r, color in [
-        (width*0.15, height*0.25, 200, (52, 152, 219)),
-        (width*0.85, height*0.75, 240, (155, 89, 182)),
-        (width*0.75, height*0.2, 180, (46, 204, 113)),
-        (width*0.3, height*0.8, 160, (241, 196, 15)),
-    ]:
-        # Multiple layered glows for depth
-        for layer, (scale, alpha) in enumerate([(1.2, 120), (0.8, 160), (0.5, 200)]):
-            blob = Image.new('RGBA', (int(r*2*scale), int(r*2*scale)), (0, 0, 0, 0))
-            bd = ImageDraw.Draw(blob)
-            bd.ellipse([(0, 0), (r*2*scale, r*2*scale)], fill=color + (alpha,))
-            blob = blob.filter(ImageFilter.GaussianBlur(int(80*scale)))
-            bg.paste(blob, (int(cx - r*scale), int(cy - r*scale)), blob)
-
-    # Avatar circle with ring and shadow
-    avatar = Image.open(BytesIO(avatar_png_bytes)).convert('RGBA')
-    avatar = avatar.resize((360, 360), Image.LANCZOS)
-    mask = Image.new('L', (360, 360), 0)
-    ImageDraw.Draw(mask).ellipse([(0, 0), (360, 360)], fill=255)
-    avatar = Image.composite(avatar, Image.new('RGBA', (360, 360), (0, 0, 0, 0)), mask)
-    # Shadow
-    shadow = Image.new('RGBA', (380, 380), (0, 0, 0, 0))
-    sd = ImageDraw.Draw(shadow)
-    sd.ellipse([(0, 0), (380, 380)], fill=(0, 0, 0, 160))
-    shadow = shadow.filter(ImageFilter.GaussianBlur(20))
-    bg.paste(shadow, (int(width*0.08) - 10, int(height*0.45) - 10), shadow)
-    bg.paste(avatar, (int(width*0.08), int(height*0.45)), avatar)
-    # Ring
-    ring = Image.new('RGBA', (380, 380), (0, 0, 0, 0))
-    ring_d = ImageDraw.Draw(ring)
-    ring_d.ellipse([(10, 10), (370, 370)], outline=(255, 255, 255, 220), width=6)
-    ring = ring.filter(ImageFilter.GaussianBlur(1))
-    bg.paste(ring, (int(width*0.08) - 10, int(height*0.45) - 10), ring)
-
-    # Fonts
-    def load_font(path_candidates, size):
-        for p in path_candidates:
-            if os.path.exists(p):
-                try:
-                    return ImageFont.truetype(p, size)
-                except Exception:
-                    pass
-        return ImageFont.load_default()
-
-    bold_font = load_font([
-        "assets/fonts/arialbd.ttf",
-        "assets/fonts/ARIALBD 1.TTF",
-        "assets/fonts/ARIALNB.TTF",
-    ], 78)
-    regular_font = load_font([
-        "assets/fonts/arial.ttf",
-        "assets/fonts/ArialCE.ttf",
-        "assets/fonts/ARIALN.TTF",
-    ], 44)
-
-    # Text with shadow
-    def draw_text_with_shadow(img, xy, text, font, fill=(255, 255, 255), shadow=(0, 0, 0), offset=(2, 2)):
-        d = ImageDraw.Draw(img)
-        x, y = xy
-        d.text((x + offset[0], y + offset[1]), text, font=font, fill=shadow)
-        d.text((x, y), text, font=font, fill=fill)
-
-    # Add server icon and bot avatar
-    if guild_icon_bytes:
-        try:
-            guild_icon = Image.open(BytesIO(guild_icon_bytes)).convert('RGBA')
-            guild_icon = guild_icon.resize((120, 120), Image.LANCZOS)
-            # Circular mask for guild icon
-            mask = Image.new('L', (120, 120), 0)
-            ImageDraw.Draw(mask).ellipse([(0, 0), (120, 120)], fill=255)
-            guild_icon = Image.composite(guild_icon, Image.new('RGBA', (120, 120), (0, 0, 0, 0)), mask)
-            # Position in top-right
-            bg.paste(guild_icon, (width - 180, 40), guild_icon)
-        except Exception:
-            pass
+    video_duration = 5.0
+    fps = 30
+    total_frames = int(video_duration * fps)
     
-    if bot_avatar_bytes:
-        try:
-            bot_avatar = Image.open(BytesIO(bot_avatar_bytes)).convert('RGBA')
-            bot_avatar = bot_avatar.resize((100, 100), Image.LANCZOS)
-            # Circular mask for bot avatar
-            mask = Image.new('L', (100, 100), 0)
-            ImageDraw.Draw(mask).ellipse([(0, 0), (100, 100)], fill=255)
-            bot_avatar = Image.composite(bot_avatar, Image.new('RGBA', (100, 100), (0, 0, 0, 0)), mask)
-            # Position in bottom-right
-            bg.paste(bot_avatar, (width - 140, height - 140), bot_avatar)
-        except Exception:
-            pass
+    # Generate unique random colors for this video
+    def generate_random_palette():
+        hue = random.random() * 360
+        sat_base = random.uniform(0.6, 0.9)
+        
+        # Primary color (main hue)
+        primary_color = tuple(int(c * 255) for c in colorsys.hsv_to_rgb(hue/360, sat_base, random.uniform(0.7, 0.9)))
+        
+        # Secondary color (complementary hue)
+        secondary_hue = (hue + random.uniform(120, 240)) % 360
+        secondary_color = tuple(int(c * 255) for c in colorsys.hsv_to_rgb(secondary_hue/360, sat_base * 0.8, random.uniform(0.5, 0.8)))
+        
+        # Accent color (triadic)
+        accent_hue = (hue + random.uniform(60, 120)) % 360
+        accent_color = tuple(int(c * 255) for c in colorsys.hsv_to_rgb(accent_hue/360, sat_base * 0.9, random.uniform(0.8, 1.0)))
+        
+        return primary_color, secondary_color, accent_color
+    
+    primary_color, secondary_color, accent_color = generate_random_palette()
+    
+    # Random animation parameters for uniqueness
+    particle_speed = random.uniform(1.0, 2.5)
+    wave_frequency = random.uniform(1.5, 3.0)
+    glow_intensity = random.uniform(0.4, 0.8)
+    rotation_speed = random.uniform(0.5, 2.0)
+    
+    def create_animated_gradient(t, width, height):
+        """Create animated gradient background"""
+        img = Image.new('RGB', (width, height))
+        draw = ImageDraw.Draw(img)
+        
+        # Animated gradient shift
+        shift = int(t * 50) % height
+        
+        for y in range(height):
+            adjusted_y = (y + shift) % height
+            ratio = adjusted_y / height
+            
+            # Add wave pattern to gradient
+            wave_offset = 0.1 * math.sin(2 * math.pi * adjusted_y / 100 + t * wave_frequency)
+            ratio = max(0, min(1, ratio + wave_offset))
+            
+            r = int(primary_color[0] * (1 - ratio) + secondary_color[0] * ratio)
+            g = int(primary_color[1] * (1 - ratio) + secondary_color[1] * ratio)
+            b = int(primary_color[2] * (1 - ratio) + secondary_color[2] * ratio)
+            draw.line([(0, y), (width, y)], fill=(r, g, b))
+        
+        return img
+    
+    def add_animated_vignette(img, t, strength=0.6):
+        """Add animated vignette effect"""
+        img_array = np.array(img)
+        rows, cols = img_array.shape[:2]
+        
+        # Animated vignette center
+        center_offset_x = 20 * math.sin(t * 0.5)
+        center_offset_y = 15 * math.cos(t * 0.7)
+        
+        X, Y = np.meshgrid(np.arange(cols), np.arange(rows))
+        center_x, center_y = cols // 2 + center_offset_x, rows // 2 + center_offset_y
+        distance = np.sqrt((X - center_x)**2 + (Y - center_y)**2)
+        max_distance = np.sqrt((cols//2)**2 + (rows//2)**2)
+        
+        # Pulsing vignette strength
+        pulse_strength = strength * (0.8 + 0.2 * math.sin(t * 2))
+        vignette = 1 - (distance / max_distance) * pulse_strength
+        vignette = np.clip(vignette, 0, 1)
+        
+        # Apply vignette
+        for i in range(3):
+            img_array[:, :, i] = img_array[:, :, i] * vignette
+        
+        return Image.fromarray(img_array.astype(np.uint8))
+    
+    def add_floating_orbs(img, t, num_orbs=6):  # Fewer orbs for cleaner look
+        """Add floating orb effects with trails"""
+        overlay = Image.new('RGBA', img.size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+        
+        for i in range(num_orbs):
+            # Each orb has unique movement pattern
+            angle = (t * rotation_speed + i * (360 / num_orbs)) * math.pi / 180
+            radius = 100 + 50 * math.sin(t * 0.8 + i)
+            
+            x = width // 2 + radius * math.cos(angle) + 200 * math.sin(t * 0.3 + i)
+            y = height // 2 + radius * math.sin(angle) + 100 * math.cos(t * 0.4 + i)
+            
+            # Varying orb sizes and colors
+            size = abs(15 + 10 * math.sin(t * 2 + i))  # Ensure positive size
+            alpha = int(60 + 40 * math.sin(t * 1.5 + i))
+            
+            # Keep orbs in bounds with size consideration
+            x = max(size, min(width - size, x))
+            y = max(size, min(height - size, y))
+            
+            # Color variation based on accent color
+            color_var = (
+                max(0, min(255, accent_color[0] + random.randint(-30, 30))),
+                max(0, min(255, accent_color[1] + random.randint(-30, 30))),
+                max(0, min(255, accent_color[2] + random.randint(-30, 30))),
+                max(0, min(255, alpha))
+            )
+            
+            # Ensure valid ellipse coordinates
+            x1, y1 = max(0, x - size), max(0, y - size)
+            x2, y2 = min(width, x + size), min(height, y + size)
+            
+            if x2 > x1 and y2 > y1:  # Only draw if coordinates are valid
+                draw.ellipse([x1, y1, x2, y2], fill=color_var)
+        
+        # Apply blur for glow effect
+        overlay = overlay.filter(ImageFilter.GaussianBlur(radius=8))
+        return Image.alpha_composite(img.convert('RGBA'), overlay).convert('RGB')
+    
+    def draw_text_with_glow(img, position, text, font, fill=(255, 255, 255), glow_color=None):
+        """Draw text with animated glow effect"""
+        if glow_color is None:
+            glow_color = accent_color
+            
+        draw = ImageDraw.Draw(img)
+        x, y = position
+        
+        # Create glow layers
+        for offset in [(4, 4), (3, 3), (2, 2), (1, 1)]:
+            alpha = 150 - offset[0] * 30
+            glow_with_alpha = (*glow_color, alpha)
+            
+            # Draw glow in RGBA mode
+            glow_img = Image.new('RGBA', img.size, (0, 0, 0, 0))
+            glow_draw = ImageDraw.Draw(glow_img)
+            glow_draw.text((x + offset[0], y + offset[1]), text, font=font, fill=glow_with_alpha)
+            
+            # Composite glow
+            img = Image.alpha_composite(img.convert('RGBA'), glow_img).convert('RGB')
+        
+        # Draw main text
+        draw = ImageDraw.Draw(img)
+        draw.text((x, y), text, font=font, fill=fill)
+        return img
+    
+    def create_floating_avatar(avatar_bytes, size, t, float_type="gentle"):
+        """Create floating avatar with various animation types"""
+        avatar = Image.open(BytesIO(avatar_bytes)).convert('RGBA')
+        avatar = avatar.resize((size, size), Image.LANCZOS)
+        
+        # Create circular mask with animated glow
+        mask = Image.new('L', (size, size), 0)
+        draw = ImageDraw.Draw(mask)
+        draw.ellipse([0, 0, size, size], fill=255)
+        avatar.putalpha(mask)
+        
+        # Create animated glow ring
+        glow_size = size + 60
+        glow = Image.new('RGBA', (glow_size, glow_size), (0, 0, 0, 0))
+        glow_draw = ImageDraw.Draw(glow)
+        
+        # Pulsing glow intensity
+        pulse = int(glow_intensity * 150 * (0.7 + 0.3 * math.sin(t * 3)))
+        ring_color = (*primary_color, pulse)
+        
+        # Draw animated ring
+        ring_width = 8
+        for i in range(ring_width):
+            alpha = pulse - i * 20
+            if alpha > 0 and i < glow_size // 2:  # Ensure ring doesn't exceed bounds
+                ring_color_layer = (*primary_color, max(0, min(255, alpha)))
+                x1, y1 = i, i
+                x2, y2 = glow_size - i, glow_size - i
+                if x2 > x1 and y2 > y1:  # Ensure valid coordinates
+                    glow_draw.ellipse([x1, y1, x2, y2], outline=ring_color_layer, width=2)
+        
+        # Apply blur
+        glow = glow.filter(ImageFilter.GaussianBlur(radius=12))
+        
+        # Composite avatar onto glow
+        final = Image.new('RGBA', (glow_size, glow_size), (0, 0, 0, 0))
+        final.paste(glow, (0, 0), glow)
+        final.paste(avatar, (30, 30), avatar)
+        
+        return final
+    
+    def create_energy_particles(t, count=25):
+        """Create floating energy particles"""
+        overlay = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+        
+        for i in range(count):
+            # Deterministic but varied movement
+            phase = i * 0.628  # 2π/10
+            
+            x = (width * 0.2 + (width * 0.6) * ((t * particle_speed + phase) % 1)) % width
+            y = height * 0.1 + (height * 0.8) * ((t * particle_speed * 0.7 + phase * 1.3) % 1)
+            
+            # Add floating motion
+            x += 30 * math.sin(t * 2 + phase)
+            y += 20 * math.cos(t * 1.5 + phase * 1.2)
+            
+            # Particle properties
+            size = abs(2 + 4 * math.sin(t * 3 + phase))  # Ensure positive size
+            alpha = int(100 + 80 * math.sin(t * 2.5 + phase))
+            
+            # Ensure particle stays within bounds and has valid coordinates
+            x = max(size, min(width - size, x))
+            y = max(size, min(height - size, y))
+            
+            # Color cycling
+            color_shift = (t * 50 + i * 30) % 360
+            rgb = colorsys.hsv_to_rgb(color_shift / 360, 0.8, 1.0)
+            color = (int(rgb[0] * 255), int(rgb[1] * 255), int(rgb[2] * 255), max(0, min(255, alpha)))
+            
+            # Ensure valid ellipse coordinates
+            x1, y1 = max(0, x - size), max(0, y - size)
+            x2, y2 = min(width, x + size), min(height, y + size)
+            
+            if x2 > x1 and y2 > y1:  # Only draw if coordinates are valid
+                draw.ellipse([x1, y1, x2, y2], fill=color)
+        
+        return overlay.convert('RGB')
+    
+    def wrap_text(text, font, max_width):
+        """Wrap text to fit within max_width"""
+        words = text.split(' ')
+        lines = []
+        current_line = []
+        
+        # Force wrapping for very long lines
+        max_chars_per_line = 25  # Conservative character limit
+        
+        for word in words:
+            test_line = ' '.join(current_line + [word])
+            bbox = font.getbbox(test_line)
+            line_width = bbox[2] - bbox[0]
+            
+            # Force wrap if line is too long OR too many characters
+            if (line_width <= max_width and len(test_line) <= max_chars_per_line) or len(current_line) == 0:
+                current_line.append(word)
+            else:
+                if current_line:
+                    lines.append(' '.join(current_line))
+                current_line = [word]
+        
+        if current_line:
+            lines.append(' '.join(current_line))
+        
+        # If still only one line and it's long, force a split
+        if len(lines) == 1 and len(lines[0]) > max_chars_per_line:
+            long_line = lines[0]
+            # Try to split at "joined" for more natural break
+            if "joined" in long_line:
+                parts = long_line.split("joined", 1)
+                lines = [parts[0].strip(), "joined " + parts[1].strip()]
+            else:
+                # Split roughly in half at nearest space
+                mid = len(long_line) // 2
+                split_pos = long_line.rfind(' ', 0, mid)
+                if split_pos == -1:
+                    split_pos = long_line.find(' ', mid)
+                if split_pos != -1:
+                    lines = [long_line[:split_pos], long_line[split_pos + 1:]]
+        
+        return lines
+    
+    def draw_gradient_text(img, pos, text, font, color1, color2):
+        """Draw text with gradient effect for next-level look"""
+        text_img = Image.new('RGBA', img.size, (0, 0, 0, 0))
+        text_draw = ImageDraw.Draw(text_img)
+        
+        # Get text dimensions
+        bbox = font.getbbox(text)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+        
+        # Create gradient
+        gradient = Image.new('RGBA', (text_width, text_height))
+        for y in range(text_height):
+            ratio = y / text_height if text_height > 0 else 0
+            r = int(color1[0] * (1 - ratio) + color2[0] * ratio)
+            g = int(color1[1] * (1 - ratio) + color2[1] * ratio)
+            b = int(color1[2] * (1 - ratio) + color2[2] * ratio)
+            ImageDraw.Draw(gradient).line([(0, y), (text_width, y)], fill=(r, g, b, 255))
+        
+        # Draw text as mask
+        mask = Image.new('L', (text_width, text_height), 0)
+        ImageDraw.Draw(mask).text((0, 0), text, font=font, fill=255)
+        
+        # Apply gradient to text
+        gradient.putalpha(mask)
+        
+        # Paste onto main image
+        img.paste(gradient, pos, gradient)
+        return img
+    
+    def create_make_frame_with_timings(word_timings_data):
+        def make_frame(t):
+            # Create animated gradient background
+            bg = create_animated_gradient(t, width, height)
+        
+            # Add animated vignette
+            bg = add_animated_vignette(bg, t)
+            
+            # Add floating orbs
+            bg = add_floating_orbs(bg, t)
+            
+            # Add energy particles
+            particles = create_energy_particles(t)
+            bg = Image.blend(bg, particles, 0.4)
+        
+            # Load fonts
+            def load_font(path_candidates, size):
+                for p in path_candidates:
+                    if os.path.exists(p):
+                        try:
+                            return ImageFont.truetype(p, size)
+                        except Exception:
+                            pass
+                return ImageFont.load_default()
 
-    title = f"Welcome, {display_name}!"
-    subtitle = f"to {guild_name}"
-
-    # Text positioning (more left, balanced to avoid avatar and cutoff)
-    tx = int(width*0.15)
-    ty = int(height*0.15)
-    draw_text_with_shadow(bg, (tx, ty), title, bold_font)
-    draw_text_with_shadow(bg, (tx, ty + 90), subtitle, regular_font, fill=(220, 240, 255))
-
-    # Convert to frame
-    frame = np.array(bg)
-    video_duration = 6.0
-    base_clip = (
-        ImageClip(frame)
-        .set_duration(video_duration)
-        .resize(lambda t: 1.0 + 0.04 * np.sin(2 * np.pi * t / video_duration) + 0.015 * t)  # breathing zoom
-        .set_position(lambda t: (
-            -6 + 12 * (t / video_duration) + 3 * np.sin(3 * np.pi * t / video_duration),
-            -4 + 8 * (t / video_duration) + 2 * np.cos(2 * np.pi * t / video_duration)
-        ))  # reduced movement to prevent cutoff
-    )
-
-    # Random TTS selection
+            # Use PREMIUM fonts for next-level look
+            bold_font = load_font([
+                "assets/fonts/impact.ttf",        # Impact for bold titles
+                "assets/fonts/SNAP____.TTF",      # Snap ITC (cool display font)
+                "assets/fonts/RAVIE.TTF",         # Ravie (decorative)
+                "assets/fonts/BRLNSDB.TTF",       # Berlin Sans Bold
+                "assets/fonts/BAUHS93.TTF",       # Bauhaus 93 (modern)
+                "assets/fonts/arialbd.ttf",       # Arial Bold fallback
+            ], 64)
+            regular_font = load_font([
+                "assets/fonts/calibri.ttf",       # Calibri (modern, clean)
+                "assets/fonts/segoeui.ttf",       # Segoe UI (Windows modern)
+                "assets/fonts/Candara.ttf",       # Candara (elegant)
+                "assets/fonts/trebuc.ttf",        # Trebuchet MS (web-safe modern)
+                "assets/fonts/arial.ttf",         # Arial fallback
+            ], 38)
+        
+            # Calculate text position (used by both word-level and static text)
+            text_float_x = 5 * math.sin(t * 0.5)
+            text_float_y = 3 * math.cos(t * 0.7)
+            
+            base_x = int(width * 0.05 + text_float_x)  # Better left margin
+            base_y = int(height * 0.3 + text_float_y)  # Better vertical position
+            
+            # Super cool word-level synced text animation
+            if len(word_timings_data) > 0:
+                # Word-level animation based on SRT timing
+                current_words = []
+            
+                for word_data in word_timings_data:
+                    word_start = word_data['start']
+                    word_end = word_data['end']
+                    word = word_data['word']
+                
+                    if word_start <= t <= word_end:
+                        # Word is currently being spoken - subtle highlight
+                        word_progress = (t - word_start) / (word_end - word_start)
+                        
+                        # Gentle scale animation
+                        scale = 1.0 + 0.1 * math.sin(word_progress * math.pi)
+                        
+                        # Smooth color highlight
+                        highlight = int(50 + 100 * word_progress)
+                        word_color = (255, 255 - highlight, 100 + highlight)
+                        
+                        # Moderate glow
+                        glow_intensity = int(80 + 40 * word_progress)
+                        
+                        current_words.append({
+                            'word': word,
+                            'scale': scale,
+                            'color': word_color,
+                            'glow': glow_intensity,
+                            'active': True
+                        })
+                    elif t > word_end:
+                        # Word already spoken - static display
+                        current_words.append({
+                            'word': word,
+                            'scale': 1.0,
+                            'color': (200, 240, 255),
+                            'glow': 50,
+                            'active': False
+                        })
+            
+                # Draw animated words
+                if current_words:
+                
+                    # Draw each word with individual animation
+                    current_x = base_x
+                    for word_data in current_words:
+                        word = word_data['word']
+                        scale = word_data['scale']
+                        color = word_data['color']
+                        glow = word_data['glow']
+                        is_active = word_data['active']
+                    
+                        # Create scaled font
+                        scaled_size = int(64 * scale)
+                        if scaled_size < 20:
+                            scaled_size = 20
+                        
+                        scaled_font = load_font([
+                            "assets/fonts/impact.ttf",        # Impact for bold titles
+                            "assets/fonts/SNAP____.TTF",      # Snap ITC (cool display font)
+                            "assets/fonts/BAUHS93.TTF",       # Bauhaus 93 (modern)
+                            "assets/fonts/arialbd.ttf",       # Arial Bold fallback
+                        ], scaled_size)
+                    
+                        # Subtle effects for active words
+                        if is_active:
+                            # Gentle glow pulse (no bounce/shake)
+                            word_x = current_x
+                            word_y = base_y
+                        else:
+                            word_x = current_x
+                            word_y = base_y
+                    
+                        # Draw word with enhanced glow
+                        bg = draw_text_with_glow(bg, (word_x, word_y), word, scaled_font, fill=color)
+                        
+                        # Calculate width for next word
+                        bbox = scaled_font.getbbox(word + " ")
+                        current_x += bbox[2] - bbox[0]
+                
+                # Multi-line subtitle with proper wrapping
+                subtitle = f"{display_name} joined {guild_name}"
+                max_width = width - base_x - 400  # Leave MORE margin for avatar (320px + padding)
+                subtitle_lines = wrap_text(subtitle, regular_font, max_width)
+                print(f"[WELCOME] Subtitle: '{subtitle}' -> {len(subtitle_lines)} lines, max_width: {max_width}")
+                
+                line_height = 45
+                for i, line in enumerate(subtitle_lines):
+                    y_pos = base_y + 120 + (i * line_height)
+                    bg = draw_text_with_glow(bg, (base_x, y_pos), line, regular_font, fill=(220, 240, 255))
+            else:
+                # Fallback to static animation if no SRT timing
+                title = "Welcome!"
+                subtitle = f"{display_name} joined {guild_name}"
+                
+                # Draw title with EPIC gradient effect
+                bg = draw_gradient_text(bg, (base_x, base_y), title, bold_font, primary_color, accent_color)
+                
+                # Multi-line subtitle with proper wrapping
+                max_width = width - base_x - 400  # Leave MORE margin for avatar (320px + padding)
+                subtitle_lines = wrap_text(subtitle, regular_font, max_width)
+                print(f"[WELCOME] Static subtitle: '{subtitle}' -> {len(subtitle_lines)} lines, max_width: {max_width}")
+                
+                line_height = 45
+                for i, line in enumerate(subtitle_lines):
+                    y_pos = base_y + 90 + (i * line_height)
+                    bg = draw_text_with_glow(bg, (base_x, y_pos), line, regular_font, fill=(220, 240, 255))
+            
+            # User avatar (BIGGER and cleaner floating)
+            avatar_size = 320  # Much bigger!
+            avatar_base_x = width - avatar_size - 80
+            avatar_base_y = height // 2 - avatar_size // 2
+            
+            # Smooth, gentle floating
+            float_x = 15 * math.sin(t * 0.8)
+            float_y = 10 * math.cos(t * 0.6)
+        
+            user_avatar = create_floating_avatar(avatar_png_bytes, avatar_size, t, "gentle")
+            bg.paste(user_avatar, (int(avatar_base_x + float_x), int(avatar_base_y + float_y)), user_avatar)
+            
+            # Server icon (BIGGER and cleaner position)
+            if guild_icon_bytes:
+                icon_size = 150  # Much bigger!
+                # Fixed position, subtle glow animation
+                icon_x = 60
+                icon_y = 60
+                
+                # Gentle scale pulse
+                scale_pulse = 1.0 + 0.05 * math.sin(t * 2)
+                current_icon_size = int(icon_size * scale_pulse)
+            
+                server_icon = Image.open(BytesIO(guild_icon_bytes)).convert('RGBA')
+                server_icon = server_icon.resize((current_icon_size, current_icon_size), Image.LANCZOS)
+                
+                # Keep original transparent background - much better!
+                # Just add a subtle glow behind the original icon
+                glow_size = current_icon_size + 30
+                glow = Image.new('RGBA', (glow_size, glow_size), (0, 0, 0, 0))
+                glow_draw = ImageDraw.Draw(glow)
+                
+                # Create multiple glow layers for epic effect
+                for i in range(3):
+                    glow_radius = (i + 1) * 8
+                    alpha = 80 - (i * 20)
+                    glow_color = (*primary_color, alpha)
+                    glow_draw.ellipse([i*3, i*3, glow_size-i*3, glow_size-i*3], fill=glow_color)
+                
+                glow = glow.filter(ImageFilter.GaussianBlur(radius=10))
+                
+                # Combine glow and original icon (keeping transparency)
+                final_icon = Image.new('RGBA', (glow_size, glow_size), (0, 0, 0, 0))
+                final_icon.paste(glow, (0, 0), glow)
+                final_icon.paste(server_icon, (15, 15), server_icon)  # Keep original transparency
+                
+                bg.paste(final_icon, (icon_x - 15, icon_y - 15), final_icon)
+        
+            # Bot avatar (bigger and cleaner)
+            if bot_avatar_bytes:
+                bot_size = 120  # Bigger bot avatar
+                
+                # Bouncing animation
+                bounce_height = 40
+                bounce_y = bounce_height * abs(math.sin(t * 4))
+                bounce_x = 15 * math.sin(t * 1.5)
+            
+                bot_avatar = Image.open(BytesIO(bot_avatar_bytes)).convert('RGBA')
+                bot_avatar = bot_avatar.resize((bot_size, bot_size), Image.LANCZOS)
+                
+                # Make circular with glow
+                mask = Image.new('L', (bot_size, bot_size), 0)
+                draw = ImageDraw.Draw(mask)
+                draw.ellipse([0, 0, bot_size, bot_size], fill=255)
+                bot_avatar.putalpha(mask)
+            
+                # Glow effect
+                glow_size = bot_size + 30
+                glow = Image.new('RGBA', (glow_size, glow_size), (0, 0, 0, 0))
+                glow_draw = ImageDraw.Draw(glow)
+                glow_intensity_bot = int(120 * (0.6 + 0.4 * math.sin(t * 5)))
+                glow_color = (*accent_color, glow_intensity_bot)
+                glow_draw.ellipse([0, 0, glow_size, glow_size], fill=glow_color)
+                glow = glow.filter(ImageFilter.GaussianBlur(radius=15))
+            
+                final_bot = Image.new('RGBA', (glow_size, glow_size), (0, 0, 0, 0))
+                final_bot.paste(glow, (0, 0), glow)
+                final_bot.paste(bot_avatar, (15, 15), bot_avatar)
+                
+                final_x = int(width - glow_size - 40 + bounce_x)
+                final_y = int(height - glow_size - 60 - bounce_y)
+                
+                bg.paste(final_bot, (final_x, final_y), final_bot)
+        
+            return np.array(bg)
+        
+        return make_frame
+    
+    # Video will be created after audio generation and SRT parsing
+    
+    # Generate audio with SRT timing for word-level sync
     spoken = f"Welcome {display_name} to {guild_name}."
     
-    async def generate_audio(text, path):
+    async def generate_audio_with_srt(text, audio_path, srt_path):
         # Updated list with verified working voices from Edge TTS 7.2.0
         edge_voices = [
             "en-US-AriaNeural",         # Female
@@ -698,161 +1115,212 @@ def _build_welcome_video_bytes(avatar_png_bytes: bytes, display_name: str, guild
             "en-US-SteffanNeural"       # Male
         ]
         
-        use_edge = random.choice([True, True, True, True, True, True, True, True, True, True, True, True, False])  # 95% chance for Edge TTS
-        
-        if use_edge:
-            # Try multiple voices if one fails
-            tried_voices = set()
-            max_attempts = min(3, len(edge_voices))
-            
-            for attempt in range(max_attempts):
-                try:
-                    remaining_voices = [v for v in edge_voices if v not in tried_voices]
-                    if not remaining_voices:
-                        remaining_voices = edge_voices  # Reset if all tried
-                        
-                    voice = random.choice(remaining_voices)
-                    tried_voices.add(voice)
-                    
-                    print(f"[WELCOME] Attempt {attempt + 1}: Using Edge TTS voice: {voice}")
-                    
-                    # Clean up any existing file first
-                    if os.path.exists(path):
-                        try:
-                            os.remove(path)
-                        except:
-                            pass
-                    
-                    communicate = edge_tts.Communicate(text, voice)
-                    await communicate.save(path)
-                    
-                    # Verify the file was created and has content
-                    if os.path.exists(path) and os.path.getsize(path) > 0:
-                        size = os.path.getsize(path)
-                        print(f"[WELCOME] ✅ Edge TTS succeeded with {voice} ({size} bytes)")
-                        return
-                    else:
-                        print(f"[WELCOME] ⚠️ Edge TTS created empty/no file with {voice}")
-                        
-                except Exception as e:
-                    print(f"[WELCOME] ❌ Edge TTS failed with {voice}: {e}")
-                    continue
-            
-            print(f"[WELCOME] All Edge TTS attempts failed, falling back to gTTS")
-        
-        # gTTS fallback
-        print(f"[WELCOME] Using gTTS {'(fallback)' if use_edge else '(by choice)'}")
+        # Try Edge TTS with SRT generation first (command line for SRT support)
         try:
-            tts = gTTS(text=text, lang='en', tld='com', slow=False)
-            tts.save(path)
+            import subprocess
+            import os
             
-            if os.path.exists(path) and os.path.getsize(path) > 0:
-                size = os.path.getsize(path)
-                print(f"[WELCOME] ✅ gTTS succeeded ({size} bytes)")
+            voice = random.choice(edge_voices)
+            print(f"[WELCOME] 🎵 Generating Edge TTS with SRT: {voice}")
+             
+            # Clean up existing files
+            for path in [audio_path, srt_path]:
+                if os.path.exists(path):
+                    try:
+                        os.remove(path)
+                    except:
+                        pass
+             
+            # Use edge-tts command line to generate both audio and SRT
+            cmd = [
+                "python", "-m", "edge_tts",
+                "--text", text,
+                "--voice", voice,
+                "--write-media", audio_path,
+                "--write-subtitles", srt_path
+            ]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            
+            if result.returncode == 0 and os.path.exists(audio_path) and os.path.exists(srt_path):
+                audio_size = os.path.getsize(audio_path)
+                srt_size = os.path.getsize(srt_path)
+                print(f"[WELCOME] ✅ Edge TTS with SRT generated successfully (audio: {audio_size}B, srt: {srt_size}B)")
+                return True  # SRT available
             else:
-                print(f"[WELCOME] ❌ gTTS failed to create valid file")
+                print(f"[WELCOME] ⚠️ Edge TTS command failed: {result.stderr}")
+                
         except Exception as e:
-            print(f"[WELCOME] ❌ gTTS error: {e}")
-            raise
-    
-    with tempfile.TemporaryDirectory() as tmpdir:
-        audio_path = os.path.join(tmpdir, 'welcome.mp3')
-        video_path = os.path.join(tmpdir, 'welcome.mp4')
+            print(f"[WELCOME] ⚠️ Edge TTS with SRT failed: {e}")
         
-        # Generate audio
+        # Fallback to regular Edge TTS without SRT
+        try:
+            import edge_tts
+            voice = random.choice(edge_voices)
+            print(f"[WELCOME] 🔄 Trying Edge TTS without SRT: {voice}")
+            
+            # Clean up existing file
+            if os.path.exists(audio_path):
+                try:
+                    os.remove(audio_path)
+                except:
+                    pass
+            communicate = edge_tts.Communicate(text, voice)
+            await communicate.save(audio_path)
+            
+            if os.path.exists(audio_path) and os.path.getsize(audio_path) > 0:
+                size = os.path.getsize(audio_path)
+                print(f"[WELCOME] ✅ Edge TTS succeeded without SRT ({size} bytes)")
+                return False  # No SRT available
+                
+        except Exception as e:
+            print(f"[WELCOME] ⚠️ Edge TTS without SRT failed: {e}")
+         
+        # Final fallback to gTTS
+        try:
+            from gtts import gTTS
+            print(f"[WELCOME] 🔄 Falling back to gTTS")
+            
+            # Clean up existing file
+            if os.path.exists(audio_path):
+                try:
+                    os.remove(audio_path)
+                except:
+                    pass
+            
+            tts = gTTS(text=text, lang='en', tld='com', slow=False)
+            tts.save(audio_path)
+            
+            if os.path.exists(audio_path) and os.path.getsize(audio_path) > 0:
+                size = os.path.getsize(audio_path)
+                print(f"[WELCOME] ✅ gTTS succeeded ({size} bytes)")
+                return False  # No SRT available
+            else:
+                raise Exception("gTTS created empty file")
+        except Exception as e:
+            print(f"[WELCOME] ❌ All TTS methods failed: {e}")
+            # Create silent audio as last resort
+            from pydub import AudioSegment
+            silent_audio = AudioSegment.silent(duration=3000)  # 3 seconds
+            silent_audio.export(audio_path, format="mp3")
+            return False
+    
+    def parse_srt_timing(srt_path, spoken_text):
+        """Parse SRT file and create word-level timing for super cool animations"""
+        word_timings = []
+        try:
+            with open(srt_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Parse timing from SRT (Edge TTS SRT only has timing, no text)
+            lines = content.strip().split('\n')
+            if len(lines) >= 2:
+                timing_line = lines[1]
+                if ' --> ' in timing_line:
+                    start_str, end_str = timing_line.split(' --> ')
+                    
+                    def time_to_seconds(time_str):
+                        # Format: "00:00:00,000"
+                        time_part, ms_part = time_str.split(',')
+                        h, m, s = map(int, time_part.split(':'))
+                        ms = int(ms_part)
+                        return h * 3600 + m * 60 + s + ms / 1000
+                    
+                    start_time = time_to_seconds(start_str)
+                    end_time = time_to_seconds(end_str)
+                    
+                    # Use the spoken text and divide timing evenly across words
+                    words = spoken_text.split()
+                    if words:
+                        # Distribute timing evenly across words for smooth animation
+                        duration = end_time - start_time
+                        word_duration = duration / len(words)
+                        
+                        for i, word in enumerate(words):
+                            word_start = start_time + (i * word_duration)
+                            word_end = word_start + word_duration
+                            word_timings.append({
+                                'word': word,
+                                'start': word_start,
+                                'end': word_end
+                            })
+            
+            print(f"[WELCOME] 📝 Created {len(word_timings)} word timings from SRT duration for animation")
+            return word_timings
+            
+        except Exception as e:
+            print(f"[WELCOME] ⚠️ Error parsing SRT: {e}")
+            return []
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        audio_path = os.path.join(temp_dir, "welcome.mp3")
+        srt_path = os.path.join(temp_dir, "welcome.srt")
+        
+        # Generate audio with SRT synchronously in the thread
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            loop.run_until_complete(generate_audio(spoken, audio_path))
+            has_srt = loop.run_until_complete(generate_audio_with_srt(spoken, audio_path, srt_path))
         finally:
             loop.close()
+        
+        # Parse SRT timing for word-level animation
+        word_timings = []
+        if has_srt and os.path.exists(srt_path):
+            word_timings = parse_srt_timing(srt_path, spoken)
+        
+        print(f"[WELCOME] 🎬 SRT available: {has_srt}, Word timings: {len(word_timings)}")
+        
+        # Now create the video with word timings
+        make_frame_func = create_make_frame_with_timings(word_timings)
+        base_clip = ImageClip(img=np.zeros((height, width, 3)), duration=video_duration)
+        base_clip = base_clip.set_make_frame(make_frame_func)
+        
+        # Create final video
         audio_clip = None
         final = None
-        glow_clip = None
+        
         try:
+            # Load audio
             audio_clip = AudioFileClip(audio_path)
-            # Align durations to avoid reading past audio end
-            safe_duration = min(base_clip.duration or 0, audio_clip.duration or 0) or (audio_clip.duration or base_clip.duration)
+            
+            # Create base video clip
+            base_clip = ImageClip(img=np.zeros((height, width, 3)), duration=video_duration)
+            base_clip = base_clip.set_make_frame(make_frame_func)
+            
+            # Ensure durations match to prevent audio reading errors
+            safe_duration = min(base_clip.duration, audio_clip.duration, video_duration)
             base_clip = base_clip.set_duration(safe_duration)
-            audio_clip = audio_clip.subclip(0, safe_duration)
-            # Multiple dynamic overlays
-            width_i, height_i = frame.shape[1], frame.shape[0]
+            audio_clip = audio_clip.set_duration(safe_duration)
             
-            # Prismatic light sweep
-            def prismatic_frame(t: float):
-                overlay = Image.new('RGBA', (width_i, height_i), (0, 0, 0, 0))
-                d = ImageDraw.Draw(overlay)
-                progress = t / safe_duration
-                
-                # Multiple sweeping bands
-                for band_idx, (speed, color, thickness) in enumerate([
-                    (1.2, (52, 152, 219), 80),
-                    (0.8, (155, 89, 182), 60),
-                    (1.5, (46, 204, 113), 40),
-                ]):
-                    band_x = int((progress * speed) * (width_i + thickness*2)) - thickness
-                    for i in range(-thickness, thickness, 2):
-                        alpha = max(0, 200 - abs(i) * 3)
-                        d.rectangle([(band_x + i, 0), (band_x + i + 1, height_i)], 
-                                  fill=color + (alpha // 12,))
-                return np.array(overlay.convert('RGB'))
+            # Combine video and audio
+            final = base_clip.set_audio(audio_clip)
             
-            # Particle effects
-            def particle_frame(t: float):
-                overlay = Image.new('RGBA', (width_i, height_i), (0, 0, 0, 0))
-                d = ImageDraw.Draw(overlay)
-                rng = np.random.RandomState(int(t * 1000) % 1000)
-                
-                num_particles = 40
-                for i in range(num_particles):
-                    # Floating particles
-                    x = (rng.random() * width_i + 50 * np.sin(t * 2 + i)) % width_i
-                    y = (rng.random() * height_i + 30 * np.cos(t * 1.5 + i)) % height_i
-                    size = 2 + int(3 * np.sin(t * 3 + i))
-                    alpha = int(100 + 80 * np.sin(t * 4 + i * 0.5))
-                    colors = [(52, 152, 219), (155, 89, 182), (46, 204, 113), (241, 196, 15)]
-                    color = colors[i % len(colors)]
-                    d.ellipse([(x-size, y-size), (x+size, y+size)], fill=color + (max(0, alpha),))
-                
-                return np.array(overlay.convert('RGB'))
-            
-            prismatic_clip = VideoClip(prismatic_frame).set_duration(safe_duration).set_fps(30).set_opacity(0.25)
-            particle_clip = VideoClip(particle_frame).set_duration(safe_duration).set_fps(24).set_opacity(0.15)
-            
-            final = CompositeVideoClip([base_clip, prismatic_clip, particle_clip]).set_audio(audio_clip)
+            # Export to bytes
+            video_path = os.path.join(temp_dir, "welcome_video.mp4")
             final.write_videofile(
                 video_path,
-                fps=30,
-                codec='libx264',
+                fps=fps,
                 audio_codec='aac',
-                preset='medium',
-                threads=2,
+                codec='libx264',
+                temp_audiofile=os.path.join(temp_dir, "temp_audio.mp4"),
+                remove_temp=True,
                 verbose=False,
                 logger=None
             )
+            
+            # Read video file as bytes
+            with open(video_path, 'rb') as f:
+                return f.read()
+                
         finally:
-            if final is not None:
-                try:
-                    final.close()
-                except Exception:
-                    pass
-            try:
+            # Explicitly close clips to prevent file locking
+            if base_clip:
                 base_clip.close()
-            except Exception:
-                pass
-            if audio_clip is not None:
-                try:
-                    audio_clip.close()
-                except Exception:
-                    pass
-            for clip in [prismatic_clip, particle_clip]:
-                try:
-                    if clip is not None:
-                        clip.close()
-                except Exception:
-                    pass
-        with open(video_path, 'rb') as f:
-            return f.read()
+            if audio_clip:
+                audio_clip.close()
+            if final:
+                final.close()
 
 @bot.event
 async def on_member_join(member):
@@ -958,6 +1426,8 @@ async def on_member_join(member):
 
 @bot.event
 async def on_message(message):
+    import random  # Import random at the top to avoid UnboundLocalError
+    
     # Also check for direct image URLs in replied-to messages
     if (bot.user.mentioned_in(message) or "seeyuh" in message.content.lower()) and message.reference:
         try:
@@ -1148,14 +1618,44 @@ async def on_message(message):
             return  # Stop further processing if this condition is met
 
     if (bot.user.mentioned_in(message) or "seeyuh" in message.content.lower()) and "chat meme" in message.content.lower():
-                await message.channel.send("Creating your next level chat meme... This may take a moment! 🔥")
+                progress_msg = await message.channel.send("🎬 **Generating chat video...** \n⏳ **Progress:** 0% - Analyzing messages")
                 try:
                     messages = []
                     processed_content = set()  # Track unique message content to avoid duplicates
                     trigger_id = message.id  # Store the ID of the trigger message
                     
-                    # Get more messages to account for filtering (increased from 50 to 100)
-                    async for msg in message.channel.history(limit=100):
+                    # ENHANCED message collection with dynamic pool sizing
+                    import datetime
+                    
+                    # Calculate dynamic pool based on channel activity
+                    base_limit = 150  # Increased base limit
+                    
+                    # Check recent channel activity to adjust pool size
+                    recent_msgs = 0
+                    cutoff_time = message.created_at - datetime.timedelta(hours=2)
+                    
+                    async for quick_msg in message.channel.history(limit=50, before=message):
+                        if quick_msg.created_at > cutoff_time:
+                            recent_msgs += 1
+                        else:
+                            break
+                    
+                    # Dynamic pool: more active channels get larger pools
+                    if recent_msgs > 30:
+                        pool_limit = 300  # Very active channel
+                    elif recent_msgs > 15:
+                        pool_limit = 250  # Active channel  
+                    elif recent_msgs > 5:
+                        pool_limit = 200  # Moderate activity
+                    else:
+                        pool_limit = 150  # Low activity
+                    
+                    print(f"[MEME] Recent activity: {recent_msgs} messages, using pool size: {pool_limit}")
+                    
+                    # Update progress - message collection phase
+                    await progress_msg.edit(content="🎬 **Generating chat video...** \n⏳ **Progress:** 10% - Collecting messages")
+                    
+                    async for msg in message.channel.history(limit=pool_limit):
                         # Skip trigger message and any message containing "chat meme"
                         if msg.id != trigger_id and not "chat meme" in msg.content.lower():
                             
@@ -1165,7 +1665,7 @@ async def on_message(message):
                                                  att.filename.lower().endswith(".gif"))]
                             
                             # Handle regular user messages with content
-                            if not msg.author.bot and not msg.content.startswith('/') and not msg.content.startswith('$'):
+                            if not msg.content.startswith('/') and not msg.content.startswith('$'):
                                 if msg.content.strip() and msg.content.strip() not in processed_content:
                                     # Strip out custom emoji format (<:name:id>) but keep regular text
                                     clean_content = re.sub(r'<a?:[a-zA-Z0-9_]+:[0-9]+>', '', msg.content)
@@ -1176,6 +1676,7 @@ async def on_message(message):
                                             "name": msg.author.display_name,
                                             "message": clean_content,
                                             "avatar": str(msg.author.display_avatar.url),
+                                            "user_id": str(msg.author.id),
                                             "has_image": bool(msg.attachments and any(att.content_type and 
                                                            (att.content_type.startswith("image/") or 
                                                             att.content_type.startswith("video/") or 
@@ -1185,7 +1686,12 @@ async def on_message(message):
                                                               att.content_type and (att.content_type.startswith("image/") or 
                                                                                   att.content_type.startswith("video/") or 
                                                                                   att.filename.lower().endswith(".gif"))), None)),
+                                            "attachment_urls": [att.url for att in msg.attachments if att.content_type and 
+                                                             (att.content_type.startswith("image/") or 
+                                                              att.content_type.startswith("video/") or 
+                                                              att.filename.lower().endswith(".gif"))],
                                             "is_video": bool(video_attachments),
+                                            "is_bot": msg.author.bot,
                                             "guild": message.guild  # Add guild reference for mention formatting
                                         })
                                         processed_content.add(msg.content.strip())
@@ -1195,9 +1701,12 @@ async def on_message(message):
                                         "name": msg.author.display_name,
                                         "message": "📹 *shared a video*" if video_attachments[0].content_type.startswith("video/") else "🎮 *shared a GIF*",
                                         "avatar": str(msg.author.display_avatar.url),
+                                        "user_id": str(msg.author.id),
                                         "has_image": True,
                                         "image_url": str(video_attachments[0].url),
+                                        "attachment_urls": [att.url for att in video_attachments],
                                         "is_video": True,
+                                        "is_bot": msg.author.bot,
                                         "guild": message.guild
                                     })
                             
@@ -1217,16 +1726,27 @@ async def on_message(message):
                                     messages.append({
                                         "name": msg.author.display_name,
                                         "message": clean_content if clean_content.strip() else 
-                                                  ("� *shared a video*" if is_video else "�🖼️ *shared an image*"),
+                                                  ("🎥 *shared a video*" if is_video else "🖼️ *shared an image*"),
                                         "avatar": str(msg.author.display_avatar.url),
+                                        "user_id": str(msg.author.id),
                                         "has_image": True,
                                         "image_url": str(media_attachments[0].url),
+                                        "attachment_urls": [att.url for att in media_attachments],
                                         "is_video": is_video,
+                                        "is_bot": msg.author.bot,
                                         "guild": message.guild
                                     })
                         
-                        # Limit to 40 valid messages (increased from 20)
-                        if len(messages) >= 40:
+                        # Dynamic message limits based on server boost level
+                        boost_level = message.guild.premium_tier if message.guild else 0
+                        if boost_level >= 3:
+                            message_limit = 300  # Level 3: Max boost
+                        elif boost_level >= 2:
+                            message_limit = 150  # Level 2: Boosted
+                        else:
+                            message_limit = 30   # Level 0/1: Standard
+                        
+                        if len(messages) >= message_limit:
                             break
                             
                     if len(messages) < 3:
@@ -1235,9 +1755,10 @@ async def on_message(message):
                     
                     messages = messages[::-1]  # Reverse to get chronological order
                     
-                    # Create a 22-second video (passing duration parameter)
-                    video_bytes = await generate_meme_video(messages, duration=22.0)
-                    file = discord.File(fp=video_bytes, filename="chat_meme_nextlevel.mp4")
+                    # Create a dynamic duration video with progress updates (duration calculated from audio)
+                    video_bytes = await generate_meme_video_with_progress(messages, duration=None, progress_msg=progress_msg, guild=message.guild)
+                    
+                    file = discord.File(fp=video_bytes, filename="chat_meme_seeyuh.mp4")
                     await message.reply("Here's your next level chat meme! 😎🔥", file=file)
                     return
                 except Exception as e:
