@@ -1600,7 +1600,6 @@ async def generate_meme_video_nextlevel(messages: list, duration: float = None, 
                 # RAILWAY OPTIMIZATION: Use lower priority and memory limits
                 try:
                     # Set process priority to be more Railway-friendly
-                    import os
                     if hasattr(os, 'nice'):
                         os.nice(10)  # Lower priority
                 except:
