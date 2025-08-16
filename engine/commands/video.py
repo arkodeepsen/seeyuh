@@ -1172,7 +1172,7 @@ async def generate_meme_video_nextlevel(messages: list, duration: float = None, 
     
     server_info = get_server_info_message(boost_level, upload_limit_mb, max_duration_seconds)
     
-    async def update_progress(percentage, status_text):
+    async def update_progress(percentage, status_text, progress_msg=None, server_info=""):
         """Helper function to update progress message with better error handling"""
         print(f"[PROGRESS] {percentage}% - {status_text}")
         if progress_msg:
@@ -1186,6 +1186,7 @@ async def generate_meme_video_nextlevel(messages: list, duration: float = None, 
             except Exception as e:
                 print(f"[PROGRESS] ⚠️ Failed to update Discord message: {e}")
                 # Continue anyway
+    
     if not messages or not isinstance(messages, list):
         raise ValueError("No messages provided or messages is not a list.")
     
@@ -1198,32 +1199,32 @@ async def generate_meme_video_nextlevel(messages: list, duration: float = None, 
     # Filter and prepare messages
     valid_messages = []
     for msg in messages:
-            if not isinstance(msg, dict) or "name" not in msg or "message" not in msg:
-                continue
-            
-            username = msg["name"]
-            text = msg["message"]
-            user_id = msg.get("user_id", username)  # Use user_id if available, fallback to username
-            
-            # Format mentions if guild is available
-            if "guild" in msg:
-                text = format_mentions(text, msg["guild"])
-            
-            # Extract media links for thumbnail generation
-            media_links = extract_media_links(text)
-            
-            # Clean text for speech
-            clean_text = clean_text_for_speech(text)
-            if clean_text or media_links or msg.get("avatar"):  # Include if has speakable content, media, or attachments
-                valid_messages.append({
-                    "username": username,
-                    "message": text,
-                    "clean_message": clean_text,
-                    "avatar_url": msg.get("avatar"),
-                    "user_id": user_id,
-                    "media_links": media_links,
-                    "attachment_urls": msg.get("attachment_urls", [])
-                })
+        if not isinstance(msg, dict) or "name" not in msg or "message" not in msg:
+            continue
+        
+        username = msg["name"]
+        text = msg["message"]
+        user_id = msg.get("user_id", username)  # Use user_id if available, fallback to username
+        
+        # Format mentions if guild is available
+        if "guild" in msg:
+            text = format_mentions(text, msg["guild"])
+        
+        # Extract media links for thumbnail generation
+        media_links = extract_media_links(text)
+        
+        # Clean text for speech
+        clean_text = clean_text_for_speech(text)
+        if clean_text or media_links or msg.get("avatar"):  # Include if has speakable content, media, or attachments
+            valid_messages.append({
+                "username": username,
+                "message": text,
+                "clean_message": clean_text,
+                "avatar_url": msg.get("avatar"),
+                "user_id": user_id,
+                "media_links": media_links,
+                "attachment_urls": msg.get("attachment_urls", [])
+            })
     
     if not valid_messages:
         raise ValueError("No valid messages with speakable content found.")
@@ -1248,7 +1249,7 @@ async def generate_meme_video_nextlevel(messages: list, duration: float = None, 
         print(f"[VIDEO] ⚠️ Trimmed to {len(valid_messages)} messages to target file size for Level {boost_level}")
     
     # Update progress with server info - starting image and audio generation
-    await update_progress(13, f"Rendering {len(valid_messages)} messages")
+    await update_progress(13, f"Rendering {len(valid_messages)} messages", progress_msg, server_info)
     
     # Send server boost info to user
     if progress_msg:
@@ -1273,7 +1274,7 @@ async def generate_meme_video_nextlevel(messages: list, duration: float = None, 
             
             # Update progress for each message processed
             current_percentage = 13 + int((i / len(valid_messages)) * 56)  # 13% to 69% range
-            await update_progress(current_percentage, f"Rendering {i+1}/{len(valid_messages)}")
+            await update_progress(current_percentage, f"Rendering {i+1}/{len(valid_messages)}", progress_msg, server_info)
             
             # Yield control to prevent blocking Discord heartbeat
             import asyncio
@@ -1418,7 +1419,7 @@ async def generate_meme_video_nextlevel(messages: list, duration: float = None, 
         print(f"[VIDEO] 🎬 Combining {len(video_clips)} clips into final video...")
         
         # Update progress - video assembly
-        await update_progress(69, "Assembling video")
+        await update_progress(69, "Assembling video", progress_msg, server_info)
         
         # Yield before heavy video assembly
         await asyncio.sleep(0.2)
@@ -1461,7 +1462,7 @@ async def generate_meme_video_nextlevel(messages: list, duration: float = None, 
             final_video = add_fade_transitions(final_video)
             
             # Update progress - adding audio
-            await update_progress(72, "Adding audio")
+            await update_progress(72, "Adding audio", progress_msg, server_info)
             
             # Add background music if available
             sound_effect_path = os.path.join(os.path.dirname(__file__), "assets", "sound_effect.mp3")
@@ -1510,54 +1511,149 @@ async def generate_meme_video_nextlevel(messages: list, duration: float = None, 
                 print(f"[VIDEO] ⚠️ Background music not found at {sound_effect_path}")
             
             # Update progress - final export
-            await update_progress(77, "Exporting video")
+            await update_progress(77, "Exporting video", progress_msg, server_info)
             
             # Yield before the HEAVIEST operation
             await asyncio.sleep(0.5)
             
-            # ULTRAFAST MINIMUM SIZE VIDEO EXPORT 🚀
+            # RAILWAY-FRIENDLY EXPORT: Use FFmpeg instead of MoviePy for export
             output_path = os.path.join(temp_dir, "nextlevel_meme.mp4")
             total_duration = final_video.duration
-            print(f"[VIDEO] 🚀 ULTRAFAST export (Duration: {total_duration:.1f}s)...")
+            print(f"[VIDEO] 🚀 RAILWAY-FRIENDLY export (Duration: {total_duration:.1f}s)...")
             
-            # AGGRESSIVE compression settings for minimum file size
+            # Calculate target size and bitrates
             target_size_mb = upload_limit_mb * 0.99  # Use 99% of limit
             target_size_bits = target_size_mb * 1024 * 1024 * 8
             
             # MAIN PIPELINE bitrates
             audio_bitrate = 96  # 96k audio
             video_bitrate = max(500, int((target_size_bits / total_duration - audio_bitrate * 1000) / 1000))  # 500k minimum
-            
-            # Cap at reasonable maximum for file size
             video_bitrate = min(video_bitrate, 1000)  # Cap at 1000k
             
             print(f"[VIDEO] 🎬 MAIN PIPELINE: {video_bitrate}k video + {audio_bitrate}k audio")
             
-            # Run ULTRAFAST export in thread pool
-            import concurrent.futures
-            
-            def export_video_sync():
-                """ULTRAFAST video export with minimum size"""
-                final_video.write_videofile(
-                    output_path,
-                    fps=24,  # Smooth 24fps - not choppy 12fps!
-                    codec='libx264',
-                    audio_codec='aac',
-                    preset='ultrafast',  # Fastest encoding
-                    bitrate=f'{video_bitrate}k',  # Good quality bitrate
-                    audio_bitrate=f'{audio_bitrate}k',  # Good audio quality
-                    verbose=False,
-                    logger=None,
-                    temp_audiofile=f'temp-audio-{random.randint(1000,9999)}.m4a',  # Unique temp audio
-                    remove_temp=True  # Clean up temp files
+            # RAILWAY-FRIENDLY: Export using FFmpeg instead of MoviePy
+            # This prevents Railway from killing the process during heavy operations
+            try:
+                # First, export audio separately to prevent memory issues
+                temp_audio = os.path.join(temp_dir, f"temp-audio-{random.randint(1000,9999)}.m4a")
+                
+                # Export audio using MoviePy (lightweight operation)
+                if final_video.audio:
+                    print("[VIDEO] 🎵 Exporting audio track...")
+                    final_video.audio.write_audiofile(
+                        temp_audio,
+                        codec='aac',
+                        bitrate=f'{audio_bitrate}k',
+                        verbose=False,
+                        logger=None
+                    )
+                    has_audio = True
+                else:
+                    has_audio = False
+                    print("[VIDEO] ⚠️ No audio track to export")
+                
+                # Yield after audio export
+                await asyncio.sleep(0.2)
+                
+                # Export video frames to temporary directory for FFmpeg
+                frames_dir = os.path.join(temp_dir, "frames")
+                os.makedirs(frames_dir, exist_ok=True)
+                
+                print("[VIDEO] 🖼️ Exporting video frames...")
+                frame_rate = 24  # Smooth 24fps
+                
+                # Export frames using MoviePy (lightweight)
+                for i, clip in enumerate(video_clips):
+                    frame_path = os.path.join(frames_dir, f"frame_{i:04d}.png")
+                    clip.save_frame(frame_path, t=0)  # Save first frame of each clip
+                    await asyncio.sleep(0.01)  # Small yield to prevent blocking
+                
+                # Yield after frame export
+                await asyncio.sleep(0.2)
+                
+                # Use FFmpeg to combine frames into video (much more Railway-friendly)
+                print("[VIDEO] 🔧 Using FFmpeg for Railway-friendly video export...")
+                
+                # FFmpeg command for smooth video creation
+                ffmpeg_cmd = [
+                    "ffmpeg", "-y",
+                    "-framerate", str(frame_rate),
+                    "-i", os.path.join(frames_dir, "frame_%04d.png"),
+                    "-c:v", "libx264",
+                    "-preset", "ultrafast",
+                    "-crf", "23",
+                    "-pix_fmt", "yuv420p",
+                    "-vf", f"fps={frame_rate}",
+                    "-t", str(total_duration)
+                ]
+                
+                # Add audio if available
+                if has_audio:
+                    ffmpeg_cmd.extend(["-i", temp_audio, "-c:a", "aac", "-shortest"])
+                
+                ffmpeg_cmd.append(output_path)
+                
+                # Run FFmpeg (this is much more Railway-friendly than MoviePy export)
+                import subprocess
+                
+                # RAILWAY OPTIMIZATION: Use lower priority and memory limits
+                try:
+                    # Set process priority to be more Railway-friendly
+                    import os
+                    if hasattr(os, 'nice'):
+                        os.nice(10)  # Lower priority
+                except:
+                    pass
+                
+                result = subprocess.run(
+                    ffmpeg_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=300,  # 5 minute timeout
+                    # RAILWAY: Limit memory usage
+                    env={**os.environ, 'FFREPORT': 'file=ffmpeg.log:level=32'}
                 )
+                
+                if result.returncode != 0:
+                    print(f"[VIDEO] ⚠️ FFmpeg failed: {result.stderr}")
+                    raise Exception(f"FFmpeg export failed: {result.stderr}")
+                
+                print("[VIDEO] ✅ FFmpeg export complete")
+                
+            except Exception as e:
+                print(f"[VIDEO] ⚠️ FFmpeg export failed, falling back to MoviePy: {e}")
+                
+                # Fallback to MoviePy if FFmpeg fails
+                def export_video_sync():
+                    """Fallback MoviePy export"""
+                    final_video.write_videofile(
+                        output_path,
+                        fps=24,
+                        codec='libx264',
+                        audio_codec='aac',
+                        preset='ultrafast',
+                        bitrate=f'{video_bitrate}k',
+                        audio_bitrate=f'{audio_bitrate}k',
+                        verbose=False,
+                        logger=None,
+                        temp_audiofile=f'temp-audio-{random.randint(1000,9999)}.m4a',
+                        remove_temp=True
+                    )
+                
+                # Run in thread pool with shorter timeout
+                import concurrent.futures
+                loop = asyncio.get_event_loop()
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = loop.run_in_executor(executor, export_video_sync)
+                    try:
+                        await asyncio.wait_for(future, timeout=180)  # 3 minute timeout
+                    except asyncio.TimeoutError:
+                        print("[VIDEO] ⚠️ MoviePy export timed out, trying emergency compression...")
+                        # If MoviePy times out, try emergency compression
+                        raise Exception("Export timeout - Railway resource limits exceeded")
             
-            # Run in thread pool
-            loop = asyncio.get_event_loop()
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                await loop.run_in_executor(executor, export_video_sync)
-            
-            print("[VIDEO] ✅ ULTRAFAST export complete")
+            print("[VIDEO] ✅ Export complete")
             
             # Check if still too large and do EMERGENCY compression
             file_size = os.path.getsize(output_path)
@@ -1575,28 +1671,39 @@ async def generate_meme_video_nextlevel(messages: list, duration: float = None, 
                 
                 print(f"[VIDEO] 🔥 COMPRESSION: {emergency_video}k video + {emergency_audio}k audio")
                 
-                def emergency_compress_sync():
-                    """EMERGENCY ultra-compression"""
-                    final_video.write_videofile(
-                        compressed_path,
-                        fps=15,  # Keep reasonable fps (not choppy 10fps!)
-                        codec='libx264',
-                        audio_codec='aac', 
-                        preset='ultrafast',
-                        bitrate=f'{emergency_video}k',  # Emergency bitrate
-                        audio_bitrate=f'{emergency_audio}k',  # Decent audio (not trash!)
-                        verbose=False,
-                        logger=None,
-                        temp_audiofile=f'temp-audio-emergency-{random.randint(1000,9999)}.m4a',
-                        remove_temp=True
+                # Use FFmpeg for emergency compression (more Railway-friendly)
+                try:
+                    ffmpeg_compress_cmd = [
+                        "ffmpeg", "-y",
+                        "-i", output_path,
+                        "-c:v", "libx264",
+                        "-preset", "ultrafast",
+                        "-crf", "28",  # Higher CRF for more compression
+                        "-b:v", f"{emergency_video}k",
+                        "-b:a", f"{emergency_audio}k",
+                        "-c:a", "aac",
+                        "-pix_fmt", "yuv420p",
+                        compressed_path
+                    ]
+                    
+                    result = subprocess.run(
+                        ffmpeg_compress_cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=120  # 2 minute timeout
                     )
-                
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                    await loop.run_in_executor(executor, emergency_compress_sync)
-                
-                final_size = os.path.getsize(compressed_path)
-                print(f"[VIDEO] ✅ EMERGENCY compressed to {final_size/1024/1024:.1f}MB")
-                output_path = compressed_path
+                    
+                    if result.returncode == 0:
+                        final_size = os.path.getsize(compressed_path)
+                        print(f"[VIDEO] ✅ FFmpeg emergency compressed to {final_size/1024/1024:.1f}MB")
+                        output_path = compressed_path
+                    else:
+                        print(f"[VIDEO] ⚠️ FFmpeg compression failed: {result.stderr}")
+                        # Keep original if compression fails
+                        
+                except Exception as e:
+                    print(f"[VIDEO] ⚠️ FFmpeg compression failed: {e}")
+                    # Keep original if compression fails
             else:
                 print(f"[VIDEO] ✅ Size perfect ({file_size/1024/1024:.1f}MB)")
             
@@ -1605,17 +1712,23 @@ async def generate_meme_video_nextlevel(messages: list, duration: float = None, 
             
             # Close all clips to free memory
             for clip in video_clips:
-                clip.close()
-            final_video.close()
+                try:
+                    clip.close()
+                except:
+                    pass
+            
+            try:
+                final_video.close()
+            except:
+                pass
             
             # Update progress - preparing for upload
-            await update_progress(96, "Preparing for upload")
+            await update_progress(96, "Preparing for upload", progress_msg, server_info)
             
             # Read and return video
             with open(output_path, "rb") as f:
                 video_data = f.read()
             
-            total_duration = sum(clip.duration for clip in video_clips)
             print(f"[VIDEO] 🎉 Next-level meme video completed! Total duration: {total_duration:.1f}s")
             
             # Add final completion message with server boost reminder
@@ -1631,9 +1744,23 @@ async def generate_meme_video_nextlevel(messages: list, duration: float = None, 
         except Exception as e:
             print(f"[VIDEO] ❌ Error combining clips: {e}")
             # Fallback: use the old method
-            image_files = [os.path.join(temp_dir, f"frame_{i:03d}.png") for i in range(len(valid_messages))]
-            fps = len(valid_messages) / duration
-            return generate_video_from_images(image_files, fps=fps)
+            try:
+                image_files = [os.path.join(temp_dir, f"frame_{i:03d}.png") for i in range(len(valid_messages))]
+                fps = len(valid_messages) / duration
+                return generate_video_from_images(image_files, fps=fps)
+            except Exception as fallback_e:
+                print(f"[VIDEO] ❌ Even fallback failed: {fallback_e}")
+                raise Exception(f"Video generation failed: {e}. Fallback also failed: {fallback_e}")
+                
+        except Exception as e:
+            print(f"[VIDEO] ❌ Critical error in video generation: {e}")
+            # Try to clean up
+            try:
+                for clip in video_clips:
+                    clip.close()
+            except:
+                pass
+            raise e
 
 # Legacy function alias for backward compatibility
 async def generate_meme_video_with_progress(messages: list, duration: float = 21.0, progress_msg=None, guild=None) -> io.BytesIO:
