@@ -155,6 +155,28 @@ def clean_text_for_speech(text):
     # Remove file attachments mentions
     text = re.sub(r'\[.*?\]\(.*?\)', '', text)  # Markdown links
     
+    # REMOVE MARKDOWN FORMATTING for TTS (so it doesn't read symbols)
+    # Bold formatting **text** or __text__
+    text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
+    text = re.sub(r'__(.*?)__', r'\1', text)
+    
+    # Italic formatting *text* or _text_
+    text = re.sub(r'\*(.*?)\*', r'\1', text)
+    text = re.sub(r'_(.*?)_', r'\1', text)
+    
+    # Strikethrough ~~text~~
+    text = re.sub(r'~~(.*?)~~', r'\1', text)
+    
+    # Code blocks ```text``` and `text`
+    text = re.sub(r'```(.*?)```', r'\1', text, flags=re.DOTALL)
+    text = re.sub(r'`(.*?)`', r'\1', text)
+    
+    # Spoiler ||text||
+    text = re.sub(r'\|\|(.*?)\|\|', r'\1', text)
+    
+    # Quotes > text
+    text = re.sub(r'^>\s*', '', text, flags=re.MULTILINE)
+    
     # Remove excessive punctuation that might confuse TTS
     text = re.sub(r'[!]{2,}', '!', text)
     text = re.sub(r'[?]{2,}', '?', text)
@@ -189,9 +211,20 @@ def clean_text_for_speech(text):
     if len(text.strip()) < 3 and media_links:
         text = f"shared {len(media_links)} media item{'s' if len(media_links) > 1 else ''}"
     
-    # Limit length for TTS
-    if len(text) > 200:
-        text = text[:197] + "..."
+    # INCREASED character limit for TTS (Edge TTS can handle longer text)
+    if len(text) > 500:  # Increased from 200 to 500
+        # Smart truncation at sentence boundary
+        sentences = text.split('. ')
+        truncated = ""
+        for sentence in sentences:
+            if len(truncated + sentence + ". ") <= 497:
+                truncated += sentence + ". "
+            else:
+                break
+        if truncated:
+            text = truncated.rstrip(". ") + "..."
+        else:
+            text = text[:497] + "..."
     
     return text
 
@@ -450,8 +483,25 @@ def format_mentions(content, guild=None):
             
     return content
 
-async def generate_tts_for_message(text, user_id, temp_dir):
+async def generate_tts_for_message(text, user_id, temp_dir, has_media=False):
     """Generate TTS audio for a message using the user's assigned voice"""
+    # If no text but has media, create 1s blank audio
+    if (not text or not text.strip()) and has_media:
+        blank_audio_path = os.path.join(temp_dir, f"blank_audio_{user_id}_{random.randint(1000,9999)}.wav")
+        try:
+            # Create 1 second of silence
+            import subprocess
+            cmd = [
+                'ffmpeg', '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=22050', 
+                '-t', '1', '-y', blank_audio_path
+            ]
+            subprocess.run(cmd, check=True, capture_output=True)
+            print(f"[TTS] 🔇 Created 1s blank audio for image-only message")
+            return blank_audio_path
+        except Exception as e:
+            print(f"[TTS] ⚠️ Failed to create blank audio: {e}")
+            return None
+    
     if not text or not text.strip():
         return None
     
@@ -525,7 +575,7 @@ def fetch_avatar(avatar_url, size=(80,80)):
         logging.error(f"Error fetching avatar: {e}")
         return None
 
-def render_message_image_nextlevel(username: str, message: str, avatar_url: str = None, width: int = 1280, 
+def render_message_image_beautiful(username: str, message: str, avatar_url: str = None, width: int = 1280, 
                        height: int = 720, user_id: str = None, message_index: int = 0, 
                        total_messages: int = 1, media_paths: list = None, attachment_urls: list = None,
                        video_seed: int = None) -> Image.Image:
@@ -586,25 +636,27 @@ def render_message_image_nextlevel(username: str, message: str, avatar_url: str 
     t = t * base_speed + (video_seed % 1000) / 1000.0
     
     def create_dynamic_gradient(width, height, t):
-        """Create animated gradient background"""
+        """Create smooth animated gradient background without harsh transitions"""
         img = Image.new('RGB', (width, height))
         draw = ImageDraw.Draw(img)
         
-        # Base gradient colors
-        grad_color1 = tuple(max(20, min(255, c - 40)) for c in primary_color)
-        grad_color2 = tuple(max(10, min(200, c - 60)) for c in secondary_color)
-        
-        # Animated gradient shift
-        shift = int(t * 30) % height
+        # Base gradient colors (more subtle)
+        grad_color1 = tuple(max(25, min(255, c - 30)) for c in primary_color)
+        grad_color2 = tuple(max(15, min(200, c - 50)) for c in secondary_color)
         
         for y in range(height):
-            adjusted_y = (y + shift) % height
-            ratio = adjusted_y / height
+            # Create smooth vertical gradient
+            base_ratio = y / height
             
-            # Add wave pattern
-            wave_offset = 0.05 * math.sin(2 * math.pi * adjusted_y / 80 + t * 2)
-            ratio = max(0, min(1, ratio + wave_offset))
+            # Add gentle wave animation without discontinuous jumps
+            wave_offset = 0.03 * math.sin(2 * math.pi * y / 120 + t * 1.5)
+            time_shift = 0.02 * math.sin(t * 0.9)  # Gentle time-based variation
             
+            # Combine effects smoothly
+            ratio = base_ratio + wave_offset + time_shift
+            ratio = max(0, min(1, ratio))  # Clamp to [0,1]
+            
+            # Smooth color interpolation
             r = int(grad_color1[0] * (1 - ratio) + grad_color2[0] * ratio)
             g = int(grad_color1[1] * (1 - ratio) + grad_color2[1] * ratio)
             b = int(grad_color1[2] * (1 - ratio) + grad_color2[2] * ratio)
@@ -744,34 +796,20 @@ def render_message_image_nextlevel(username: str, message: str, avatar_url: str 
     ], 52)
     regular_font = load_emoji_supporting_font(36)  # Use emoji-supporting font for regular text
     
-    # Avatar with animated glow
-    avatar_size = 120
-    avatar_x = 60
-    avatar_y = height // 2 - avatar_size // 2
-    float_offset_x = int(8 * math.sin(t * 1.2))
-    float_offset_y = int(6 * math.cos(t * 1.8))
+    # PROPER DISCORD-LIKE LAYOUT - Define positions first 🔥
+    avatar_x = 30  # Left margin for avatar
+    avatar_y = 30  # Top margin  
+    avatar_size = 100  # Standard Discord size
+    x_offset = avatar_x + avatar_size + 20  # Text starts right of avatar + spacing
+    y_offset = avatar_y  # Text starts at same height as avatar
     
+    # Simple clean avatar placement (Discord style)
     if avatar_url:
         try:
             avatar_img = fetch_avatar(avatar_url, size=(avatar_size, avatar_size))
             if avatar_img:
-                glow_size = avatar_size + 40
-                glow = Image.new('RGBA', (glow_size, glow_size), (0, 0, 0, 0))
-                glow_draw = ImageDraw.Draw(glow)
-                
-                pulse = int(120 * (0.7 + 0.3 * math.sin(t * 3)))
-                for i in range(6):
-                    alpha = pulse - i * 20
-                    if alpha > 0:
-                        ring_color = (*primary_color, alpha)
-                        glow_draw.ellipse([i*2, i*2, glow_size-i*2, glow_size-i*2], outline=ring_color, width=3)
-                
-                glow = glow.filter(ImageFilter.GaussianBlur(radius=12))
-                final_avatar = Image.new('RGBA', (glow_size, glow_size), (0, 0, 0, 0))
-                final_avatar.paste(glow, (0, 0), glow)
-                final_avatar.paste(avatar_img, (20, 20), avatar_img)
-                
-                bg.paste(final_avatar, (avatar_x + float_offset_x - 20, avatar_y + float_offset_y - 20), final_avatar)
+                # Simple clean placement - no fancy animations that break alignment
+                bg.paste(avatar_img, (avatar_x, avatar_y), avatar_img)
         except Exception as e:
             logging.error(f"Error processing avatar: {e}")
     
@@ -793,206 +831,224 @@ def render_message_image_nextlevel(username: str, message: str, avatar_url: str 
         
         bg = Image.alpha_composite(bg.convert('RGBA'), bg_img).convert('RGB')
     
-    # Handle EPIC media display with insane animations
+    # Clean media display (Discord style - no overlap!)
     media_display_height = 0
-    if media_paths or attachment_urls:
-        all_media = []
-        if media_paths:
-            all_media.extend(media_paths)
-        if attachment_urls:
-            all_media.extend(attachment_urls)
-        
-        displayed_media = 0
-        max_media_display = 2  # Focus on 2 for better layout
-        
-        for i, media_path in enumerate(all_media[:max_media_display]):
+    text_start_y = y_offset + 60  # Start below username
+    
+    # Handle media attachments cleanly
+    if media_paths and len(media_paths) > 0:
+        for media_path in media_paths[:1]:  # Show only first media to prevent overlap
             try:
-                if isinstance(media_path, str) and os.path.exists(media_path):
-                    # Local file (thumbnail)
-                    media_img = Image.open(media_path).convert('RGBA')
-                elif isinstance(media_path, str) and media_path.startswith('http'):
-                    # URL - download and cache
-                    response = requests.get(media_path, timeout=5)
-                    media_img = Image.open(io.BytesIO(response.content)).convert('RGBA')
-                else:
-                    continue
-                
-                # MUCH LARGER media size for epic impact
-                max_media_size = (500, 350)
-                media_img.thumbnail(max_media_size, Image.LANCZOS)
-                
-                # EPIC positioning with unique layout per media count
-                if displayed_media == 0:
-                    # First media: Large center-right position
-                    media_x = width - media_img.width - 80
-                    media_y = height // 2 - media_img.height // 2
+                if os.path.exists(media_path):
+                    # Load and resize media properly
+                    media_img = Image.open(media_path).convert('RGB')
                     
-                    # Epic floating animation
-                    float_amplitude = 15
-                    rotation_phase = t * 1.2
-                    media_x += int(float_amplitude * math.sin(rotation_phase))
-                    media_y += int(float_amplitude * 0.7 * math.cos(rotation_phase * 0.8))
+                    # Proper sizing like Discord
+                    max_img_width = width - x_offset - 40
+                    max_img_height = 250  # Reasonable height
                     
-                elif displayed_media == 1:
-                    # Second media: Smaller, positioned above/below first
-                    smaller_size = (int(max_media_size[0] * 0.7), int(max_media_size[1] * 0.7))
-                    media_img.thumbnail(smaller_size, Image.LANCZOS)
+                    img_width, img_height = media_img.size
+                    scale = min(max_img_width/img_width, max_img_height/img_height)
+                    new_width = int(img_width * scale)
+                    new_height = int(img_height * scale)
                     
-                    media_x = width - smaller_size[0] - 100
-                    media_y = height // 4 if i % 2 == 0 else height * 3 // 4 - media_img.height
+                    media_img = media_img.resize((new_width, new_height), Image.LANCZOS)
                     
-                    # Different animation pattern
-                    orbit_phase = t * 1.8 + i * math.pi
-                    media_x += int(12 * math.cos(orbit_phase))
-                    media_y += int(8 * math.sin(orbit_phase * 1.3))
-                
-                # Create INSANE frame effects
-                frame_padding = 25
-                frame_size = (media_img.width + frame_padding * 2, media_img.height + frame_padding * 2)
-                media_frame = Image.new('RGBA', frame_size, (0, 0, 0, 0))
-                frame_draw = ImageDraw.Draw(media_frame)
-                
-                # Multi-layer epic glow system
-                for layer in range(15):
-                    glow_alpha = max(5, 180 - layer * 12)
-                    glow_size = layer * 2
-                    pulse_intensity = 1.0 + 0.4 * math.sin(t * 3 + i * 2)
-                    final_alpha = int(glow_alpha * pulse_intensity)
+                    # Position media BELOW username, ABOVE text
+                    media_x = x_offset
+                    media_y = text_start_y
                     
-                    glow_color = (*accent_color, min(255, max(0, final_alpha)))
+                    # Simple rounded background
+                    padding = 5
+                    bg_img = Image.new("RGBA", (new_width + padding*2, new_height + padding*2), (240, 240, 250, 200))
+                    mask = Image.new("L", (new_width + padding*2, new_height + padding*2), 0)
+                    mask_draw = ImageDraw.Draw(mask)
+                    mask_draw.rounded_rectangle((0, 0, new_width + padding*2, new_height + padding*2), radius=10, fill=255)
                     
-                    # Draw expanding glow rectangles
-                    x1, y1 = frame_padding - glow_size, frame_padding - glow_size
-                    x2, y2 = frame_size[0] - frame_padding + glow_size, frame_size[1] - frame_padding + glow_size
+                    # Paste media onto background
+                    bg_img.paste(media_img, (padding, padding))
+                    bg.paste(bg_img, (media_x, media_y), mask=mask)
                     
-                    if x2 > x1 and y2 > y1:
-                        frame_draw.rectangle([x1, y1, x2, y2], outline=glow_color, width=3)
-                
-                # Add energy corners
-                corner_size = 30
-                energy_color = (*primary_color, int(150 + 100 * math.sin(t * 4)))
-                corners = [
-                    (0, 0), (frame_size[0] - corner_size, 0),
-                    (0, frame_size[1] - corner_size), (frame_size[0] - corner_size, frame_size[1] - corner_size)
-                ]
-                
-                for corner_x, corner_y in corners:
-                    frame_draw.rectangle([corner_x, corner_y, corner_x + corner_size, corner_y + corner_size], 
-                                       fill=energy_color)
-                
-                # Apply dramatic blur for glow effect
-                media_frame = media_frame.filter(ImageFilter.GaussianBlur(radius=8))
-                
-                # Paste original media with sharp edges
-                media_frame.paste(media_img, (frame_padding, frame_padding), media_img)
-                
-                # Add holographic scan lines
-                scan_overlay = Image.new('RGBA', frame_size, (0, 0, 0, 0))
-                scan_draw = ImageDraw.Draw(scan_overlay)
-                
-                scan_progress = (t * 2 + i) % 2.0
-                scan_y = int(scan_progress * frame_size[1])
-                
-                for j in range(5):
-                    line_y = scan_y + j * 4
-                    if 0 <= line_y < frame_size[1]:
-                        scan_alpha = max(0, 100 - j * 20)
-                        scan_color = (0, 255, 255, scan_alpha)
-                        scan_draw.line([(0, line_y), (frame_size[0], line_y)], fill=scan_color, width=2)
-                
-                media_frame = Image.alpha_composite(media_frame, scan_overlay)
-                
-                # Position check and paste
-                if (0 <= media_x <= width - frame_size[0] and 
-                    0 <= media_y <= height - frame_size[1]):
-                    bg.paste(media_frame, (media_x, media_y), media_frame)
-                    displayed_media += 1
-                    media_display_height = max(media_display_height, frame_size[1])
+                    # Update text position to be BELOW media
+                    text_start_y = media_y + new_height + padding*2 + 15
+                    media_display_height = new_height + padding*2 + 15
+                    
             except Exception as e:
-                print(f"[MEDIA] Error displaying media {media_path}: {e}")
-                continue
+                print(f"[MEDIA] Error processing {media_path}: {e}")
     
-    # Text with glow effects (adjust position if media is displayed)
-    text_area_x = avatar_x + avatar_size + 60
-    text_area_y = height // 2 - 120 if media_display_height > 0 else height // 2 - 80
-    text_float_x = int(5 * math.sin(t * 0.8))
-    text_float_y = int(4 * math.cos(t * 1.1))
+    # Layout positions already defined above
     
-    username_x = text_area_x + text_float_x
-    username_y = text_area_y + text_float_y
+    # Get text dimensions helper (from your OG code)
+    def get_text_size(draw, text, font):
+        try:
+            return draw.textsize(text, font=font)
+        except AttributeError:
+            bbox = draw.textbbox((0, 0), text, font=font)
+            return (bbox[2] - bbox[0], bbox[3] - bbox[1])
     
-    text_img = Image.new('RGBA', bg.size, (0, 0, 0, 0))
-    text_draw = ImageDraw.Draw(text_img)
+    # Username positioning (TOP-LEFT aligned)
+    username_x = x_offset
+    username_y = y_offset
     
-    # Username with glow
-    for offset in [(4, 4), (3, 3), (2, 2), (1, 1)]:
-        alpha = 120 - offset[0] * 25
-        glow_color = (*primary_color, alpha)
-        text_draw.text((username_x + offset[0], username_y + offset[1]), username, font=bold_font, fill=glow_color)
+    # text_start_y is already calculated above in media section
+    text_width = width - x_offset - 40  # Leave margin for screen edge
     
-    text_draw.text((username_x, username_y), username, font=bold_font, fill=(255, 255, 255))
-    
-    # Message text with word wrapping - COMPLETE MESSAGE DISPLAY
-    words = message.split()
-    lines = []
-    current_line = ""
-    max_chars_per_line = 60
-    
-    for word in words:
-        test_line = current_line + " " + word if current_line else word
-        if len(test_line) <= max_chars_per_line:
-            current_line = test_line
-        else:
-            if current_line:
-                lines.append(current_line)
-                current_line = word
-    if current_line:
-        lines.append(current_line)
+    # LIQUID GLASS BUBBLE - exactly like your beautiful OG design
+    if message.strip():  # Only create bubble if there's text
+        # Smart word wrapping from your OG code
+        words = message.split()
+        lines = []
+        current_line = ""
+        max_text_width = text_width - 80  # Account for bubble padding
         
-    # Ensure we have at least the full message if wrapping failed
-    if not lines and message.strip():
-        lines = [message[:max_chars_per_line]]
+        temp_img = Image.new('RGB', (1, 1))
+        temp_draw = ImageDraw.Draw(temp_img)
         
-    message_y = username_y + 70
-    line_height = 45
-    
-    for i, line in enumerate(lines[:4]):
-        line_y = message_y + (i * line_height) + text_float_y
-        
-        for offset in [(2, 2), (1, 1)]:
-            alpha = 80 - offset[0] * 30
-            glow_color = (*secondary_color, alpha)
-            text_draw.text((username_x + offset[0], line_y + offset[1]), line, font=regular_font, fill=glow_color)
-        
-        text_draw.text((username_x, line_y), line, font=regular_font, fill=(240, 240, 255))
-    
-    bg = Image.alpha_composite(bg.convert('RGBA'), text_img).convert('RGB')
-    
-    # Voice indicator
-    if user_id:
-        voice_name = assign_voice_to_user(user_id)
-        female_voices = ["Aria", "Jenny", "Emma", "Ava", "Michelle"]
-        is_female = any(name in voice_name for name in female_voices)
-        
-        voice_indicator_x, voice_indicator_y = width - 80, 40
-        voice_img = Image.new('RGBA', bg.size, (0, 0, 0, 0))
-        voice_draw = ImageDraw.Draw(voice_img)
-        
-        pulse_alpha = int(150 + 50 * math.sin(t * 4))
-        indicator_color = (*accent_color, pulse_alpha)
-        
-        # Ensure voice indicator stays within bounds
-        size = 15
-        x1, y1 = max(0, voice_indicator_x - size), max(0, voice_indicator_y - size)
-        x2, y2 = min(width, voice_indicator_x + size), min(height, voice_indicator_y + size)
-        
-        if x2 > x1 and y2 > y1:  # Only draw if coordinates are valid
-            if is_female:
-                voice_draw.ellipse([x1, y1, x2, y2], fill=indicator_color)
+        for word in words:
+            test_line = current_line + " " + word if current_line else word
+            w, _ = get_text_size(temp_draw, test_line, regular_font)
+            if w <= max_text_width:
+                current_line = test_line
             else:
-                voice_draw.rectangle([x1, y1, x2, y2], fill=indicator_color)
+                if current_line:
+                    lines.append(current_line)
+                current_line = word
+        if current_line:
+            lines.append(current_line)
         
-        bg = Image.alpha_composite(bg.convert('RGBA'), voice_img).convert('RGB')
+        # Calculate perfect bubble dimensions
+        line_height = get_text_size(temp_draw, "Tg", regular_font)[1] + 5
+        bubble_height = (len(lines) * line_height) + 30
+        bubble_width = min(max(get_text_size(temp_draw, line, regular_font)[0] for line in lines) + 40, max_text_width) if lines else 200
+        
+        # LIQUID GLASS BUBBLE - your gorgeous OG style
+        bubble_x = x_offset
+        bubble_y = text_start_y
+        bubble_radius = 20
+        
+        # Create the liquid glass effect
+        bubble_img = Image.new('RGBA', bg.size, (0, 0, 0, 0))
+        bubble_draw = ImageDraw.Draw(bubble_img)
+        
+        # ACTUAL LIQUID GLASS EFFECT with background blur 🌟
+        # First, get the background behind the bubble
+        bubble_bg = bg.crop((bubble_x, bubble_y, bubble_x + bubble_width, bubble_y + bubble_height))
+        bubble_bg = bubble_bg.filter(ImageFilter.GaussianBlur(radius=3))  # Soft blur
+        
+        # Create glass effect with transparency that shows RGB background
+        glass_overlay = Image.new('RGBA', (bubble_width, bubble_height), (255, 255, 255, 120))  # Semi-transparent white
+        glass_mask = Image.new('L', (bubble_width, bubble_height), 0)
+        glass_mask_draw = ImageDraw.Draw(glass_mask)
+        glass_mask_draw.rounded_rectangle((0, 0, bubble_width, bubble_height), radius=bubble_radius, fill=255)
+        
+        # Blend blurred background with glass overlay
+        bubble_bg = bubble_bg.convert('RGBA')
+        glass_bubble = Image.alpha_composite(bubble_bg, glass_overlay)
+        
+        # Add subtle frosted effect
+        frosted = Image.new('RGBA', (bubble_width, bubble_height), (255, 255, 255, 40))
+        glass_bubble = Image.alpha_composite(glass_bubble, frosted)
+        
+        # Add subtle accent border for definition
+        border_overlay = Image.new('RGBA', (bubble_width, bubble_height), (0, 0, 0, 0))
+        border_draw = ImageDraw.Draw(border_overlay)
+        border_color = (*accent_color, 100)  # Soft accent border
+        border_draw.rounded_rectangle((0, 0, bubble_width, bubble_height), radius=bubble_radius, outline=border_color, width=2)
+        glass_bubble = Image.alpha_composite(glass_bubble, border_overlay)
+        
+        # Paste the liquid glass bubble back
+        bg.paste(glass_bubble, (bubble_x, bubble_y), mask=glass_mask)
+        
+        # Apply liquid glass to background
+        bg = Image.alpha_composite(bg.convert('RGBA'), bubble_img)
+        
+        # Text inside bubble (clean like your OG)
+        text_img = Image.new('RGBA', bg.size, (0, 0, 0, 0))
+        text_draw = ImageDraw.Draw(text_img)
+        
+        text_x = bubble_x + 20
+        text_y = bubble_y + 15
+        text_color = (40, 40, 40)  # Clean dark text like your OG
+        
+        for line in lines:
+            text_draw.text((text_x, text_y), line, fill=text_color, font=regular_font)
+            text_y += line_height
+        
+        # Composite text
+        bg = Image.alpha_composite(bg, text_img)
+    
+    # Username with clean style (like your OG - outside bubble)
+    username_img = Image.new('RGBA', bg.size, (0, 0, 0, 0))
+    username_draw = ImageDraw.Draw(username_img)
+    
+    # Username with subtle shadow and user's theme color
+    username_shadow = (0, 0, 0, 100)
+    username_draw.text((username_x + 2, username_y + 2), username, fill=username_shadow, font=bold_font)
+    username_draw.text((username_x, username_y), username, fill=primary_color, font=bold_font)
+    
+    # Composite username
+    bg = Image.alpha_composite(bg, username_img).convert('RGB')
+    
+    # Bot display avatar in top right corner (ACTUAL bot avatar!)
+    try:
+        # Get the bot avatar from Discord API
+        bot_avatar_size = 60
+        bot_x = width - bot_avatar_size - 20
+        bot_y = 20
+        
+        # Try to get the bot's avatar URL dynamically
+        # For now, use a placeholder that represents the bot
+        bot_avatar_url = "https://cdn.discordapp.com/embed/avatars/0.png"  # Discord default bot avatar
+        
+        try:
+            # Download and use actual bot avatar
+            import requests
+            response = requests.get(bot_avatar_url, timeout=5)
+            if response.status_code == 200:
+                bot_avatar_img = Image.open(io.BytesIO(response.content)).convert("RGBA")
+                bot_avatar_img = bot_avatar_img.resize((bot_avatar_size, bot_avatar_size), Image.LANCZOS)
+                
+                # Create circular mask for bot avatar
+                mask = Image.new("L", (bot_avatar_size, bot_avatar_size), 0)
+                mask_draw = ImageDraw.Draw(mask)
+                mask_draw.ellipse((0, 0, bot_avatar_size, bot_avatar_size), fill=255)
+                bot_avatar_img.putalpha(mask)
+                
+                # Add subtle glow around bot avatar
+                glow = Image.new("RGBA", (bot_avatar_size + 10, bot_avatar_size + 10), (0, 0, 0, 0))
+                glow_draw = ImageDraw.Draw(glow)
+                glow_draw.ellipse((0, 0, bot_avatar_size + 10, bot_avatar_size + 10), fill=(100, 150, 255, 80))
+                
+                # Paste glow then avatar
+                bg.paste(glow, (bot_x - 5, bot_y - 5), mask=glow)
+                bg.paste(bot_avatar_img, (bot_x, bot_y), mask=bot_avatar_img)
+                
+            else:
+                raise Exception("Failed to download bot avatar")
+                
+        except Exception:
+            # Fallback: Simple bot indicator circle
+            bot_img = Image.new('RGBA', bg.size, (0, 0, 0, 0))
+            bot_draw = ImageDraw.Draw(bot_img)
+            
+            # Simple bot indicator
+            bot_color = (100, 150, 255, 200)  # Bot blue color
+            bot_draw.ellipse([bot_x, bot_y, bot_x + bot_avatar_size, bot_y + bot_avatar_size], fill=bot_color)
+            
+            # Add "BOT" text
+            try:
+                bot_font = load_emoji_supporting_font(12)
+                text_w, text_h = get_text_size(bot_draw, "BOT", bot_font)
+                text_x = bot_x + (bot_avatar_size - text_w) // 2
+                text_y = bot_y + (bot_avatar_size - text_h) // 2
+                bot_draw.text((text_x, text_y), "BOT", fill=(255, 255, 255), font=bot_font)
+            except:
+                pass
+            
+            bg = Image.alpha_composite(bg.convert('RGBA'), bot_img).convert('RGB')
+            
+    except Exception as e:
+        print(f"[BOT AVATAR] Error: {e}")
     
     return bg
 
@@ -1096,22 +1152,22 @@ async def generate_meme_video_nextlevel(messages: list, duration: float = None, 
         if boost_level >= 3:
             return (
                 f"🌟 **Premium Server** (Level {boost_level})\n"
-                f"📊 **Quality**: Ultra High | **Max Messages**: 150 | **File Limit**: {upload_limit_mb}MB\n"
+                f"📊 **Quality**: Ultra High | **Max Messages**: 250 | **File Limit**: {upload_limit_mb}MB\n"
                 f"🎬 Enjoy the best video quality!"
             )
         elif boost_level >= 2:
             return (
                 f"🚀 **Boosted Server** (Level {boost_level})\n"
-                f"📊 **Quality**: High | **Max Messages**: 100 | **File Limit**: {upload_limit_mb}MB\n"
+                f"📊 **Quality**: High | **Max Messages**: 125 | **File Limit**: {upload_limit_mb}MB\n"
                 f"✨ Great video quality! Consider Level 3 for even better results."
             )
         else:
             return (
                 f"📱 **Standard Server** (Level {boost_level})\n"
-                f"📊 **Quality**: Standard | **Max Messages**: 30 | **File Limit**: {upload_limit_mb}MB\n"
+                f"📊 **Quality**: Standard | **Max Messages**: 25 | **File Limit**: {upload_limit_mb}MB\n"
                 f"💎 **Want better?** Ask admins to boost this server for:\n"
-                f"   • Level 2: 150 messages, 50MB limit\n"
-                f"   • Level 3: 300 messages, 100MB limit"
+                f"   • Level 2: 125 messages, 50MB limit\n"
+                f"   • Level 3: 250 messages, 100MB limit"
             )
     
     server_info = get_server_info_message(boost_level, upload_limit_mb, max_duration_seconds)
@@ -1177,10 +1233,10 @@ async def generate_meme_video_nextlevel(messages: list, duration: float = None, 
     # Only limit by estimated file size, not duration - let users enjoy longer videos!
     # Calculate maximum messages based on server boost level (for file size, not duration)
     max_messages_by_level = {
-        0: 60,  # Level 0: max 60 messages (targeting ~8-9MB)
-        1: 60,  # Level 1: max 60 messages  
-        2: 100, # Level 2: max 100 messages (targeting ~45MB)
-        3: 150  # Level 3: max 150 messages (targeting ~90MB)
+        0: 25,  # Level 0: max 25 messages (targeting ~8-9MB)
+        1: 25,  # Level 1: max 25 messages  
+        2: 125, # Level 2: max 125 messages (targeting ~45MB)
+        3: 250  # Level 3: max 250 messages (targeting ~90MB)
     }
     
     boost_level = guild.premium_tier if guild else 0
@@ -1192,12 +1248,12 @@ async def generate_meme_video_nextlevel(messages: list, duration: float = None, 
         print(f"[VIDEO] ⚠️ Trimmed to {len(valid_messages)} messages to target file size for Level {boost_level}")
     
     # Update progress with server info - starting image and audio generation
-    await update_progress(35, f"Rendering {len(valid_messages)} messages")
+    await update_progress(13, f"Rendering {len(valid_messages)} messages")
     
     # Send server boost info to user
     if progress_msg:
         try:
-            await progress_msg.edit(content=f"🎬 **Generating chat video...** \n⏳ **Progress:** 35% - Rendering messages\n\n{server_info}")
+            await progress_msg.edit(content=f"🎬 **Generating chat video...** \n⏳ **Progress:** 13% - Rendering messages\n\n{server_info}")
         except Exception as e:
             print(f"[PROGRESS] ⚠️ Failed to update progress with server info: {e}")
     
@@ -1216,7 +1272,7 @@ async def generate_meme_video_nextlevel(messages: list, duration: float = None, 
             print(f"[VIDEO] Processing message {i+1}/{len(valid_messages)}: {msg['username']}")
             
             # Update progress for each message processed
-            current_percentage = 35 + int((i / len(valid_messages)) * 50)  # 35% to 85% range
+            current_percentage = 13 + int((i / len(valid_messages)) * 56)  # 13% to 69% range
             await update_progress(current_percentage, f"Rendering {i+1}/{len(valid_messages)}")
             
             # Yield control to prevent blocking Discord heartbeat
@@ -1232,32 +1288,48 @@ async def generate_meme_video_nextlevel(messages: list, duration: float = None, 
                         if thumb_path:
                             media_paths.append(thumb_path)
             
-            # Process attachment URLs (from Discord attachments)
+            # Process attachment URLs (from Discord attachments) 
             attachment_paths = []
             if msg.get("attachment_urls"):
                 for url in msg["attachment_urls"]:
-                    # For Discord attachments, try to download directly
-                    if url.startswith('http'):
-                        thumb_path = await download_thumbnail(url, temp_dir)
-                        if thumb_path:
-                            attachment_paths.append(thumb_path)
+                    try:
+                        # Download attachment
+                        attachment_path = await download_thumbnail(url, temp_dir)
+                        if attachment_path:
+                            attachment_paths.append(attachment_path)
+                            print(f"[VIDEO] 📎 Downloaded attachment: {url}")
+                    except Exception as e:
+                        print(f"[VIDEO] ⚠️ Failed to download attachment {url}: {e}")
             
-            # Generate next-level image with media and unique seed
+            # Also check image_url for direct attachment
+            if msg.get("image_url") and msg["image_url"] not in [link.get("thumbnail_url") for link in msg.get("media_links", [])]:
+                try:
+                    direct_image_path = await download_thumbnail(msg["image_url"], temp_dir)
+                    if direct_image_path:
+                        attachment_paths.append(direct_image_path)
+                        print(f"[VIDEO] 🖼️ Downloaded direct image: {msg['image_url']}")
+                except Exception as e:
+                    print(f"[VIDEO] ⚠️ Failed to download direct image {msg['image_url']}: {e}")
+            
+            # Combine all media paths for rendering
+            all_media_paths = media_paths + attachment_paths
+            
+            # Generate next-level image with ALL media and unique seed
             # Use cleaned display text for visual (preserves emojis)
             display_text = clean_text_for_display(msg["message"])
             
             # Yield before heavy image generation
             await asyncio.sleep(0.05)
             
-            img = render_message_image_nextlevel(
+            img = render_message_image_beautiful(
                 username=msg["username"],
                 message=display_text,  # Use cleaned display text
                 avatar_url=msg["avatar_url"],
                 user_id=msg["user_id"],
                 message_index=i,
                 total_messages=len(valid_messages),
-                media_paths=media_paths,
-                attachment_urls=attachment_paths,
+                media_paths=all_media_paths,  # Use ALL media paths
+                attachment_urls=msg.get("attachment_urls", []),
                 video_seed=video_seed
             )
             
@@ -1267,17 +1339,21 @@ async def generate_meme_video_nextlevel(messages: list, duration: float = None, 
             image_path = os.path.join(temp_dir, f"frame_{i:03d}.png")
             img.save(image_path)
             
-            # Generate TTS audio (only skip if empty after cleaning OR if mixed text+emoji)
+            # Generate TTS audio - include image-only messages with blank audio
             audio_path = None
-            if msg["clean_message"]:  # If there's something to speak after cleaning
-                # Generate TTS for any non-empty cleaned message
+            has_media = bool(msg.get("media_paths") or msg.get("attachment_urls"))
+            
+            if msg["clean_message"] or has_media:  # If text OR media
                 audio_path = await generate_tts_for_message(
                     msg["clean_message"], 
                     msg["user_id"], 
-                    temp_dir
+                    temp_dir,
+                    has_media=has_media
                 )
+                if has_media and not msg["clean_message"]:
+                    print(f"[VIDEO] 🖼️ Image-only message with 1s blank audio")
             else:
-                print(f"[VIDEO] ⏭️ Skipping TTS for empty/filtered message: {msg['message'][:50]}")
+                print(f"[VIDEO] ⏭️ Skipping message with no content or media: {msg['message'][:50]}")
             
             # Calculate display duration with precise sync
             if audio_path and os.path.exists(audio_path):
@@ -1342,7 +1418,7 @@ async def generate_meme_video_nextlevel(messages: list, duration: float = None, 
         print(f"[VIDEO] 🎬 Combining {len(video_clips)} clips into final video...")
         
         # Update progress - video assembly
-        await update_progress(85, "Assembling video")
+        await update_progress(69, "Assembling video")
         
         # Yield before heavy video assembly
         await asyncio.sleep(0.2)
@@ -1385,7 +1461,7 @@ async def generate_meme_video_nextlevel(messages: list, duration: float = None, 
             final_video = add_fade_transitions(final_video)
             
             # Update progress - adding audio
-            await update_progress(90, "Adding audio")
+            await update_progress(72, "Adding audio")
             
             # Add background music if available
             sound_effect_path = os.path.join(os.path.dirname(__file__), "assets", "sound_effect.mp3")
@@ -1434,90 +1510,95 @@ async def generate_meme_video_nextlevel(messages: list, duration: float = None, 
                 print(f"[VIDEO] ⚠️ Background music not found at {sound_effect_path}")
             
             # Update progress - final export
-            await update_progress(95, "Exporting video")
+            await update_progress(77, "Exporting video")
             
             # Yield before the HEAVIEST operation
             await asyncio.sleep(0.5)
             
-            # Export final video with dynamic compression based on duration
+            # ULTRAFAST MINIMUM SIZE VIDEO EXPORT 🚀
             output_path = os.path.join(temp_dir, "nextlevel_meme.mp4")
             total_duration = final_video.duration
-            print(f"[VIDEO] 🎬 Starting final video export (Duration: {total_duration:.1f}s, optimized for {upload_limit_mb}MB limit)...")
+            print(f"[VIDEO] 🚀 ULTRAFAST export (Duration: {total_duration:.1f}s)...")
             
-            # MUCH more aggressive initial compression to prevent 413 errors
-            target_size_mb = upload_limit_mb * 0.7  # Use only 70% of limit initially
-            target_size_bits = target_size_mb * 1024 * 1024 * 8  # Convert to bits
-            audio_bitrate = 64  # Lower audio bitrate
+            # AGGRESSIVE compression settings for minimum file size
+            target_size_mb = upload_limit_mb * 0.99  # Use 99% of limit
+            target_size_bits = target_size_mb * 1024 * 1024 * 8
             
-            # Calculate much lower video bitrate
-            video_bitrate = max(600, int((target_size_bits / total_duration - audio_bitrate * 1000) / 1000))  # kbps, minimum 600k
+            # MAIN PIPELINE bitrates
+            audio_bitrate = 96  # 96k audio
+            video_bitrate = max(500, int((target_size_bits / total_duration - audio_bitrate * 1000) / 1000))  # 500k minimum
             
-            # Cap video bitrate for long videos
-            if total_duration > 120:  # Videos longer than 2 minutes
-                video_bitrate = min(video_bitrate, 800)
+            # Cap at reasonable maximum for file size
+            video_bitrate = min(video_bitrate, 1000)  # Cap at 1000k
             
-            print(f"[VIDEO] 📊 Conservative bitrate: {video_bitrate}k video + {audio_bitrate}k audio (Target: {target_size_mb:.1f}MB)")
+            print(f"[VIDEO] 🎬 MAIN PIPELINE: {video_bitrate}k video + {audio_bitrate}k audio")
             
-            # Run video export in thread pool to prevent Discord heartbeat blocking
+            # Run ULTRAFAST export in thread pool
             import concurrent.futures
             
             def export_video_sync():
-                """Synchronous video export function for thread pool"""
+                """ULTRAFAST video export with minimum size"""
                 final_video.write_videofile(
                     output_path,
-                    fps=15,  # Much lower fps for smaller files
+                    fps=24,  # Smooth 24fps - not choppy 12fps!
                     codec='libx264',
                     audio_codec='aac',
-                    preset='ultrafast',  # Fast encoding with smaller files
-                    bitrate=f'{video_bitrate}k',  # Conservative bitrate
-                    audio_bitrate=f'{audio_bitrate}k',  # Lower audio quality
+                    preset='ultrafast',  # Fastest encoding
+                    bitrate=f'{video_bitrate}k',  # Good quality bitrate
+                    audio_bitrate=f'{audio_bitrate}k',  # Good audio quality
                     verbose=False,
-                    logger=None
+                    logger=None,
+                    temp_audiofile=f'temp-audio-{random.randint(1000,9999)}.m4a',  # Unique temp audio
+                    remove_temp=True  # Clean up temp files
                 )
             
-            # Run in thread pool to prevent blocking Discord heartbeat
+            # Run in thread pool
             loop = asyncio.get_event_loop()
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                 await loop.run_in_executor(executor, export_video_sync)
             
-            print("[VIDEO] ✅ Final video export complete")
+            print("[VIDEO] ✅ ULTRAFAST export complete")
             
-            # Check file size and compress if too large for Discord
+            # Check if still too large and do EMERGENCY compression
             file_size = os.path.getsize(output_path)
-            max_size = int(upload_limit_mb * 0.85 * 1024 * 1024)  # 85% of server limit for safety
+            actual_limit_bytes = upload_limit_mb * 1024 * 1024
             
-            if file_size > max_size:
-                print(f"[VIDEO] ⚠️ File too large ({file_size/1024/1024:.1f}MB > {max_size/1024/1024:.1f}MB), aggressive compression...")
-                compressed_path = os.path.join(temp_dir, "compressed_meme.mp4")
+            if file_size > actual_limit_bytes:
+                print(f"[VIDEO] 🆘 EMERGENCY compression needed ({file_size/1024/1024:.1f}MB > {upload_limit_mb}MB)")
+                compressed_path = os.path.join(temp_dir, "emergency_compressed.mp4")
                 
-                # VERY aggressive compression as last resort - also in thread pool
-                emergency_bitrate = max(300, int(upload_limit_mb * 0.6 * 1024 * 8 / total_duration))  # Emergency bitrate
+                # COMPRESSION bitrate calculation
+                emergency_target = int(upload_limit_mb * 0.95 * 1024 * 1024)  # 95% of limit
+                total_bitrate = int((emergency_target * 8) / total_duration)  # Total bits per second
+                emergency_audio = 64  # 64k audio
+                emergency_video = max(300, total_bitrate // 1000 - emergency_audio)  # 300k video
                 
-                print(f"[VIDEO] 🆘 Emergency compression: {emergency_bitrate}k bitrate")
+                print(f"[VIDEO] 🔥 COMPRESSION: {emergency_video}k video + {emergency_audio}k audio")
                 
-                def compress_video_sync():
-                    """Synchronous compression function for thread pool"""
+                def emergency_compress_sync():
+                    """EMERGENCY ultra-compression"""
                     final_video.write_videofile(
                         compressed_path,
-                        fps=12,  # Very low fps
+                        fps=15,  # Keep reasonable fps (not choppy 10fps!)
                         codec='libx264',
-                        audio_codec='aac',
-                        preset='ultrafast',  # Fastest encoding
-                        bitrate=f'{emergency_bitrate}k',  # Emergency bitrate
-                        audio_bitrate='48k',  # Minimal audio quality
+                        audio_codec='aac', 
+                        preset='ultrafast',
+                        bitrate=f'{emergency_video}k',  # Emergency bitrate
+                        audio_bitrate=f'{emergency_audio}k',  # Decent audio (not trash!)
                         verbose=False,
-                        logger=None
+                        logger=None,
+                        temp_audiofile=f'temp-audio-emergency-{random.randint(1000,9999)}.m4a',
+                        remove_temp=True
                     )
                 
-                # Run compression in thread pool as well
                 with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                    await loop.run_in_executor(executor, compress_video_sync)
+                    await loop.run_in_executor(executor, emergency_compress_sync)
                 
                 final_size = os.path.getsize(compressed_path)
-                print(f"[VIDEO] ✅ Compressed to {final_size/1024/1024:.1f}MB")
+                print(f"[VIDEO] ✅ EMERGENCY compressed to {final_size/1024/1024:.1f}MB")
                 output_path = compressed_path
             else:
-                print(f"[VIDEO] ✅ File size OK ({file_size/1024/1024:.1f}MB)")
+                print(f"[VIDEO] ✅ Size perfect ({file_size/1024/1024:.1f}MB)")
             
             # Yield after compression check
             await asyncio.sleep(0.1)
@@ -1526,6 +1607,9 @@ async def generate_meme_video_nextlevel(messages: list, duration: float = None, 
             for clip in video_clips:
                 clip.close()
             final_video.close()
+            
+            # Update progress - preparing for upload
+            await update_progress(96, "Preparing for upload")
             
             # Read and return video
             with open(output_path, "rb") as f:

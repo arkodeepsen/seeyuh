@@ -582,21 +582,23 @@ def _build_welcome_video_bytes(avatar_png_bytes: bytes, display_name: str, guild
     rotation_speed = random.uniform(0.5, 2.0)
     
     def create_animated_gradient(t, width, height):
-        """Create animated gradient background"""
+        """Create smooth animated gradient background without harsh transitions"""
         img = Image.new('RGB', (width, height))
         draw = ImageDraw.Draw(img)
         
-        # Animated gradient shift
-        shift = int(t * 50) % height
-        
         for y in range(height):
-            adjusted_y = (y + shift) % height
-            ratio = adjusted_y / height
+            # Create smooth vertical gradient
+            base_ratio = y / height
             
-            # Add wave pattern to gradient
-            wave_offset = 0.1 * math.sin(2 * math.pi * adjusted_y / 100 + t * wave_frequency)
-            ratio = max(0, min(1, ratio + wave_offset))
+            # Add gentle wave animation without discontinuous jumps
+            wave_offset = 0.08 * math.sin(2 * math.pi * y / 200 + t * wave_frequency * 0.5)
+            time_shift = 0.05 * math.sin(t * 0.8)  # Gentle time-based variation
             
+            # Combine effects smoothly
+            ratio = base_ratio + wave_offset + time_shift
+            ratio = max(0, min(1, ratio))  # Clamp to [0,1]
+            
+            # Smooth color interpolation
             r = int(primary_color[0] * (1 - ratio) + secondary_color[0] * ratio)
             g = int(primary_color[1] * (1 - ratio) + secondary_color[1] * ratio)
             b = int(primary_color[2] * (1 - ratio) + secondary_color[2] * ratio)
@@ -925,7 +927,8 @@ def _build_welcome_video_bytes(avatar_png_bytes: bytes, display_name: str, guild
                             'scale': scale,
                             'color': word_color,
                             'glow': glow_intensity,
-                            'active': True
+                            'active': True,
+                            'progress': word_progress  # Store progress for sexy effects
                         })
                     elif t > word_end:
                         # Word already spoken - static display
@@ -934,76 +937,178 @@ def _build_welcome_video_bytes(avatar_png_bytes: bytes, display_name: str, guild
                             'scale': 1.0,
                             'color': (200, 240, 255),
                             'glow': 50,
-                            'active': False
+                            'active': False,
+                            'progress': 1.0  # Completed word
                         })
             
-                # Draw animated words
+                # Draw animated words with PROPER LINE WRAPPING
                 if current_words:
-                
-                    # Draw each word with individual animation
-                    current_x = base_x
+                    # Calculate max width for word wrapping
+                    max_text_width = width - base_x - 400  # Same as subtitle calculation
+                    
+                    # Create lines of words that fit within max_width
+                    lines = []
+                    current_line = []
+                    current_line_width = 0
+                    
+                    # Use base font size for consistent measurements
+                    base_font = load_font([
+                        "assets/fonts/impact.ttf",
+                        "assets/fonts/SNAP____.TTF",
+                        "assets/fonts/BAUHS93.TTF",
+                        "assets/fonts/arialbd.ttf",
+                    ], 64)
+                    
                     for word_data in current_words:
                         word = word_data['word']
-                        scale = word_data['scale']
-                        color = word_data['color']
-                        glow = word_data['glow']
-                        is_active = word_data['active']
-                    
-                        # Create scaled font
-                        scaled_size = int(64 * scale)
-                        if scaled_size < 20:
-                            scaled_size = 20
                         
-                        scaled_font = load_font([
-                            "assets/fonts/impact.ttf",        # Impact for bold titles
-                            "assets/fonts/SNAP____.TTF",      # Snap ITC (cool display font)
-                            "assets/fonts/BAUHS93.TTF",       # Bauhaus 93 (modern)
-                            "assets/fonts/arialbd.ttf",       # Arial Bold fallback
-                        ], scaled_size)
-                    
-                        # Subtle effects for active words
-                        if is_active:
-                            # Gentle glow pulse (no bounce/shake)
-                            word_x = current_x
-                            word_y = base_y
+                        # Calculate word width with space
+                        word_bbox = base_font.getbbox(word + " ")
+                        word_width = word_bbox[2] - word_bbox[0]
+                        
+                        # Check if word fits on current line
+                        if current_line_width + word_width <= max_text_width or len(current_line) == 0:
+                            current_line.append(word_data)
+                            current_line_width += word_width
                         else:
-                            word_x = current_x
-                            word_y = base_y
+                            # Start new line
+                            if current_line:
+                                lines.append(current_line)
+                            current_line = [word_data]
+                            current_line_width = word_width
                     
-                        # Draw word with enhanced glow
-                        bg = draw_text_with_glow(bg, (word_x, word_y), word, scaled_font, fill=color)
+                    # Add final line
+                    if current_line:
+                        lines.append(current_line)
+                    
+                    print(f"[WELCOME] Word animation: {len(current_words)} words -> {len(lines)} lines")
+                    
+                    # Draw each line
+                    line_height = 75  # Spacing between lines
+                    for line_idx, line_words in enumerate(lines):
+                        current_x = base_x
+                        current_y = base_y + (line_idx * line_height)
                         
-                        # Calculate width for next word
-                        bbox = scaled_font.getbbox(word + " ")
-                        current_x += bbox[2] - bbox[0]
+                        for word_data in line_words:
+                            word = word_data['word']
+                            scale = word_data['scale']
+                            color = word_data['color']
+                            glow = word_data['glow']
+                            is_active = word_data['active']
+                        
+                            # Create scaled font
+                            scaled_size = int(64 * scale)
+                            if scaled_size < 20:
+                                scaled_size = 20
+                            
+                            scaled_font = load_font([
+                                "assets/fonts/impact.ttf",        # Impact for bold titles
+                                "assets/fonts/SNAP____.TTF",      # Snap ITC (cool display font)
+                                "assets/fonts/BAUHS93.TTF",       # Bauhaus 93 (modern)
+                                "assets/fonts/arialbd.ttf",       # Arial Bold fallback
+                            ], scaled_size)
+                        
+                            # SYDNEY SWEENEY-LEVEL SEXY EFFECTS 💫
+                            if is_active:
+                                # Sultry breathing effect
+                                breathe = 1.0 + 0.15 * math.sin(t * 4)
+                                word_x = current_x + int(3 * math.sin(t * 6))  # Subtle sway
+                                word_y = current_y + int(2 * math.cos(t * 8))  # Gentle float
+                                
+                                # Seductive scale pulsing
+                                scale = scale * breathe
+                                scaled_size = int(64 * scale)
+                                if scaled_size < 20:
+                                    scaled_size = 20
+                                
+                                # Reload font with sexy new size
+                                scaled_font = load_font([
+                                    "assets/fonts/impact.ttf",
+                                    "assets/fonts/SNAP____.TTF", 
+                                    "assets/fonts/BAUHS93.TTF",
+                                    "assets/fonts/arialbd.ttf",
+                                ], scaled_size)
+                                
+                                # Sultry color transition 
+                                progress = word_data.get('progress', 0.5)
+                                heat = int(progress * 255)
+                                color = (255, 255 - heat//3, heat//2)  # Warm glow
+                            else:
+                                # Elegant static positioning
+                                word_x = current_x
+                                word_y = current_y
+                        
+                            # Draw word with SEDUCTIVE multi-layer glow
+                            # Layer 1: Deep outer glow (mysterious)
+                            outer_glow_size = scaled_size + 20
+                            outer_font = load_font([
+                                "assets/fonts/impact.ttf",
+                                "assets/fonts/SNAP____.TTF",
+                                "assets/fonts/arialbd.ttf",
+                            ], outer_glow_size)
+                            bg = draw_text_with_glow(bg, (word_x-2, word_y-2), word, outer_font, fill=(color[0]//3, color[1]//3, color[2]//3))
+                            
+                            # Layer 2: Medium glow (alluring)
+                            bg = draw_text_with_glow(bg, (word_x, word_y), word, scaled_font, fill=color)
+                            
+                            # Layer 3: Inner highlight (captivating)
+                            if is_active:
+                                highlight_color = (min(255, color[0] + 50), min(255, color[1] + 30), min(255, color[2] + 60))
+                                bg = draw_text_with_glow(bg, (word_x+1, word_y+1), word, scaled_font, fill=highlight_color)
+                            
+                            # Calculate width for next word
+                            bbox = scaled_font.getbbox(word + " ")
+                            current_x += bbox[2] - bbox[0]
                 
-                # Multi-line subtitle with proper wrapping
-                subtitle = f"{display_name} joined {guild_name}"
-                max_width = width - base_x - 400  # Leave MORE margin for avatar (320px + padding)
-                subtitle_lines = wrap_text(subtitle, regular_font, max_width)
-                print(f"[WELCOME] Subtitle: '{subtitle}' -> {len(subtitle_lines)} lines, max_width: {max_width}")
-                
-                line_height = 45
-                for i, line in enumerate(subtitle_lines):
-                    y_pos = base_y + 120 + (i * line_height)
-                    bg = draw_text_with_glow(bg, (base_x, y_pos), line, regular_font, fill=(220, 240, 255))
+                # NO DUPLICATE SUBTITLE - the animated words ARE the welcome message!
+                print(f"[WELCOME] Word-level animation active: {len(current_words)} words")
             else:
-                # Fallback to static animation if no SRT timing
+                # Fallback to EQUALLY SEXY static animation if no SRT timing
                 title = "Welcome!"
                 subtitle = f"{display_name} joined {guild_name}"
                 
-                # Draw title with EPIC gradient effect
-                bg = draw_gradient_text(bg, (base_x, base_y), title, bold_font, primary_color, accent_color)
+                # SEDUCTIVE STATIC TITLE with breathing effect
+                title_breathe = 1.0 + 0.08 * math.sin(t * 3)
+                title_sway_x = int(5 * math.sin(t * 2))
+                title_sway_y = int(3 * math.cos(t * 2.5))
                 
-                # Multi-line subtitle with proper wrapping
+                # Sultry title color that shifts
+                title_heat = int(128 + 127 * math.sin(t * 1.5))
+                sultry_title_color = (255, 255 - title_heat//4, title_heat//3)
+                
+                # Draw title with MULTI-LAYER SEDUCTION
+                title_x = base_x + title_sway_x
+                title_y = base_y + title_sway_y
+                
+                # Layer 1: Deep shadow (mysterious depth)
+                bg = draw_text_with_glow(bg, (title_x-3, title_y-3), title, bold_font, fill=(sultry_title_color[0]//4, sultry_title_color[1]//4, sultry_title_color[2]//4))
+                # Layer 2: Main title (captivating presence)
+                bg = draw_gradient_text(bg, (title_x, title_y), title, bold_font, sultry_title_color, accent_color)
+                # Layer 3: Highlight shimmer (irresistible allure)
+                shimmer_color = (min(255, sultry_title_color[0] + 60), min(255, sultry_title_color[1] + 40), min(255, sultry_title_color[2] + 80))
+                bg = draw_text_with_glow(bg, (title_x+2, title_y+2), title, bold_font, fill=shimmer_color)
+                
+                # SENSUAL SUBTITLE with flowing motion
                 max_width = width - base_x - 400  # Leave MORE margin for avatar (320px + padding)
                 subtitle_lines = wrap_text(subtitle, regular_font, max_width)
                 print(f"[WELCOME] Static subtitle: '{subtitle}' -> {len(subtitle_lines)} lines, max_width: {max_width}")
                 
-                line_height = 45
+                line_height = 50  # More breathing room
                 for i, line in enumerate(subtitle_lines):
-                    y_pos = base_y + 90 + (i * line_height)
-                    bg = draw_text_with_glow(bg, (base_x, y_pos), line, regular_font, fill=(220, 240, 255))
+                    # Each line has its own seductive sway
+                    line_sway_x = int(3 * math.sin(t * 1.8 + i * 0.5))
+                    line_sway_y = int(2 * math.cos(t * 2.2 + i * 0.3))
+                    
+                    # Color that pulses with desire
+                    line_pulse = 0.7 + 0.3 * math.sin(t * 2.5 + i * 0.7)
+                    line_color = (int(220 * line_pulse), int(240 * line_pulse), int(255 * line_pulse))
+                    
+                    y_pos = base_y + 100 + (i * line_height) + line_sway_y
+                    x_pos = base_x + line_sway_x
+                    
+                    # Double-layer subtitle for depth
+                    bg = draw_text_with_glow(bg, (x_pos-1, y_pos-1), line, regular_font, fill=(line_color[0]//3, line_color[1]//3, line_color[2]//3))
+                    bg = draw_text_with_glow(bg, (x_pos, y_pos), line, regular_font, fill=line_color)
             
             # User avatar (BIGGER and cleaner floating)
             avatar_size = 320  # Much bigger!
@@ -1657,7 +1762,7 @@ async def on_message(message):
                     
                     async for msg in message.channel.history(limit=pool_limit):
                         # Skip trigger message and any message containing "chat meme"
-                        if msg.id != trigger_id and not "chat meme" in msg.content.lower():
+                        if msg.id != trigger_id and not ("chat meme" in msg.content.lower() or "chat video" in msg.content.lower()):
                             
                             # Handle video/GIF attachments (prioritize these)
                             video_attachments = [att for att in msg.attachments if att.content_type and 
@@ -1672,6 +1777,26 @@ async def on_message(message):
                                     
                                     # Only proceed if there's meaningful text after cleaning
                                     if clean_content.strip():
+                                        # Check for reply attachments
+                                        reply_attachments = []
+                                        if msg.reference:
+                                            try:
+                                                reply_msg = await message.channel.fetch_message(msg.reference.message_id)
+                                                if reply_msg.attachments:
+                                                    reply_attachments = [att.url for att in reply_msg.attachments if 
+                                                                       att.content_type and (att.content_type.startswith("image/") or 
+                                                                                            att.content_type.startswith("video/") or 
+                                                                                            att.filename.lower().endswith((".gif", ".jpg", ".jpeg", ".png", ".webp")))]
+                                                    print(f"[REPLY] Found {len(reply_attachments)} attachments in referenced message")
+                                            except:
+                                                pass  # Ignore errors fetching reply
+                                        
+                                        # Combine message attachments with reply attachments
+                                        all_attachment_urls = [att.url for att in msg.attachments if att.content_type and 
+                                                             (att.content_type.startswith("image/") or 
+                                                              att.content_type.startswith("video/") or 
+                                                              att.filename.lower().endswith(".gif"))] + reply_attachments
+                                        
                                         messages.append({
                                             "name": msg.author.display_name,
                                             "message": clean_content,
@@ -1681,34 +1806,68 @@ async def on_message(message):
                                                            (att.content_type.startswith("image/") or 
                                                             att.content_type.startswith("video/") or 
                                                             att.filename.lower().endswith(".gif")) 
-                                                           for att in msg.attachments)),
+                                                           for att in msg.attachments)) or bool(reply_attachments),
                                             "image_url": str(next((att.url for att in msg.attachments if 
                                                               att.content_type and (att.content_type.startswith("image/") or 
                                                                                   att.content_type.startswith("video/") or 
-                                                                                  att.filename.lower().endswith(".gif"))), None)),
-                                            "attachment_urls": [att.url for att in msg.attachments if att.content_type and 
-                                                             (att.content_type.startswith("image/") or 
-                                                              att.content_type.startswith("video/") or 
-                                                              att.filename.lower().endswith(".gif"))],
+                                                                                  att.filename.lower().endswith(".gif"))), None)) or (reply_attachments[0] if reply_attachments else None),
+                                            "attachment_urls": all_attachment_urls,
                                             "is_video": bool(video_attachments),
                                             "is_bot": msg.author.bot,
                                             "guild": message.guild  # Add guild reference for mention formatting
                                         })
                                         processed_content.add(msg.content.strip())
-                                # Include messages with videos/GIFs even if they have no text
-                                elif video_attachments:
-                                    messages.append({
-                                        "name": msg.author.display_name,
-                                        "message": "📹 *shared a video*" if video_attachments[0].content_type.startswith("video/") else "🎮 *shared a GIF*",
-                                        "avatar": str(msg.author.display_avatar.url),
-                                        "user_id": str(msg.author.id),
-                                        "has_image": True,
-                                        "image_url": str(video_attachments[0].url),
-                                        "attachment_urls": [att.url for att in video_attachments],
-                                        "is_video": True,
-                                        "is_bot": msg.author.bot,
-                                        "guild": message.guild
-                                    })
+                                # Include messages with ANY media (images, videos, GIFs) even if they have no text
+                                elif any(att.content_type and (att.content_type.startswith("image/") or 
+                                                              att.content_type.startswith("video/") or 
+                                                              att.filename.lower().endswith((".gif", ".jpg", ".jpeg", ".png", ".webp"))) 
+                                       for att in msg.attachments):
+                                    # Get all media attachments
+                                    media_attachments = [att for att in msg.attachments if 
+                                                       att.content_type and (att.content_type.startswith("image/") or 
+                                                                           att.content_type.startswith("video/") or
+                                                                           att.filename.lower().endswith((".gif", ".jpg", ".jpeg", ".png", ".webp")))]
+                                    
+                                    if media_attachments:
+                                        first_attachment = media_attachments[0]
+                                        is_video = (first_attachment.content_type.startswith("video/") or 
+                                                  first_attachment.filename.lower().endswith(".gif"))
+                                        is_image = first_attachment.content_type.startswith("image/")
+                                        
+                                        # Descriptive message based on attachment type
+                                        if is_video:
+                                            desc_message = "📹 *shared a video*" if first_attachment.content_type.startswith("video/") else "🎮 *shared a GIF*"
+                                        else:
+                                            desc_message = "🖼️ *shared an image*"
+                                        
+                                        # Check for reply attachments in media-only messages too
+                                        reply_attachments = []
+                                        if msg.reference:
+                                            try:
+                                                reply_msg = await message.channel.fetch_message(msg.reference.message_id)
+                                                if reply_msg.attachments:
+                                                    reply_attachments = [att.url for att in reply_msg.attachments if 
+                                                                       att.content_type and (att.content_type.startswith("image/") or 
+                                                                                            att.content_type.startswith("video/") or 
+                                                                                            att.filename.lower().endswith((".gif", ".jpg", ".jpeg", ".png", ".webp")))]
+                                            except:
+                                                pass
+                                        
+                                        # Combine media attachments with reply attachments
+                                        all_media_urls = [att.url for att in media_attachments] + reply_attachments
+                                        
+                                        messages.append({
+                                            "name": msg.author.display_name,
+                                            "message": desc_message,
+                                            "avatar": str(msg.author.display_avatar.url),
+                                            "user_id": str(msg.author.id),
+                                            "has_image": True,
+                                            "image_url": str(first_attachment.url) if not reply_attachments else reply_attachments[0],
+                                            "attachment_urls": all_media_urls,
+                                            "is_video": is_video,
+                                            "is_bot": msg.author.bot,
+                                            "guild": message.guild
+                                        })
                             
                             # Include bot messages with videos/GIFs
                             elif msg.author.bot and msg.attachments:
@@ -1723,6 +1882,22 @@ async def on_message(message):
                                     # Clean bot message content from emoji
                                     clean_content = re.sub(r'<a?:[a-zA-Z0-9_]+:[0-9]+>', '', msg.content) if msg.content else ""
                                     
+                                    # Check for reply attachments in bot messages too
+                                    reply_attachments = []
+                                    if msg.reference:
+                                        try:
+                                            reply_msg = await message.channel.fetch_message(msg.reference.message_id)
+                                            if reply_msg.attachments:
+                                                reply_attachments = [att.url for att in reply_msg.attachments if 
+                                                                   att.content_type and (att.content_type.startswith("image/") or 
+                                                                                        att.content_type.startswith("video/") or 
+                                                                                        att.filename.lower().endswith((".gif", ".jpg", ".jpeg", ".png", ".webp")))]
+                                        except:
+                                            pass
+                                    
+                                    # Combine bot attachments with reply attachments
+                                    all_bot_urls = [att.url for att in media_attachments] + reply_attachments
+                                    
                                     messages.append({
                                         "name": msg.author.display_name,
                                         "message": clean_content if clean_content.strip() else 
@@ -1730,8 +1905,8 @@ async def on_message(message):
                                         "avatar": str(msg.author.display_avatar.url),
                                         "user_id": str(msg.author.id),
                                         "has_image": True,
-                                        "image_url": str(media_attachments[0].url),
-                                        "attachment_urls": [att.url for att in media_attachments],
+                                        "image_url": str(media_attachments[0].url) if not reply_attachments else reply_attachments[0],
+                                        "attachment_urls": all_bot_urls,
                                         "is_video": is_video,
                                         "is_bot": msg.author.bot,
                                         "guild": message.guild
@@ -1740,11 +1915,11 @@ async def on_message(message):
                         # Dynamic message limits based on server boost level
                         boost_level = message.guild.premium_tier if message.guild else 0
                         if boost_level >= 3:
-                            message_limit = 300  # Level 3: Max boost
+                            message_limit = 250  # Level 3: 250 messages
                         elif boost_level >= 2:
-                            message_limit = 150  # Level 2: Boosted
+                            message_limit = 125  # Level 2: 125 messages
                         else:
-                            message_limit = 30   # Level 0/1: Standard
+                            message_limit = 25   # Level 0/1: 25 messages
                         
                         if len(messages) >= message_limit:
                             break
