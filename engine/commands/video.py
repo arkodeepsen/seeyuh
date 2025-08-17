@@ -96,10 +96,11 @@ def create_video_streaming_ffmpeg(frame_data_list, output_path, audio_bitrate=96
                     else:
                         cmd.extend(['-b:v', f'{video_bitrate}k'])
                     
-                    # Add remaining parameters
+                    # Add remaining parameters with precise audio sync
                     cmd.extend([
                         '-r', str(fps),
-                        '-t', str(duration),  # Explicit duration to match audio
+                        '-shortest',  # Stop when audio ends (most precise)
+                        '-avoid_negative_ts', 'make_zero',  # Fix timing issues
                         '-movflags', '+faststart',
                         temp_segment
                     ])
@@ -120,10 +121,11 @@ def create_video_streaming_ffmpeg(frame_data_list, output_path, audio_bitrate=96
                     else:
                         cmd.extend(['-b:v', f'{video_bitrate}k'])
                     
-                    # Add remaining parameters
+                    # Add remaining parameters with precise timing
                     cmd.extend([
                         '-r', str(fps),
-                        '-t', str(duration),  # Duration for silent video
+                        '-t', f'{duration:.3f}',  # More precise duration for silent video
+                        '-avoid_negative_ts', 'make_zero',  # Fix timing issues
                         '-movflags', '+faststart',
                         temp_segment
                     ])
@@ -166,9 +168,11 @@ def create_video_streaming_ffmpeg(frame_data_list, output_path, audio_bitrate=96
                 else:
                     fallback_cmd.extend(['-b:v', f'{video_bitrate}k'])
                 
-                # Add remaining parameters
+                # Add remaining parameters with precise timing
                 fallback_cmd.extend([
                     '-r', str(fps),
+                    '-t', f'{duration:.3f}',  # Precise duration for fallback
+                    '-avoid_negative_ts', 'make_zero',  # Fix timing issues
                     temp_segment
                 ])
                 subprocess.run(fallback_cmd, capture_output=True)
@@ -183,6 +187,7 @@ def create_video_streaming_ffmpeg(frame_data_list, output_path, audio_bitrate=96
         'ffmpeg', '-y',
         '-f', 'concat', '-safe', '0', '-i', concat_list_path,
         '-c', 'copy',  # Copy streams without re-encoding
+        '-avoid_negative_ts', 'make_zero',  # Fix any timing issues
         '-movflags', '+faststart',
         temp_concat_path
     ]
@@ -202,6 +207,7 @@ def create_video_streaming_ffmpeg(frame_data_list, output_path, audio_bitrate=96
                 '-filter_complex', '[0:a]volume=2.5[main];[1:a]volume=0.05,aloop=loop=-1:size=2e+09:start=0[bg];[main][bg]amix=inputs=2:duration=first:dropout_transition=0',
                 '-c:v', 'copy',  # Don't re-encode video
                 '-c:a', 'aac',
+                '-avoid_negative_ts', 'make_zero',  # Fix timing issues
                 '-movflags', '+faststart',
                 output_path
             ]
