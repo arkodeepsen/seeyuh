@@ -60,7 +60,6 @@ def create_video_streaming_ffmpeg(frame_data_list, output_path, audio_bitrate=96
     """
     import subprocess
     import tempfile
-    import os
     
     print(f"[FFMPEG] 🌊 Starting streaming video creation with {len(frame_data_list)} frames")
     memory_before = get_memory_usage()
@@ -1219,7 +1218,6 @@ def render_message_image_beautiful(username: str, message: str, avatar_url: str 
         # Use local bot avatar from assets folder
         try:
             # Try to load bot avatar from local assets (prefer gif over jpg)
-            import os
             
             # Try different avatar files in order of preference
             avatar_files = ["avatar.gif", "avatar.jpg", "avatar-crop.gif"]
