@@ -99,8 +99,9 @@ def create_video_streaming_ffmpeg(frame_data_list, output_path, audio_bitrate=96
                     # Add remaining parameters with precise audio sync
                     cmd.extend([
                         '-r', str(fps),
-                        '-shortest',  # Stop when audio ends (most precise)
+                        '-t', f'{duration:.6f}',  # Use EXACT duration with microsecond precision
                         '-avoid_negative_ts', 'make_zero',  # Fix timing issues
+                        '-video_track_timescale', '90000',  # High precision timescale
                         '-movflags', '+faststart',
                         temp_segment
                     ])
@@ -124,8 +125,9 @@ def create_video_streaming_ffmpeg(frame_data_list, output_path, audio_bitrate=96
                     # Add remaining parameters with precise timing
                     cmd.extend([
                         '-r', str(fps),
-                        '-t', f'{duration:.3f}',  # More precise duration for silent video
+                        '-t', f'{duration:.6f}',  # EXACT duration matching audio frames
                         '-avoid_negative_ts', 'make_zero',  # Fix timing issues
+                        '-video_track_timescale', '90000',  # High precision timescale
                         '-movflags', '+faststart',
                         temp_segment
                     ])
@@ -171,8 +173,9 @@ def create_video_streaming_ffmpeg(frame_data_list, output_path, audio_bitrate=96
                 # Add remaining parameters with precise timing
                 fallback_cmd.extend([
                     '-r', str(fps),
-                    '-t', f'{duration:.3f}',  # Precise duration for fallback
+                    '-t', f'{duration:.6f}',  # EXACT duration matching other frames
                     '-avoid_negative_ts', 'make_zero',  # Fix timing issues
+                    '-video_track_timescale', '90000',  # High precision timescale
                     temp_segment
                 ])
                 subprocess.run(fallback_cmd, capture_output=True)
@@ -186,8 +189,9 @@ def create_video_streaming_ffmpeg(frame_data_list, output_path, audio_bitrate=96
     concat_cmd = [
         'ffmpeg', '-y',
         '-f', 'concat', '-safe', '0', '-i', concat_list_path,
-        '-c', 'copy',  # Copy streams without re-encoding
-        '-avoid_negative_ts', 'make_zero',  # Fix any timing issues
+        '-c:v', 'copy',  # Copy video without re-encoding
+        '-c:a', 'copy',  # Copy audio without re-encoding
+        '-video_track_timescale', '90000',  # Maintain high precision timescale
         '-movflags', '+faststart',
         temp_concat_path
     ]
@@ -207,7 +211,7 @@ def create_video_streaming_ffmpeg(frame_data_list, output_path, audio_bitrate=96
                 '-filter_complex', '[0:a]volume=2.5[main];[1:a]volume=0.05,aloop=loop=-1:size=2e+09:start=0[bg];[main][bg]amix=inputs=2:duration=first:dropout_transition=0',
                 '-c:v', 'copy',  # Don't re-encode video
                 '-c:a', 'aac',
-                '-avoid_negative_ts', 'make_zero',  # Fix timing issues
+                '-video_track_timescale', '90000',  # Maintain high precision timescale
                 '-movflags', '+faststart',
                 output_path
             ]
