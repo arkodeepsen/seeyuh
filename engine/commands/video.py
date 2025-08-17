@@ -100,7 +100,7 @@ def create_video_streaming_ffmpeg(frame_data_list, output_path, audio_bitrate=96
                     # Add remaining parameters
                     cmd.extend([
                         '-r', str(fps),
-                        '-shortest',  # Stop when shortest input ends
+                        '-t', str(duration),  # Explicit duration to match audio
                         '-movflags', '+faststart',
                         temp_segment
                     ])
@@ -177,16 +177,49 @@ def create_video_streaming_ffmpeg(frame_data_list, output_path, audio_bitrate=96
     
     # Now concatenate all segments using FFmpeg concat demuxer
     print("[FFMPEG] 🔗 Concatenating segments with FFmpeg...")
+    
+    # Step 1: Concatenate video segments (without background music)
+    temp_concat_path = output_path.replace('.mp4', '_temp_concat.mp4')
     concat_cmd = [
         'ffmpeg', '-y',
         '-f', 'concat', '-safe', '0', '-i', concat_list_path,
         '-c', 'copy',  # Copy streams without re-encoding
         '-movflags', '+faststart',
-        output_path
+        temp_concat_path
     ]
     
     try:
         subprocess.run(concat_cmd, capture_output=True, check=True)
+        print("[FFMPEG] ✅ Video segments concatenated")
+        
+        # Step 2: Add background music with proper volume mixing
+        sound_effect_path = os.path.join(os.path.dirname(__file__), "assets", "sound_effect.mp3")
+        if os.path.exists(sound_effect_path):
+            print("[FFMPEG] 🎵 Adding background music...")
+            music_cmd = [
+                'ffmpeg', '-y',
+                '-i', temp_concat_path,  # Main video with TTS
+                '-i', sound_effect_path,  # Background music
+                '-filter_complex', '[0:a]volume=1.0[main];[1:a]volume=0.15,aloop=loop=-1:size=2e+09[bg];[main][bg]amix=inputs=2:duration=first:dropout_transition=2',
+                '-c:v', 'copy',  # Don't re-encode video
+                '-c:a', 'aac',
+                '-movflags', '+faststart',
+                output_path
+            ]
+            subprocess.run(music_cmd, capture_output=True, check=True)
+            print("[FFMPEG] ✅ Background music added (TTS:100%, BG:15%)")
+            
+            # Clean up temp file
+            try:
+                os.remove(temp_concat_path)
+            except:
+                pass
+        else:
+            # No background music available, just move the temp file
+            import shutil
+            shutil.move(temp_concat_path, output_path)
+            print("[FFMPEG] ✅ Video complete (no background music found)")
+            
         print("[FFMPEG] ✅ Streaming video creation complete")
         
         # Cleanup temporary files (use created_segments list for more reliable cleanup)
@@ -1183,16 +1216,30 @@ def render_message_image_beautiful(username: str, message: str, avatar_url: str 
         bot_x = width - bot_avatar_size - 20
         bot_y = 20
         
-        # Try to get the bot's avatar URL dynamically
-        # For now, use a placeholder that represents the bot
-        bot_avatar_url = "https://cdn.discordapp.com/embed/avatars/0.png"  # Discord default bot avatar
-        
+        # Use local bot avatar from assets folder
         try:
-            # Download and use actual bot avatar
-            import requests
-            response = requests.get(bot_avatar_url, timeout=5)
-            if response.status_code == 200:
-                bot_avatar_img = Image.open(io.BytesIO(response.content)).convert("RGBA")
+            # Try to load bot avatar from local assets (prefer gif over jpg)
+            import os
+            
+            # Try different avatar files in order of preference
+            avatar_files = ["avatar.gif", "avatar.jpg", "avatar-crop.gif"]
+            bot_avatar_path = None
+            
+            for avatar_file in avatar_files:
+                # Try relative to this file
+                path1 = os.path.join(os.path.dirname(__file__), "..", "..", "assets", avatar_file)
+                # Try from working directory  
+                path2 = os.path.join("assets", avatar_file)
+                
+                if os.path.exists(path1):
+                    bot_avatar_path = path1
+                    break
+                elif os.path.exists(path2):
+                    bot_avatar_path = path2
+                    break
+            
+            if bot_avatar_path and os.path.exists(bot_avatar_path):
+                bot_avatar_img = Image.open(bot_avatar_path).convert("RGBA")
                 bot_avatar_img = bot_avatar_img.resize((bot_avatar_size, bot_avatar_size), Image.LANCZOS)
                 
                 # Create circular mask for bot avatar
@@ -1210,7 +1257,7 @@ def render_message_image_beautiful(username: str, message: str, avatar_url: str 
                 bg.paste(glow, (bot_x - 5, bot_y - 5), mask=glow)
                 bg.paste(bot_avatar_img, (bot_x, bot_y), mask=bot_avatar_img)
             else:
-                raise Exception("Failed to download bot avatar")
+                raise Exception("Bot avatar file not found")
                 
         except Exception:
             # Fallback: Simple bot indicator circle
@@ -1703,7 +1750,7 @@ async def generate_meme_video_nextlevel(messages: list, duration: float = None, 
             # Update progress - streaming export complete
             await update_progress(77, "Streaming export complete")
             
-            # Note: Background music would be added in FFmpeg streaming process if needed
+            # Background music is now added during FFmpeg streaming process with proper volume levels
             
             # Update progress - checking file size
             await update_progress(85, "Checking file size")
