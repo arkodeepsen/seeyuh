@@ -199,14 +199,14 @@ def create_video_streaming_ffmpeg(frame_data_list, output_path, audio_bitrate=96
                 'ffmpeg', '-y',
                 '-i', temp_concat_path,  # Main video with TTS
                 '-i', sound_effect_path,  # Background music
-                '-filter_complex', '[0:a]volume=1.0[main];[1:a]volume=0.15,aloop=loop=-1:size=2e+09[bg];[main][bg]amix=inputs=2:duration=first:dropout_transition=2',
+                '-filter_complex', '[0:a]volume=2.5[main];[1:a]volume=0.15,aloop=loop=-1:size=2e+09[bg];[main][bg]amix=inputs=2:duration=first:dropout_transition=2',
                 '-c:v', 'copy',  # Don't re-encode video
                 '-c:a', 'aac',
                 '-movflags', '+faststart',
                 output_path
             ]
             subprocess.run(music_cmd, capture_output=True, check=True)
-            print("[FFMPEG] ✅ Background music added (TTS:100%, BG:15%)")
+            print("[FFMPEG] ✅ Background music added (TTS:250%, BG:15%)")
             
             # Clean up temp file
             try:
