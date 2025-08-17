@@ -1915,11 +1915,11 @@ async def on_message(message):
                         # Dynamic message limits based on server boost level
                         boost_level = message.guild.premium_tier if message.guild else 0
                         if boost_level >= 3:
-                            message_limit = 250  # Level 3: 250 messages
+                            message_limit = 200  # Level 3: 200 messages
                         elif boost_level >= 2:
-                            message_limit = 125  # Level 2: 125 messages
+                            message_limit = 100  # Level 2: 100 messages
                         else:
-                            message_limit = 25   # Level 0/1: 25 messages
+                            message_limit = 20   # Level 0/1: 20 messages
                         
                         if len(messages) >= message_limit:
                             break

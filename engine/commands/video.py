@@ -199,14 +199,14 @@ def create_video_streaming_ffmpeg(frame_data_list, output_path, audio_bitrate=96
                 'ffmpeg', '-y',
                 '-i', temp_concat_path,  # Main video with TTS
                 '-i', sound_effect_path,  # Background music
-                '-filter_complex', '[0:a]volume=2.5[main];[1:a]volume=0.15,aloop=loop=-1:size=2e+09[bg];[main][bg]amix=inputs=2:duration=first:dropout_transition=2',
+                '-filter_complex', '[0:a]volume=2.5[main];[1:a]volume=0.05,aloop=loop=-1:size=2e+09:start=0[bg];[main][bg]amix=inputs=2:duration=first:dropout_transition=0',
                 '-c:v', 'copy',  # Don't re-encode video
                 '-c:a', 'aac',
                 '-movflags', '+faststart',
                 output_path
             ]
             subprocess.run(music_cmd, capture_output=True, check=True)
-            print("[FFMPEG] ✅ Background music added (TTS:250%, BG:15%)")
+            print("[FFMPEG] ✅ Background music added (TTS:250%, BG:5%)")
             
             # Clean up temp file
             try:
@@ -1395,10 +1395,10 @@ async def generate_meme_video_nextlevel(messages: list, duration: float = None, 
         else:
             return (
                 f"📱 **Standard Server** (Level {boost_level})\n"
-                f"📊 **Quality**: Standard | **Max Messages**: 25 | **File Limit**: {upload_limit_mb}MB\n"
+                f"📊 **Quality**: Standard | **Max Messages**: 20 | **File Limit**: {upload_limit_mb}MB\n"
                 f"💎 **Want better?** Ask admins to boost this server for:\n"
-                f"   • Level 2: 125 messages, 50MB limit\n"
-                f"   • Level 3: 250 messages, 100MB limit"
+                f"   • Level 2: 100 messages, 50MB limit\n"
+                f"   • Level 3: 200 messages, 100MB limit"
             )
     
     server_info = get_server_info_message(boost_level, upload_limit_mb, max_duration_seconds)
@@ -1485,10 +1485,10 @@ async def generate_meme_video_nextlevel(messages: list, duration: float = None, 
     # Only limit by estimated file size, not duration - let users enjoy longer videos!
     # Calculate maximum messages based on server boost level (for file size, not duration)
     max_messages_by_level = {
-        0: 25,  # Level 0: max 25 messages (targeting ~8-9MB)
-        1: 25,  # Level 1: max 25 messages  
-        2: 125, # Level 2: max 125 messages (targeting ~45MB)
-        3: 250  # Level 3: max 250 messages (targeting ~90MB)
+        0: 20,  # Level 0: max 20 messages (targeting ~8-9MB)
+        1: 20,  # Level 1: max 20 messages  
+        2: 100, # Level 2: max 100 messages (targeting ~45MB)
+        3: 200  # Level 3: max 200 messages (targeting ~90MB)
     }
     
     boost_level = guild.premium_tier if guild else 0
