@@ -46,7 +46,7 @@ def force_memory_cleanup():
     finally:
         gc.collect()  # Always do garbage collection
 
-def create_video_streaming_ffmpeg(frame_data_list, output_path, audio_bitrate=96, video_bitrate=500, fps=24):
+def create_video_streaming_ffmpeg(frame_data_list, output_path, audio_bitrate=96, video_bitrate=None, fps=24):
     """
     MEMORY-EFFICIENT: Create video by streaming frames directly to FFmpeg
     instead of loading all clips into memory with MoviePy.
@@ -89,11 +89,19 @@ def create_video_streaming_ffmpeg(frame_data_list, output_path, audio_bitrate=96
                         '-c:v', 'libx264', '-preset', 'ultrafast',
                         '-pix_fmt', 'yuv420p',
                         '-c:a', 'aac', '-b:a', f'{audio_bitrate}k',
-                        '-b:v', f'{video_bitrate}k', '-r', str(fps),
+                        '-r', str(fps),
                         '-shortest',  # Stop when shortest input ends
                         '-movflags', '+faststart',
                         temp_segment
                     ]
+                    
+                    # Add CRF or bitrate based on parameter
+                    if video_bitrate is None:
+                        cmd.insert(-2, '-crf')  # Insert before output path
+                        cmd.insert(-2, '23')
+                    else:
+                        cmd.insert(-2, '-b:v')
+                        cmd.insert(-2, f'{video_bitrate}k')
                 else:
                     # Frame without audio (create silent video)
                     cmd = [
@@ -103,11 +111,19 @@ def create_video_streaming_ffmpeg(frame_data_list, output_path, audio_bitrate=96
                         '-c:v', 'libx264', '-preset', 'ultrafast',
                         '-pix_fmt', 'yuv420p',
                         '-c:a', 'aac', '-b:a', f'{audio_bitrate}k',
-                        '-b:v', f'{video_bitrate}k', '-r', str(fps),
+                        '-r', str(fps),
                         '-t', str(duration),  # Duration for silent video
                         '-movflags', '+faststart',
                         temp_segment
                     ]
+                    
+                    # Add CRF or bitrate based on parameter
+                    if video_bitrate is None:
+                        cmd.insert(-2, '-crf')  # Insert before output path
+                        cmd.insert(-2, '23')
+                    else:
+                        cmd.insert(-2, '-b:v')
+                        cmd.insert(-2, f'{video_bitrate}k')
                 
                 # Run FFmpeg for this segment
                 subprocess.run(cmd, capture_output=True, check=True)
@@ -139,9 +155,17 @@ def create_video_streaming_ffmpeg(frame_data_list, output_path, audio_bitrate=96
                     '-f', 'lavfi', '-i', f'anullsrc=channel_layout=stereo:sample_rate=44100',
                     '-c:v', 'libx264', '-preset', 'ultrafast',
                     '-c:a', 'aac', '-b:a', f'{audio_bitrate}k',
-                    '-b:v', f'{video_bitrate}k', '-r', str(fps),
+                    '-r', str(fps),
                     temp_segment
                 ]
+                
+                # Add CRF or bitrate based on parameter
+                if video_bitrate is None:
+                    fallback_cmd.insert(-1, '-crf')  # Insert before output path
+                    fallback_cmd.insert(-1, '23')
+                else:
+                    fallback_cmd.insert(-1, '-b:v')
+                    fallback_cmd.insert(-1, f'{video_bitrate}k')
                 subprocess.run(fallback_cmd, capture_output=True)
                 concat_file.write(f"file '{temp_segment}'\n")
     
@@ -1643,21 +1667,19 @@ async def generate_meme_video_nextlevel(messages: list, duration: float = None, 
             # Estimate total duration
             total_duration = sum(duration for _, _, duration in frame_data_list)
             
-            # MAIN PIPELINE bitrates (optimized for 512MB memory limit)
+            # MAIN PIPELINE: 720p ultrafast with CRF for optimal quality/size ratio
             audio_bitrate = 96  # 96k audio
-            video_bitrate = max(500, int((target_size_bits / total_duration - audio_bitrate * 1000) / 1000))  # 500k minimum
-            video_bitrate = min(video_bitrate, 1000)  # Cap at 1000k
+            # Use CRF instead of fixed bitrate for better quality/size ratio
+            print(f"[VIDEO] 🎬 STREAMING PIPELINE: 720p ultrafast + {audio_bitrate}k audio (CRF optimized)")
             
-            print(f"[VIDEO] 🎬 STREAMING PIPELINE: {video_bitrate}k video + {audio_bitrate}k audio")
-            
-            # Stream frames to FFmpeg
+            # Stream frames to FFmpeg with CRF optimization
             await asyncio.get_event_loop().run_in_executor(
                 None, 
                 create_video_streaming_ffmpeg,
                 frame_data_list,
                 output_path,
                 audio_bitrate,
-                video_bitrate,
+                None,  # video_bitrate=None means use CRF
                 24  # fps
             )
             
@@ -1694,13 +1716,9 @@ async def generate_meme_video_nextlevel(messages: list, duration: float = None, 
                 print(f"[VIDEO] 🆘 EMERGENCY compression needed ({file_size/1024/1024:.1f}MB > {upload_limit_mb}MB)")
                 compressed_path = os.path.join(temp_dir, "emergency_compressed.mp4")
                 
-                # COMPRESSION bitrate calculation
-                emergency_target = int(upload_limit_mb * 0.95 * 1024 * 1024)  # 95% of limit
-                total_bitrate = int((emergency_target * 8) / total_duration)  # Total bits per second
+                # EMERGENCY COMPRESSION: 720p ultrafast with CRF for optimal quality/size
                 emergency_audio = 64  # 64k audio
-                emergency_video = max(300, total_bitrate // 1000 - emergency_audio)  # 300k video
-                
-                print(f"[VIDEO] 🔥 COMPRESSION: {emergency_video}k video + {emergency_audio}k audio")
+                print(f"[VIDEO] 🔥 EMERGENCY COMPRESSION: 720p ultrafast + {emergency_audio}k audio (CRF optimized)")
                 
                 def emergency_compress_sync():
                     """MEMORY-OPTIMIZED EMERGENCY ultra-compression using FFmpeg"""
@@ -1713,14 +1731,14 @@ async def generate_meme_video_nextlevel(messages: list, duration: float = None, 
                     memory_before_compress = get_memory_usage()
                     print(f"[MEMORY] 💾 Memory before compression: {memory_before_compress:.1f}MB")
                     
-                    # Use FFmpeg to re-compress the existing video file
+                    # Use FFmpeg to re-compress the existing video file with CRF optimization
                     compress_cmd = [
                         'ffmpeg', '-y',
                         '-i', output_path,  # Input the already created video
                         '-c:v', 'libx264', '-preset', 'ultrafast',
-                        '-b:v', f'{emergency_video}k',
+                        '-crf', '28',  # Higher CRF for smaller size while maintaining quality
                         '-c:a', 'aac', '-b:a', f'{emergency_audio}k',
-                        '-r', '15',  # Reduce fps for smaller size
+                        '-r', '24',  # Keep 24fps for smooth playback
                         '-movflags', '+faststart',
                         compressed_path
                     ]
