@@ -88,20 +88,22 @@ def create_video_streaming_ffmpeg(frame_data_list, output_path, audio_bitrate=96
                         '-i', audio_path,  # Audio input
                         '-c:v', 'libx264', '-preset', 'ultrafast',
                         '-pix_fmt', 'yuv420p',
-                        '-c:a', 'aac', '-b:a', f'{audio_bitrate}k',
-                        '-r', str(fps),
-                        '-shortest',  # Stop when shortest input ends
-                        '-movflags', '+faststart',
-                        temp_segment
+                        '-c:a', 'aac', '-b:a', f'{audio_bitrate}k'
                     ]
                     
                     # Add CRF or bitrate based on parameter
                     if video_bitrate is None:
-                        cmd.insert(-2, '-crf')  # Insert before output path
-                        cmd.insert(-2, '23')
+                        cmd.extend(['-crf', '23'])
                     else:
-                        cmd.insert(-2, '-b:v')
-                        cmd.insert(-2, f'{video_bitrate}k')
+                        cmd.extend(['-b:v', f'{video_bitrate}k'])
+                    
+                    # Add remaining parameters
+                    cmd.extend([
+                        '-r', str(fps),
+                        '-shortest',  # Stop when shortest input ends
+                        '-movflags', '+faststart',
+                        temp_segment
+                    ])
                 else:
                     # Frame without audio (create silent video)
                     cmd = [
@@ -110,20 +112,22 @@ def create_video_streaming_ffmpeg(frame_data_list, output_path, audio_bitrate=96
                         '-f', 'lavfi', '-i', f'anullsrc=channel_layout=stereo:sample_rate=44100',
                         '-c:v', 'libx264', '-preset', 'ultrafast',
                         '-pix_fmt', 'yuv420p',
-                        '-c:a', 'aac', '-b:a', f'{audio_bitrate}k',
-                        '-r', str(fps),
-                        '-t', str(duration),  # Duration for silent video
-                        '-movflags', '+faststart',
-                        temp_segment
+                        '-c:a', 'aac', '-b:a', f'{audio_bitrate}k'
                     ]
                     
                     # Add CRF or bitrate based on parameter
                     if video_bitrate is None:
-                        cmd.insert(-2, '-crf')  # Insert before output path
-                        cmd.insert(-2, '23')
+                        cmd.extend(['-crf', '23'])
                     else:
-                        cmd.insert(-2, '-b:v')
-                        cmd.insert(-2, f'{video_bitrate}k')
+                        cmd.extend(['-b:v', f'{video_bitrate}k'])
+                    
+                    # Add remaining parameters
+                    cmd.extend([
+                        '-r', str(fps),
+                        '-t', str(duration),  # Duration for silent video
+                        '-movflags', '+faststart',
+                        temp_segment
+                    ])
                 
                 # Run FFmpeg for this segment
                 subprocess.run(cmd, capture_output=True, check=True)
@@ -154,18 +158,20 @@ def create_video_streaming_ffmpeg(frame_data_list, output_path, audio_bitrate=96
                     '-f', 'lavfi', '-i', f'color=black:size=1280x720:duration={duration}',
                     '-f', 'lavfi', '-i', f'anullsrc=channel_layout=stereo:sample_rate=44100',
                     '-c:v', 'libx264', '-preset', 'ultrafast',
-                    '-c:a', 'aac', '-b:a', f'{audio_bitrate}k',
-                    '-r', str(fps),
-                    temp_segment
+                    '-c:a', 'aac', '-b:a', f'{audio_bitrate}k'
                 ]
                 
                 # Add CRF or bitrate based on parameter
                 if video_bitrate is None:
-                    fallback_cmd.insert(-1, '-crf')  # Insert before output path
-                    fallback_cmd.insert(-1, '23')
+                    fallback_cmd.extend(['-crf', '23'])
                 else:
-                    fallback_cmd.insert(-1, '-b:v')
-                    fallback_cmd.insert(-1, f'{video_bitrate}k')
+                    fallback_cmd.extend(['-b:v', f'{video_bitrate}k'])
+                
+                # Add remaining parameters
+                fallback_cmd.extend([
+                    '-r', str(fps),
+                    temp_segment
+                ])
                 subprocess.run(fallback_cmd, capture_output=True)
                 concat_file.write(f"file '{temp_segment}'\n")
     
