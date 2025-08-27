@@ -1,4 +1,4 @@
-import discord, yt_dlp as youtube_dl, asyncio, engine.eventloop as eventloop, re, os, lyricsgenius, logging, time, backoff, shlex, aiohttp
+import discord, yt_dlp as youtube_dl, asyncio, engine.eventloop as eventloop, re, os, lyricsgenius, logging, time, backoff, shlex, aiohttp, urllib.parse, requests
 from youtube_transcript_api import YouTubeTranscriptApi
 from requests.exceptions import HTTPError
 from typing import Optional, Tuple, List
@@ -126,25 +126,140 @@ AUDIO_EFFECTS = {
 # Active filters per guild
 active_filters = {}  # Key: guild.id, Value: set of active filters
 
-# Setup for yt-dlp to extract audio
+# Multiple configurations for different fallback strategies
+ytdl_configs = {
+    'ios_primary': {
+        'format': 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best',
+        'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
+        'restrictfilenames': True,
+        'noplaylist': True,
+        'nocheckcertificate': True,
+        'ignoreerrors': False,
+        'logtostderr': False,
+        'quiet': True,
+        'no_warnings': True,
+        'default_search': 'ytsearch1',
+        'extract_flat': False,
+        'skip_unavailable_fragments': True,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['ios'],
+                'player_skip': ['webpage'],
+                'use_oauth': False,
+            }
+        },
+        'http_headers': {
+            'User-Agent': 'com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)',
+            'X-Youtube-Client-Name': '5',
+            'X-Youtube-Client-Version': '19.29.1',
+        },
+        'sleep_interval_requests': 1,
+        'max_sleep_interval_requests': 3,
+    },
+    'android_fallback': {
+        'format': 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best',
+        'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
+        'restrictfilenames': True,
+        'noplaylist': True,
+        'nocheckcertificate': True,
+        'ignoreerrors': False,
+        'logtostderr': False,
+        'quiet': True,
+        'no_warnings': True,
+        'default_search': 'ytsearch1',
+        'extract_flat': False,
+        'skip_unavailable_fragments': True,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android'],
+                'player_skip': ['webpage'],
+                'use_oauth': False,
+            }
+        },
+        'http_headers': {
+            'User-Agent': 'com.google.android.youtube/19.29.37 (Linux; U; Android 13; SM-S901U Build/TP1A.220624.014) gzip',
+            'X-Youtube-Client-Name': '3',
+            'X-Youtube-Client-Version': '19.29.37',
+        },
+        'sleep_interval_requests': 1.5,
+        'max_sleep_interval_requests': 4,
+    },
+    'web_fallback': {
+        'format': 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best',
+        'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
+        'restrictfilenames': True,
+        'noplaylist': True,
+        'nocheckcertificate': True,
+        'ignoreerrors': False,
+        'logtostderr': False,
+        'quiet': True,
+        'no_warnings': True,
+        'default_search': 'ytsearch1',
+        'extract_flat': False,
+        'skip_unavailable_fragments': True,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['web'],
+                'player_skip': ['webpage'],
+                'use_oauth': False,
+            }
+        },
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+        },
+        'sleep_interval_requests': 2,
+        'max_sleep_interval_requests': 5,
+    }
+}
+
+# Enhanced primary config with anti-bot measures
 ytdl_options = {
-    'format': 'bestaudio/best',
-    'noplaylist': False,
-    'playlist_items': '1',  # Only get first item from playlists
+    'format': 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best',
+    'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
+    'restrictfilenames': True,
+    'noplaylist': True,
+    'nocheckcertificate': True,
+    'ignoreerrors': False,
+    'logtostderr': False,
     'quiet': True,
     'no_warnings': True,
-    'default_search': 'ytsearch',  # Changed from 'auto' for better search
-    'source_address': '0.0.0.0',
-    "cachedir": False,
-    'options': '-vn -bufsize 64k',
-    'extract_flat': False,  # Get full video info
-    'force_generic_extractor': False,
-    # Help evade player issues/detection; let yt-dlp try multiple clients
+    'default_search': 'ytsearch1',
+    'extract_flat': False,
+    'skip_unavailable_fragments': True,
     'extractor_args': {
         'youtube': {
-            'player_client': ['android', 'web', 'ios', 'tv_embedded']
+            'player_client': ['ios', 'android_embedded'],
+            'player_skip': ['webpage', 'configs'],
+            'use_oauth': False,
+            'lang': ['en'],
+            'region': 'US',
         }
-    }
+    },
+    'http_headers': {
+        'User-Agent': 'com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)',
+        'X-Youtube-Client-Name': '5',
+        'X-Youtube-Client-Version': '19.29.1',
+        'Accept': '*/*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+    },
+    'sleep_interval_requests': 0.5,
+    'max_sleep_interval_requests': 2,
+    'extractor_retries': 2,
+    'fragment_retries': 2,
+    'retries': 3,
+    'socket_timeout': 10,
+    # Anti-bot measures
+    'age_limit': None,
+    'writesubtitles': False,
+    'writeautomaticsub': False,
+    'cachedir': False,
+    'no_cache': True,
 }
 
 # Set up Railway-compatible User-Agent (no cookies by default - smart handling)
@@ -329,10 +444,10 @@ async def create_audio_source_smart(url: str, headers: dict, info: dict) -> disc
                             cookie_headers = merged_headers
                         else:
                             raise ValueError("Cookie re-extraction produced no playable URL")
-                        
-                    cookie_headers = dict(cookie_info.get('http_headers') or headers)
-                    if 'Referer' not in cookie_headers and cookie_info.get('webpage_url'):
-                        cookie_headers['Referer'] = cookie_info['webpage_url']
+                    else:
+                        cookie_headers = dict(cookie_info.get('http_headers') or headers)
+                        if 'Referer' not in cookie_headers and cookie_info.get('webpage_url'):
+                            cookie_headers['Referer'] = cookie_info['webpage_url']
                     logging.info(f"🍪 ✅ Got new URL from cookies: {cookie_url[:100]}...")
                     # Ensure the cookie URL is accessible before feeding to FFmpeg
                     if not await _is_accessible(cookie_url, cookie_headers):
@@ -351,11 +466,21 @@ async def create_audio_source_smart(url: str, headers: dict, info: dict) -> disc
             raise e
 
 async def extract_info_smart(query: str) -> dict:
-    """Smart info extraction: tries without cookies first, uses cookies only for bot detection"""
+    """Smart info extraction with multiple fallback strategies"""
+    clean_query = query.strip()
+    
+    # Check for malformed URLs that might cause DNS issues
+    if clean_query and not clean_query.startswith(('http://', 'https://', 'www.')):
+        # It's a search query, ensure it's properly formatted
+        clean_query = clean_query.replace('\n', ' ').replace('\r', ' ')
+        # Remove any potentially problematic characters
+        clean_query = re.sub(r'[^\w\s\-\.\(\)\[\]\'\"]+', ' ', clean_query)
+        clean_query = ' '.join(clean_query.split())  # Normalize whitespace
+    
     try:
-        # First attempt: No cookies (like local environment)
-        logging.info(f"Extracting info for: {query}")
-        info = ytdl.extract_info(query, download=False)
+        # Primary attempt with iOS client
+        logging.info(f"🔄 Primary extraction with iOS client for: {clean_query}")
+        info = ytdl.extract_info(clean_query, download=False)
         if 'entries' in info:
             info = info['entries'][0]
             
@@ -363,12 +488,13 @@ async def extract_info_smart(query: str) -> dict:
         if not info.get('url'):
             raise ValueError("No playable URL found in extracted info")
             
-        logging.info(f"✅ Extracted: {info.get('title', 'Unknown')} - URL: {info.get('url', '')[:100]}...")
+        logging.info(f"✅ Primary extraction successful: {info.get('title', 'Unknown')}")
         return info
     except Exception as e:
         error_msg = str(e).lower()
+        logging.warning(f"Primary extraction failed: {e}")
         
-        # Check if this is bot detection
+        # Check if this is bot detection or format issues
         bot_detection_errors = [
             'sign in to confirm you\'re not a bot',
             'this helps protect our community', 
@@ -377,13 +503,74 @@ async def extract_info_smart(query: str) -> dict:
             'captcha',
             'verify you\'re human',
             'too many requests',
-            'rate limit'
+            'rate limit',
+            'requested format is not available',
+            'format not available'
         ]
         
         is_bot_detection = any(phrase in error_msg for phrase in bot_detection_errors)
         
+        # Try fallback strategies
+        fallback_strategies = ['android_fallback', 'web_fallback']
+        
+        for strategy_name in fallback_strategies:
+            try:
+                logging.info(f"🔄 Trying {strategy_name} strategy...")
+                fallback_ytdl = youtube_dl.YoutubeDL(ytdl_configs[strategy_name])
+                
+                if not clean_query.startswith(('http://', 'https://', 'www.')):
+                    result = fallback_ytdl.extract_info(f"ytsearch1:{clean_query}", download=False)
+                else:
+                    result = fallback_ytdl.extract_info(clean_query, download=False)
+                
+                if 'entries' in result:
+                    result = result['entries'][0]
+                
+                if result.get('url'):
+                    logging.info(f"✅ {strategy_name} strategy successful!")
+                    return result
+                else:
+                    logging.debug(f"{strategy_name} returned no playable URL")
+                    continue
+                    
+            except Exception as strategy_e:
+                logging.debug(f"{strategy_name} strategy failed: {strategy_e}")
+                continue
+        
+        # If it's a search query (not URL), try simple YouTube search
+        if not clean_query.startswith(('http://', 'https://', 'www.')):
+            logging.info("🚀 Trying simple YouTube search as fallback...")
+            simple_url = simple_youtube_search(clean_query)
+            if simple_url:
+                try:
+                    # Try with android_embedded (most reliable)
+                    android_config = {
+                        'format': 'bestaudio/best',
+                        'quiet': True,
+                        'no_warnings': True,
+                        'ignoreerrors': True,
+                        'extractor_args': {
+                            'youtube': {
+                                'player_client': ['android_embedded'],
+                                'player_skip': ['webpage', 'configs'],
+                            }
+                        },
+                        'http_headers': {
+                            'User-Agent': 'com.google.android.youtube/17.31.35 (Linux; U; Android 11) gzip',
+                            'X-Youtube-Client-Name': '55',
+                            'X-Youtube-Client-Version': '17.31.35',
+                        }
+                    }
+                    android_ytdl = youtube_dl.YoutubeDL(android_config)
+                    result = android_ytdl.extract_info(simple_url, download=False)
+                    logging.info(f"✅ Simple search + android_embedded successful!")
+                    return result
+                except Exception as simple_e:
+                    logging.debug(f"Simple search android_embedded failed: {simple_e}")
+        
+        # If bot detection, try with cookies
         if is_bot_detection:
-            logging.warning(f"🤖 BOT DETECTION during extraction - Retrying with cookies: {e}")
+            logging.warning(f"🤖 BOT DETECTION - Retrying with cookies: {e}")
             
             # Get cookie file path
             cookies_file = os.getenv('YT_COOKIES_FILE')
@@ -400,7 +587,7 @@ async def extract_info_smart(query: str) -> dict:
                 
                 try:
                     logging.info("🍪 Re-extracting with cookies for bot bypass...")
-                    cookie_info = cookie_ytdl.extract_info(query, download=False)
+                    cookie_info = cookie_ytdl.extract_info(clean_query, download=False)
                     if 'entries' in cookie_info:
                         cookie_info = cookie_info['entries'][0]
                         
@@ -417,8 +604,8 @@ async def extract_info_smart(query: str) -> dict:
                 logging.error("🍪 No cookies file available for bot detection bypass")
                 raise e
         else:
-            # Not bot detection, probably network/video issue
-            logging.error(f"❌ Info extraction failed (not bot detection): {e}")
+            # All strategies failed
+            logging.error(f"❌ All extraction strategies failed: {e}")
             raise e
 
 ytdl = youtube_dl.YoutubeDL(ytdl_options)
@@ -465,6 +652,55 @@ def _choose_best_audio_format(formats: list) -> dict | None:
     # Sort by: audio_only desc, itag_score desc, abr desc
     candidates.sort(key=lambda t: (t[0], t[1], t[2]), reverse=True)
     return candidates[0][3]
+
+def simple_youtube_search(query):
+    """Simple YouTube search fallback when yt-dlp fails"""
+    try:
+        # Clean the query for URL encoding
+        clean_query = re.sub(r'[^\w\s\-]', ' ', query)
+        clean_query = ' '.join(clean_query.split())
+        
+        # Try multiple search approaches
+        search_urls = [
+            f"https://www.youtube.com/results?search_query={urllib.parse.quote_plus(clean_query)}",
+            f"https://m.youtube.com/results?search_query={urllib.parse.quote_plus(clean_query)}",  # Mobile version
+        ]
+        
+        headers_list = [
+            {
+                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+            },
+            {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9',
+            }
+        ]
+        
+        for search_url in search_urls:
+            for headers in headers_list:
+                try:
+                    response = requests.get(search_url, headers=headers, timeout=10)
+                    if response.status_code == 200:
+                        # Look for video IDs in the response
+                        video_id_matches = re.findall(r'"videoId":"([a-zA-Z0-9_-]{11})"', response.text)
+                        if video_id_matches:
+                            video_id = video_id_matches[0]
+                            return f"https://www.youtube.com/watch?v={video_id}"
+                except Exception as req_e:
+                    logging.debug(f"Search request failed: {req_e}")
+                    continue
+        
+        return None
+    except Exception as e:
+        logging.debug(f"Simple YouTube search failed: {e}")
+        return None
 
 def is_valid_youtube_url(url: str) -> Optional[str]:
     """Validate YouTube URL and extract video ID"""
