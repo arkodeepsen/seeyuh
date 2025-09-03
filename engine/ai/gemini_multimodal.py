@@ -92,8 +92,12 @@ def prep_file(file_path, display_name, is_av=False):
     logging.info(f"Uploaded file '{sample_file.display_name}' as: {sample_file.uri}")
     return sample_file
 
-PRIMARY_MODEL = "models/gemini-2.0-flash"
-FALLBACK_MODEL = "models/gemini-1.5-flash"
+PRIMARY_MODEL = "models/gemini-2.5-flash"
+FALLBACK_MODEL = "models/gemini-2.0-flash"
+
+# Image editing models
+PRIMARY_IMAGE_MODEL = "gemini-2.5-flash-image-preview"
+FALLBACK_IMAGE_MODEL = "gemini-2.0-flash-preview-image-generation"
 
 # Quota tracking
 last_quota_failure = None
@@ -114,6 +118,22 @@ async def get_active_model():
         logging.info(f"Using fallback model {FALLBACK_MODEL} due to quota exhaustion")
         return FALLBACK_MODEL
     return PRIMARY_MODEL
+
+async def get_active_image_model():
+    global last_quota_failure
+    
+    # Check if we should reset quota failure status
+    if last_quota_failure:
+        now = datetime.datetime.now(datetime.timezone.utc)
+        if now.day != last_quota_failure.day:
+            last_quota_failure = None
+            logging.info("Image model quota status reset for new day")
+    
+    # Use fallback if quota was exhausted today
+    if last_quota_failure:
+        logging.info(f"Using fallback image model {FALLBACK_IMAGE_MODEL} due to quota exhaustion")
+        return FALLBACK_IMAGE_MODEL
+    return PRIMARY_IMAGE_MODEL
 
 async def extract_content_from_file(sample_file, prompt, is_av=False, duration=0):
     """Extract content with improved media handling and caching"""
@@ -234,11 +254,32 @@ async def handle_attachment(bot, message, attachment):
                 text_input = message.content.strip().replace(f"<@{bot.user.id}>", "").replace("seeyuh", "").strip()
                 if not text_input:
                     text_input = "Explain the content of the image."
-                response = genai_client.models.generate_content(
-                    model="gemini-2.0-flash-preview-image-generation",
-                    contents=[text_input, pil_image],
-                    config={'response_modalities': ['TEXT', 'IMAGE']}
-                )
+                
+                # Get active image model with fallback support
+                active_image_model = await get_active_image_model()
+                logging.info(f"Using image model: {active_image_model}")
+                
+                for attempt in range(2):  # Try primary then fallback
+                    try:
+                        response = genai_client.models.generate_content(
+                            model=active_image_model,
+                            contents=[text_input, pil_image],
+                            config={'response_modalities': ['TEXT', 'IMAGE']}
+                        )
+                        break  # Success, exit retry loop
+                    except Exception as e:
+                        logging.error(f"Image model {active_image_model} failed: {e}")
+                        if "quota" in str(e).lower():
+                            last_quota_failure = datetime.datetime.now(datetime.timezone.utc)
+                            logging.warning(f"Quota exhausted for {active_image_model}")
+                        
+                        if attempt == 0 and active_image_model == PRIMARY_IMAGE_MODEL:
+                            active_image_model = FALLBACK_IMAGE_MODEL
+                            logging.info(f"Switching to fallback image model: {active_image_model}")
+                            continue
+                        else:
+                            raise e
+                
                 # Collect image + text to send together
                 out_text = None
                 out_img_bytes = None
@@ -533,11 +574,32 @@ async def handle_message_files(bot, message):
                         contents.append(Image.open(p).convert('RGB'))
                     except Exception:
                         continue
-            response = genai_client.models.generate_content(
-                model="gemini-2.0-flash-preview-image-generation",
-                contents=contents,
-                config={'response_modalities': ['TEXT', 'IMAGE']}
-            )
+            
+            # Get active image model with fallback support
+            active_image_model = await get_active_image_model()
+            logging.info(f"Using image model for multi-file: {active_image_model}")
+            
+            for attempt in range(2):  # Try primary then fallback
+                try:
+                    response = genai_client.models.generate_content(
+                        model=active_image_model,
+                        contents=contents,
+                        config={'response_modalities': ['TEXT', 'IMAGE']}
+                    )
+                    break  # Success, exit retry loop
+                except Exception as e:
+                    logging.error(f"Multi-file image model {active_image_model} failed: {e}")
+                    if "quota" in str(e).lower():
+                        last_quota_failure = datetime.datetime.now(datetime.timezone.utc)
+                        logging.warning(f"Quota exhausted for {active_image_model}")
+                    
+                    if attempt == 0 and active_image_model == PRIMARY_IMAGE_MODEL:
+                        active_image_model = FALLBACK_IMAGE_MODEL
+                        logging.info(f"Switching to fallback image model: {active_image_model}")
+                        continue
+                    else:
+                        raise e
+                        
             try:
                 preview_text = ""
                 if response and getattr(response, 'text', None):

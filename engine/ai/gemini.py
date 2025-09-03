@@ -49,6 +49,10 @@ MODEL_CHAINS = {
     'flash15normal': ['flash15normal', 'flash158bn']
 }
 
+# Image editing models
+PRIMARY_IMAGE_MODEL = "gemini-2.5-flash-image-preview"
+FALLBACK_IMAGE_MODEL = "gemini-2.0-flash-preview-image-generation"
+
 # Track quota failures
 model_quota_failures = {}
 
@@ -88,6 +92,28 @@ async def try_model_chain(query, initial_model_name, tools=None):
     
     logging.error("All models in chain exhausted")
     return None
+
+async def get_active_image_model():
+    """Get active image model with fallback support"""
+    global model_quota_failures
+    
+    # Check if we should reset quota failure status for image models
+    today = datetime.now().date()
+    
+    # Clean up old quota failures
+    for model_name in list(model_quota_failures.keys()):
+        if model_quota_failures[model_name].date() != today:
+            del model_quota_failures[model_name]
+            logging.info(f"Image model quota status reset for {model_name}")
+    
+    # Use fallback if primary quota was exhausted today
+    primary_name = PRIMARY_IMAGE_MODEL.replace("-", "").replace(".", "")  # Convert to var name
+    fallback_name = FALLBACK_IMAGE_MODEL.replace("-", "").replace(".", "")
+    
+    if PRIMARY_IMAGE_MODEL in str(model_quota_failures):
+        logging.info(f"Using fallback image model {FALLBACK_IMAGE_MODEL} due to quota exhaustion")
+        return FALLBACK_IMAGE_MODEL
+    return PRIMARY_IMAGE_MODEL
 
 def extract_current_query(prompt: str) -> str:
     """Extract clean search query from bot prompt format."""
@@ -586,7 +612,8 @@ async def get_ai_response(prompt, message):
     
     # Set model based on query type
     if is_image:
-        model_name = 'gemini-2.0-flash-preview-image-generation'
+        active_image_model = await get_active_image_model()
+        model_name = active_image_model
     else:
         model_name = 'gemini-2.0-flash-thinking-exp-01-21' if use_thinking else 'flash2'
     
@@ -641,13 +668,30 @@ async def get_ai_response(prompt, message):
     try:
         if is_image:
             # For image generation, pass prompt twice as provided by user
-            img_response = genai_client.models.generate_content(
-                model=model_name,
-                contents=(f"You are a discord bot named seeyuh.", f"\n{prompt}") if isinstance(prompt, str) else prompt,
-                config={
-                    'response_modalities': ['TEXT', 'IMAGE']
-                }
-            )
+            for attempt in range(2):  # Try primary then fallback
+                try:
+                    logging.info(f"Using image model: {model_name}")
+                    img_response = genai_client.models.generate_content(
+                        model=model_name,
+                        contents=(f"You are a discord bot named seeyuh.", f"\n{prompt}") if isinstance(prompt, str) else prompt,
+                        config={
+                            'response_modalities': ['TEXT', 'IMAGE']
+                        }
+                    )
+                    break  # Success, exit retry loop
+                except Exception as e:
+                    logging.error(f"Image model {model_name} failed: {e}")
+                    if "quota" in str(e).lower():
+                        model_quota_failures[model_name] = datetime.now()
+                        logging.warning(f"Quota exhausted for {model_name}")
+                    
+                    if attempt == 0 and model_name == PRIMARY_IMAGE_MODEL:
+                        model_name = FALLBACK_IMAGE_MODEL
+                        logging.info(f"Switching to fallback image model: {model_name}")
+                        continue
+                    else:
+                        raise e
+                        
             # Gather first image and any accompanying text
             out_text = None
             out_image_bytes = None
