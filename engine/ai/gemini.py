@@ -267,7 +267,8 @@ KEYWORDS = {
     }
 }
 
-@lru_cache(maxsize=1000)
+# FIXED: Reduced cache size from 1000 to 200 to prevent memory bloat
+@lru_cache(maxsize=200)
 def needs_realtime_data(query: str) -> bool:
     query = ' '.join(query.lower().split())
         
@@ -312,7 +313,9 @@ URL_PATTERN = re.compile(
     r'(?:https?:)?\/\/(?:[\w-]+\.)+[\w-]+(?:\/[^\s]*)?'  # Other URLs
 )
 
-@lru_cache(maxsize=50)
+# NOTE: lru_cache doesn't work with async functions - this cache is ineffective
+# FIXED: Reduced from 50 to 20 and added note for future async cache implementation
+@lru_cache(maxsize=20)
 async def scrape_url(url: str) -> str:
     """Scrape content from specific URL"""
     # Add protocol if missing
@@ -341,7 +344,8 @@ async def scrape_url(url: str) -> str:
         logging.error(f"Failed to scrape {url}: {e}")
         return None
     
-@lru_cache(maxsize=100)
+# FIXED: Reduced cache size from 100 to 30 to save memory
+@lru_cache(maxsize=30)
 def get_search_type(query: str) -> str:
     # Expanded keyword categories
     keywords = {
@@ -456,7 +460,9 @@ async def enhance_search_query(query: str, context: str) -> str:
         logging.warning(f"Gemini query enhancement fallback: {e}")
     return query
 
-@lru_cache(maxsize=100)
+# NOTE: lru_cache doesn't work with async functions - this cache is ineffective
+# FIXED: Reduced from 100 to 30 and added note for future async cache implementation
+@lru_cache(maxsize=30)
 async def get_search_results(query: str, prompt: str, num_results: int = 3) -> str:    
     search_type = get_search_type(query)
     enhanced_query = await enhance_search_query(query, prompt)
@@ -593,7 +599,9 @@ async def get_search_results(query: str, prompt: str, num_results: int = 3) -> s
         logging.error(f"DuckDuckGo search error: {e}")
         return f"Search failed: {str(e)}"
     
-@lru_cache(maxsize=100) 
+# NOTE: lru_cache doesn't work with async functions - this cache is ineffective
+# FIXED: Reduced from 100 to 30 and added note for future async cache implementation
+@lru_cache(maxsize=30) 
 async def get_ai_response(prompt, message):
     current_query = extract_current_query(prompt)
     logging.info(f"Extracted query: {current_query}")

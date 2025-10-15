@@ -52,6 +52,11 @@ def pexels_env():
     PEXELS_API_KEY = os.getenv('PEXELS_API_KEY')
     return PEXELS_API_KEY
 
+def qwen_env():
+    load_dotenv()  # Load environment variables from a .env file
+    QWEN_IMAGE_API_URL = os.getenv('QWEN_IMAGE_API_URL')
+    return QWEN_IMAGE_API_URL
+
 def intents():
     # Define the bot with intents
     intents = discord.Intents.default()

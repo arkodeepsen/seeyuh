@@ -14,7 +14,7 @@ from bs4 import BeautifulSoup
 from PIL import Image, ImageDraw, ImageFont
 from contextlib import contextmanager
 from filelock import FileLock
-from engine.utils import load_env, get_reddit_access_token, unsplash_env, hf_env, pexels_env
+from engine.utils import load_env, get_reddit_access_token, unsplash_env, hf_env, pexels_env, qwen_env
 from engine.db import get_welcome_settings, set_welcome_settings
 from engine.ai.gemini_multimodal import handle_interaction
 from engine.ai.gemini import code_ai_response, explain_ai_response, ask_ai_response, translate, prompt_ai_response, get_tts_text
@@ -1702,6 +1702,254 @@ async def send_video(interaction, videos):
 HF_API_KEY = hf_env()
 if not HF_API_KEY:
     logging.error("Hugging Face API Key not found. Please set HF_API_KEY in your environment variables.")
+
+# Qwen Image API URL
+QWEN_IMAGE_API_URL = qwen_env()
+if not QWEN_IMAGE_API_URL:
+    logging.error("Qwen Image API URL not found. Please set QWEN_IMAGE_API_URL in your environment variables.")
+
+# Aspect ratio presets for Qwen Image (1K quality)
+ASPECT_RATIOS = {
+    "1:1 Square": {"width": 1024, "height": 1024},
+    "16:9 Landscape": {"width": 1920, "height": 1080},
+    "9:16 Portrait": {"width": 1080, "height": 1920},
+    "4:3 Standard": {"width": 1280, "height": 960},
+    "3:4 Portrait": {"width": 960, "height": 1280},
+    "21:9 Ultrawide": {"width": 2048, "height": 878},
+    "3:2 Photo": {"width": 1536, "height": 1024},
+    "2:3 Photo Portrait": {"width": 1024, "height": 1536},
+}
+
+# Loading GIFs for image generation (local files)
+LOADING_GIFS = [
+    "assets/loading_bars.gif",
+    "assets/loading_circle.gif",
+    "assets/loading_spinner.gif",
+    "assets/loading_computer.gif"
+]
+
+# Explicit content keywords for basic filtering
+EXPLICIT_KEYWORDS = [
+    "nude", "naked", "nsfw", "porn", "sex", "sexual", "xxx", "adult", "erotic",
+    "boobs", "breast", "tits", "ass", "pussy", "dick", "cock", "penis", "vagina",
+    "hentai", "ecchi", "lewd", "fetish", "bdsm", "kinky", "explicit"
+]
+
+def check_explicit_content(prompt: str) -> bool:
+    """Simple check for explicit content in prompt"""
+    prompt_lower = prompt.lower()
+    return any(keyword in prompt_lower for keyword in EXPLICIT_KEYWORDS)
+
+async def generate_image_qwen(
+    prompt,
+    negative_prompt=" ",  # Space character enables CFG
+    width=1024,
+    height=1024,
+    steps=50,
+    cfg_scale=4.0,
+    seed=None,
+    retries=3,
+    backoff_factor=2,
+    status_callback=None  # Callback for status updates
+):
+    """
+    Generate an image using the Qwen Image API (always uses async endpoint).
+    
+    Args:
+        prompt: Text description of what to generate
+        negative_prompt: What to avoid in the image (default: space for CFG)
+        width: Image width in pixels (default: 1024)
+        height: Image height in pixels (default: 1024)
+        steps: Number of inference steps (default: 50)
+        cfg_scale: Classifier-Free Guidance scale (default: 4.0)
+        seed: Random seed for reproducibility (default: None/random)
+        retries: Number of retry attempts (default: 3)
+        backoff_factor: Backoff factor for retries (default: 2)
+        status_callback: Optional async callback function for status updates
+    
+    Returns:
+        io.BytesIO containing the generated PNG image, or None on failure
+    """
+    if not QWEN_IMAGE_API_URL:
+        logging.error("Qwen Image API URL not configured")
+        return None
+    
+    # Prepare request payload
+    payload = {
+        "prompt": prompt,
+        "negative_prompt": negative_prompt,
+        "width": width,
+        "height": height,
+        "num_inference_steps": steps,
+        "true_cfg_scale": cfg_scale
+    }
+    
+    if seed is not None:
+        payload["seed"] = seed
+    
+    try:
+        # Always use async endpoint for reliability
+        logging.info(f"Using async endpoint for Qwen image generation: {prompt[:50]}...")
+        
+        # Browser-like headers to bypass Cloudflare
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Content-Type': 'application/json'
+        }
+        
+        # Step 1: Start async job
+        async with aiohttp.ClientSession(headers=headers) as session:
+            async with session.post(
+                f"{QWEN_IMAGE_API_URL}/generate_async",
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=60)
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    logging.error(f"Failed to start Qwen async job: {response.status}, {error_text}")
+                    return None
+                
+                result = await response.json()
+                job_id = result.get("job_id")
+                job_status = result.get("status", "unknown")
+                
+                if not job_id:
+                    logging.error("No job_id returned from Qwen API")
+                    return None
+                
+                logging.info(f"Qwen job started: {job_id}, status: {job_status}")
+        
+        # Step 2: Poll for completion with robust error handling
+        max_attempts = 120  # 120 attempts * 2 seconds = 240 seconds (4 minutes)
+        poll_interval = 2  # Check every 2 seconds for faster response
+        attempt = 0
+        status = "queued"
+        failed_checks = 0
+        max_failed_checks = 5  # Allow up to 5 consecutive failed status checks
+        
+        async with aiohttp.ClientSession(headers=headers) as session:
+            while attempt < max_attempts:
+                await asyncio.sleep(poll_interval)
+                attempt += 1
+                elapsed = attempt * poll_interval
+                
+                try:
+                    async with session.get(
+                        f"{QWEN_IMAGE_API_URL}/status/{job_id}",
+                        timeout=aiohttp.ClientTimeout(total=30)
+                    ) as status_response:
+                        if status_response.status != 200:
+                            failed_checks += 1
+                            logging.warning(f"Failed to check Qwen job status: {status_response.status} (failed checks: {failed_checks}/{max_failed_checks})")
+                            
+                            if failed_checks >= max_failed_checks:
+                                logging.error(f"Too many failed status checks ({failed_checks}), giving up")
+                                return None
+                            continue
+                        
+                        status_data = await status_response.json()
+                        status = status_data.get("status")
+                        failed_checks = 0  # Reset on successful check
+                        
+                        # Log progress every 10 seconds
+                        if attempt % 5 == 0:
+                            logging.info(f"Qwen job {job_id} status: {status} (after {elapsed}s)")
+                        
+                        # Call status callback if provided
+                        if status_callback:
+                            try:
+                                await status_callback(status, elapsed, max_attempts * poll_interval)
+                            except Exception as e:
+                                logging.error(f"Status callback error: {e}")
+                        
+                        if status == "done":
+                            logging.info(f"Qwen job completed: {job_id} (after {elapsed} seconds)")
+                            break
+                        elif status == "error":
+                            error_detail = status_data.get("detail", "Unknown error")
+                            logging.error(f"Qwen job failed: {error_detail}")
+                            if status_callback:
+                                try:
+                                    await status_callback("error", elapsed, max_attempts * poll_interval, error_detail)
+                                except Exception as e:
+                                    logging.error(f"Status callback error: {e}")
+                            return None
+                
+                except asyncio.TimeoutError:
+                    failed_checks += 1
+                    logging.warning(f"Timeout checking status (attempt {attempt}, failed checks: {failed_checks}/{max_failed_checks})")
+                    if failed_checks >= max_failed_checks:
+                        logging.error("Too many timeouts checking status, giving up")
+                        return None
+                    continue
+                    
+                except aiohttp.ClientError as e:
+                    failed_checks += 1
+                    logging.warning(f"Network error checking status (attempt {attempt}): {e} (failed checks: {failed_checks}/{max_failed_checks})")
+                    if failed_checks >= max_failed_checks:
+                        logging.error("Too many network errors, giving up")
+                        return None
+                    continue
+                    
+                except Exception as e:
+                    failed_checks += 1
+                    logging.warning(f"Unexpected error checking status (attempt {attempt}): {e} (failed checks: {failed_checks}/{max_failed_checks})")
+                    if failed_checks >= max_failed_checks:
+                        logging.error("Too many errors, giving up")
+                        return None
+                    continue
+            
+            if status != "done":
+                logging.error(f"Qwen job timed out after {max_attempts * poll_interval} seconds ({max_attempts} attempts)")
+                return None
+            
+            # Step 3: Get result with retries
+            result_retries = 3
+            for retry in range(result_retries):
+                try:
+                    async with session.get(
+                        f"{QWEN_IMAGE_API_URL}/result/{job_id}",
+                        timeout=aiohttp.ClientTimeout(total=60)
+                    ) as result_response:
+                        if result_response.status != 200:
+                            error_text = await result_response.text()
+                            logging.error(f"Failed to get Qwen result: {result_response.status}, {error_text}")
+                            if retry < result_retries - 1:
+                                await asyncio.sleep(2)
+                                continue
+                            return None
+                        
+                        result_data = await result_response.json()
+                        image_b64 = result_data.get("image")
+                        result_seed = result_data.get("seed")
+                        
+                        if not image_b64:
+                            logging.error("No image data in Qwen result")
+                            return None
+                        
+                        # Decode base64 image
+                        image_bytes = base64.b64decode(image_b64)
+                        logging.info(f"Qwen image generated successfully. Seed: {result_seed}")
+                        return io.BytesIO(image_bytes)
+                        
+                except Exception as e:
+                    logging.error(f"Error getting result (retry {retry + 1}/{result_retries}): {e}")
+                    if retry < result_retries - 1:
+                        await asyncio.sleep(2)
+                        continue
+                    return None
+            
+            return None
+        
+    except asyncio.TimeoutError:
+        logging.error("Qwen image generation timed out")
+        return None
+    except aiohttp.ClientError as e:
+        logging.error(f"Qwen API client error: {e}")
+        return None
+    except Exception as e:
+        logging.error(f"Unexpected error in Qwen image generation: {e}")
+        return None
     
 async def generate_image(
     prompt,
@@ -1709,16 +1957,39 @@ async def generate_image(
     width=None,
     height=None,
     steps=None,
-    model="FLUX.1-schnell",
-    seed=random.randint(0, 3999999999),
+    model="Qwen-Image",  # Changed default to Qwen-Image
+    seed=None,
     retries=10,
     backoff_factor=2
 ):
-    # Retrieve the model information
+    # Route to Qwen Image API if Qwen-Image model is selected (always uses async endpoint)
+    if model == "Qwen-Image":
+        return await generate_image_qwen(
+            prompt=prompt,
+            negative_prompt=negative_prompt if negative_prompt else " ",
+            width=width if width else 1024,
+            height=height if height else 1024,
+            steps=steps if steps else 50,
+            cfg_scale=4.0,
+            seed=seed,
+            retries=retries,
+            backoff_factor=backoff_factor
+        )
+    
+    # Retrieve the model information for HuggingFace models
     model_info = AVAILABLE_MODELS.get(model)
     if not model_info:
-        logging.error(f"Model '{model}' not found. Using default model.")
-        model_info = AVAILABLE_MODELS["FLUX.1-schnell"]
+        logging.error(f"Model '{model}' not found. Using default Qwen-Image.")
+        # Fallback to Qwen-Image if model not found
+        return await generate_image_qwen(
+            prompt=prompt,
+            negative_prompt=negative_prompt if negative_prompt else " ",
+            width=width if width else 1024,
+            height=height if height else 1024,
+            steps=steps if steps else 50,
+            cfg_scale=4.0,
+            seed=seed
+        )
     hf_model_id = model_info["model_id"]
 
     headers = {
@@ -1797,6 +2068,10 @@ async def generate_image_and_text_gemini(prompt: str) -> tuple[str | None, io.By
 
 # Define available models and their descriptions
 AVAILABLE_MODELS = {
+    "Qwen-Image": {
+        "model_id": "qwen-image",  # Special identifier for Qwen API
+        "description": "Image generated using Qwen-Image (High Quality, Fast Generation)"
+    },
     "FLUX.1-schnell": {
         "model_id": "black-forest-labs/FLUX.1-schnell",
         "description": "Image generated using FLUX.1 [schnell]"
@@ -1961,6 +2236,7 @@ AVAILABLE_MODELS = {
 }
 
 MODEL_CHOICES = [
+    app_commands.Choice(name="Qwen-Image (Default - High Quality)", value="Qwen-Image"),
     app_commands.Choice(name="Stable Diffusion 3.5 Turbo", value="stable-diffusion-3.5-turbo"),
     app_commands.Choice(name="FLUX.1-schnell", value="FLUX.1-schnell"),
     app_commands.Choice(name="Stable Diffusion 3.5 Large", value="stable-diffusion-3.5-large"),
@@ -1984,80 +2260,228 @@ MODEL_CHOICES = [
     app_commands.Choice(name="maJi5PlusCCTV", value="Maji5PlusCCTV"),
     app_commands.Choice(name="DonutHoleMix_Beta", value="DonutHoleMix_Beta"),
     app_commands.Choice(name="DucHaiten-Real3D-V1", value="DucHaiten-Real3D-V1"),
-    app_commands.Choice(name="Gap_2.6", value="Gap_2.6"),
-    app_commands.Choice(name="Reddit", value="Reddit")
+    app_commands.Choice(name="Gap_2.6", value="Gap_2.6")
+]
+
+ASPECT_RATIO_CHOICES = [
+    app_commands.Choice(name="1:1 Square (1024x1024)", value="1:1 Square"),
+    app_commands.Choice(name="16:9 Landscape (1920x1080)", value="16:9 Landscape"),
+    app_commands.Choice(name="9:16 Portrait (1080x1920)", value="9:16 Portrait"),
+    app_commands.Choice(name="4:3 Standard (1280x960)", value="4:3 Standard"),
+    app_commands.Choice(name="3:4 Portrait (960x1280)", value="3:4 Portrait"),
+    app_commands.Choice(name="21:9 Ultrawide (2048x878)", value="21:9 Ultrawide"),
+    app_commands.Choice(name="3:2 Photo (1536x1024)", value="3:2 Photo"),
+    app_commands.Choice(name="2:3 Photo Portrait (1024x1536)", value="2:3 Photo Portrait"),
 ]
 
 @app_commands.command(name="imagine", description="Generate an image with AI")
 @app_commands.describe(
     prompt="The text prompt for the image.",
     model="Choose AI model to use.",
+    aspect_ratio="Choose aspect ratio preset (overrides custom width/height).",
     negative_prompt="Text to avoid in the image (optional).",
-    width="Width of the image in pixels (optional).",
-    height="Height of the image in pixels (optional).",
+    width="Custom width in pixels (ignored if aspect_ratio is set).",
+    height="Custom height in pixels (ignored if aspect_ratio is set).",
     steps="Number of inference steps (optional).",
     seed="Seed for the image generation (optional)."
 )
-@app_commands.choices(model=MODEL_CHOICES)
+@app_commands.choices(model=MODEL_CHOICES, aspect_ratio=ASPECT_RATIO_CHOICES)
 async def imagine_command(
     interaction: discord.Interaction,
     prompt: str,
-    model: str = "FLUX.1-schnell",
-    negative_prompt: Optional[str] = None,  # Changed to Optional
+    model: str = "Qwen-Image",
+    aspect_ratio: Optional[str] = None,
+    negative_prompt: Optional[str] = None,
     width: Optional[int] = None,
     height: Optional[int] = None,
     steps: Optional[int] = None,
-    seed: Optional[int] = None  # Changed to Optional
+    seed: Optional[int] = None
 ):
     await interaction.response.defer()
-
-    # Only pass non-None values
-    kwargs = {
-        "prompt": prompt,
-        "model": model
-    }
     
-    # Add optional parameters only if they're provided
-    if negative_prompt is not None:
-        kwargs["negative_prompt"] = negative_prompt
-    if width is not None:
-        kwargs["width"] = width
-    if height is not None:
-        kwargs["height"] = height
-    if steps is not None:
-        kwargs["steps"] = steps
-    if seed is not None:
-        kwargs["seed"] = seed
-
-    image_data = await generate_image(**kwargs)
-
-    if image_data:
-        try:
-            image_data.seek(0)
-            file = discord.File(fp=image_data, filename="image.png")
-            model_description = AVAILABLE_MODELS[model]["description"]
-            embed = discord.Embed(
-                title=f"Generated Image for: '{prompt}'",
-                color=discord.Color.blue(),
-                description=model_description
-            )
-            embed.set_author(
-                name=f"Requested by {interaction.user}",
-                icon_url=interaction.user.display_avatar.url
-            )
-            embed.set_footer(
-                text=interaction.client.user.name,
-                icon_url=interaction.client.user.display_avatar.url
-            )
-            embed.set_image(url="attachment://image.png")
-            await interaction.followup.send(embed=embed, file=file)
-        except Exception as e:
-            logging.error(f"Error sending image to Discord: {e}")
-            await interaction.followup.send("Failed to send the generated image.")
-    else:
-        await interaction.followup.send(
-            "Sorry, I couldn't generate an image for that prompt. Please try again later."
+    # Check for explicit content in prompt
+    if check_explicit_content(prompt):
+        embed = discord.Embed(
+            title="⚠️ Content Warning",
+            description="Your prompt may contain explicit content that violates Discord's Terms of Service.\n\n"
+                       "Discord automatically blocks NSFW images from being sent to certain channels and users.\n\n"
+                       "Please modify your prompt to comply with Discord's content policy.",
+            color=discord.Color.red()
         )
+        embed.set_footer(text="Tip: Use appropriate channels and age-restricted servers for mature content")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        return
+    
+    # Get dimensions for display
+    final_width = width
+    final_height = height
+    
+    # Handle aspect ratio vs custom dimensions
+    if aspect_ratio and aspect_ratio in ASPECT_RATIOS:
+        dimensions = ASPECT_RATIOS[aspect_ratio]
+        final_width = dimensions["width"]
+        final_height = dimensions["height"]
+        logging.info(f"Using aspect ratio '{aspect_ratio}': {final_width}x{final_height}")
+    
+    # For Qwen-Image, show loading animation with status updates
+    if model == "Qwen-Image":
+        # Pick a random loading gif
+        loading_gif_path = random.choice(LOADING_GIFS)
+        loading_gif_filename = os.path.basename(loading_gif_path)
+        
+        # Load the local GIF file
+        loading_gif_file = discord.File(loading_gif_path, filename=loading_gif_filename)
+        
+        # Create initial loading embed
+        embed = discord.Embed(
+            title="🎨 Generating Image...",
+            description=f"**Prompt:** {prompt[:100]}{'...' if len(prompt) > 100 else ''}\n**Status:** Starting generation...",
+            color=discord.Color.blue()
+        )
+        embed.set_image(url=f"attachment://{loading_gif_filename}")
+        embed.set_footer(text=f"Model: {model} | Resolution: {final_width or 1024}x{final_height or 1024}")
+        
+        # Send loading message with attached GIF
+        loading_message = await interaction.followup.send(embed=embed, file=loading_gif_file, wait=True)
+        
+        # Status update callback
+        last_update_time = [time.time()]  # Use list to allow modification in nested function
+        
+        async def update_status(status, elapsed, max_time, error_detail=None):
+            # Update every 10 seconds to avoid rate limits
+            if time.time() - last_update_time[0] < 10 and status not in ["done", "error"]:
+                return
+            
+            last_update_time[0] = time.time()
+            
+            if status == "queued":
+                status_text = "⏳ Queued - Waiting to start..."
+            elif status == "running":
+                progress = min(int((elapsed / max_time) * 100), 95)
+                status_text = f"⚡ Generating... ({progress}% - {elapsed}s elapsed)"
+            elif status == "error":
+                status_text = f"❌ Error: {error_detail}"
+            else:
+                status_text = f"🔄 {status.capitalize()}..."
+            
+            embed.description = f"**Prompt:** {prompt[:100]}{'...' if len(prompt) > 100 else ''}\n**Status:** {status_text}"
+            
+            try:
+                await loading_message.edit(embed=embed)
+            except Exception as e:
+                logging.error(f"Failed to update status message: {e}")
+        
+        # Prepare kwargs for generation
+        kwargs = {
+            "prompt": prompt,
+            "negative_prompt": negative_prompt if negative_prompt else " ",
+            "width": final_width if final_width else 1024,
+            "height": final_height if final_height else 1024,
+            "steps": steps if steps else 50,
+            "cfg_scale": 4.0,
+            "seed": seed,
+            "status_callback": update_status
+        }
+        
+        # Generate image with Qwen
+        image_data = await generate_image_qwen(**kwargs)
+        
+        if image_data:
+            try:
+                image_data.seek(0)
+                file = discord.File(fp=image_data, filename="image.png")
+                
+                # Edit loading message to show final image
+                await loading_message.edit(content=None, embed=None, attachments=[file])
+            except discord.HTTPException as e:
+                # Check if it's the explicit content error
+                if e.code == 20009:
+                    logging.error(f"Discord blocked explicit content: {e}")
+                    error_embed = discord.Embed(
+                        title="🚫 Content Blocked by Discord",
+                        description="Discord's safety systems detected that this image contains explicit or NSFW content.\n\n"
+                                   "**Possible reasons:**\n"
+                                   "• The generated image violates Discord's Terms of Service\n"
+                                   "• This channel or recipient cannot receive NSFW content\n"
+                                   "• The image was flagged by Discord's automated filters\n\n"
+                                   "**What you can do:**\n"
+                                   "• Use an age-restricted channel marked as NSFW\n"
+                                   "• Modify your prompt to be more appropriate\n"
+                                   "• Contact server administrators about NSFW channels",
+                        color=discord.Color.red()
+                    )
+                    error_embed.set_footer(text="Discord enforces strict content policies to keep communities safe")
+                    await loading_message.edit(content=None, embed=error_embed, attachments=[])
+                else:
+                    logging.error(f"Discord HTTP error sending image: {e}")
+                    await loading_message.edit(
+                        content=f"Failed to send the image: {str(e)}", 
+                        embed=None, 
+                        attachments=[]
+                    )
+            except Exception as e:
+                logging.error(f"Error sending image to Discord: {e}")
+                await loading_message.edit(content="Failed to send the generated image.", embed=None, attachments=[])
+        else:
+            await loading_message.edit(
+                content="Sorry, I couldn't generate an image for that prompt. Please try again later.",
+                embed=None,
+                attachments=[]
+            )
+    else:
+        # For non-Qwen models, use original flow without status updates
+        kwargs = {
+            "prompt": prompt,
+            "model": model
+        }
+        
+        if final_width is not None:
+            kwargs["width"] = final_width
+        if final_height is not None:
+            kwargs["height"] = final_height
+        if negative_prompt is not None:
+            kwargs["negative_prompt"] = negative_prompt
+        if steps is not None:
+            kwargs["steps"] = steps
+        if seed is not None:
+            kwargs["seed"] = seed
+
+        image_data = await generate_image(**kwargs)
+
+        if image_data:
+            try:
+                image_data.seek(0)
+                file = discord.File(fp=image_data, filename="image.png")
+                await interaction.followup.send(file=file)
+            except discord.HTTPException as e:
+                # Check if it's the explicit content error
+                if e.code == 20009:
+                    logging.error(f"Discord blocked explicit content: {e}")
+                    error_embed = discord.Embed(
+                        title="🚫 Content Blocked by Discord",
+                        description="Discord's safety systems detected that this image contains explicit or NSFW content.\n\n"
+                                   "**Possible reasons:**\n"
+                                   "• The generated image violates Discord's Terms of Service\n"
+                                   "• This channel or recipient cannot receive NSFW content\n"
+                                   "• The image was flagged by Discord's automated filters\n\n"
+                                   "**What you can do:**\n"
+                                   "• Use an age-restricted channel marked as NSFW\n"
+                                   "• Modify your prompt to be more appropriate\n"
+                                   "• Contact server administrators about NSFW channels",
+                        color=discord.Color.red()
+                    )
+                    error_embed.set_footer(text="Discord enforces strict content policies to keep communities safe")
+                    await interaction.followup.send(embed=error_embed)
+                else:
+                    logging.error(f"Discord HTTP error sending image: {e}")
+                    await interaction.followup.send(f"Failed to send the image: {str(e)}")
+            except Exception as e:
+                logging.error(f"Error sending image to Discord: {e}")
+                await interaction.followup.send("Failed to send the generated image.")
+        else:
+            await interaction.followup.send(
+                "Sorry, I couldn't generate an image for that prompt. Please try again later."
+            )
         
 async def generate_caption(image_bytes):
     headers = {

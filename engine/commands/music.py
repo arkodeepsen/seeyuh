@@ -681,9 +681,13 @@ class YTDLSource(discord.PCMVolumeTransformer):
                 timeout=40.0  # Increased timeout to allow for all fallback strategies
             )
             
+            # FIXED: Check for None data before checking 'entries' in it
+            if not data:
+                raise Exception("YouTube returned no data - possibly due to bot detection or rate limiting")
+            
             logging.debug(f"Raw data keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
 
-            if 'entries' in data:
+            if isinstance(data, dict) and 'entries' in data:
                 logging.debug(f"Found {len(data['entries'])} entries")
                 if not data['entries']:
                     raise Exception("No search results found")
@@ -734,15 +738,51 @@ class YTDLSource(discord.PCMVolumeTransformer):
                 logging.error(f"Failed to create YTDLSource for '{url}': {e}")
                 raise Exception(f"Failed to load '{url}': {error_msg}")
 
-# Queue to hold the songs
-# Modify your song queue to include song info
-song_queue = []  # Each item will be a tuple: (interaction, query, info)
-current_song = None
-loop_song = False
-skip_votes = set()
-previous_message = None
-# Add at top with other globals
-current_song_start = None
+# FIXED: Per-guild state management to prevent memory leaks across servers
+# Previously, all guilds shared the same queue causing infinite memory growth!
+class GuildMusicState:
+    """Per-guild music state to prevent memory leaks"""
+    def __init__(self):
+        self.song_queue = []  # Each item: (interaction, query, info)
+        self.current_song = None
+        self.loop_song = False
+        self.skip_votes = set()
+        self.previous_message = None
+        self.current_song_start = None
+    
+    def clear(self):
+        """Clear all state for memory cleanup"""
+        self.song_queue.clear()
+        self.current_song = None
+        self.loop_song = False
+        self.skip_votes.clear()
+        self.previous_message = None
+        self.current_song_start = None
+
+# Per-guild music state dictionary
+_guild_music_states = {}
+
+def get_guild_state(guild_id: int) -> GuildMusicState:
+    """Get or create music state for a guild"""
+    if guild_id not in _guild_music_states:
+        _guild_music_states[guild_id] = GuildMusicState()
+    return _guild_music_states[guild_id]
+
+def cleanup_guild_state(guild_id: int):
+    """Clean up guild state when bot leaves or inactive"""
+    if guild_id in _guild_music_states:
+        _guild_music_states[guild_id].clear()
+        del _guild_music_states[guild_id]
+        logging.info(f"[MEMORY] Cleaned up music state for guild {guild_id}")
+
+# Legacy global references for backward compatibility (DEPRECATED - will be removed)
+# These are now per-guild - use get_guild_state() instead!
+song_queue = []  # DEPRECATED
+current_song = None  # DEPRECATED
+loop_song = False  # DEPRECATED
+skip_votes = set()  # DEPRECATED
+previous_message = None  # DEPRECATED
+current_song_start = None  # DEPRECATED
 
 def _choose_best_audio_format(formats: list) -> dict | None:
     """Pick an audio-capable format URL from yt-dlp formats list.
@@ -878,17 +918,18 @@ class MusicView(discord.ui.View):
 
     @discord.ui.button(label="Skip", style=discord.ButtonStyle.primary, emoji="⏭️")
     async def skip_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        global skip_votes
-        if interaction.user.id not in skip_votes:
-            skip_votes.add(interaction.user.id)
+        # FIXED: Use per-guild state instead of global
+        state = get_guild_state(interaction.guild.id)
+        if interaction.user.id not in state.skip_votes:
+            state.skip_votes.add(interaction.user.id)
             listeners = len(interaction.guild.voice_client.channel.members) - 1  # Exclude the bot
-            if len(skip_votes) / listeners > 0.5:
+            if len(state.skip_votes) / listeners > 0.5:
                 interaction.guild.voice_client.stop()
                 embed = discord.Embed(title="Music", description="Skipped the song.", color=discord.Color.green())
                 await interaction.response.send_message(embed=embed)
-                skip_votes.clear()
+                state.skip_votes.clear()
             else:
-                embed = discord.Embed(title="Music", description=f"Skip vote added. {len(skip_votes)}/{listeners} votes.", color=discord.Color.green())
+                embed = discord.Embed(title="Music", description=f"Skip vote added. {len(state.skip_votes)}/{listeners} votes.", color=discord.Color.green())
                 await interaction.response.send_message(embed=embed)
         else:
             embed = discord.Embed(title="Error", description="You have already voted to skip.", color=discord.Color.red())
@@ -896,9 +937,10 @@ class MusicView(discord.ui.View):
 
     @discord.ui.button(label="Loop", style=discord.ButtonStyle.primary, emoji="🔁")
     async def loop_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        global loop_song
-        loop_song = not loop_song
-        status = "enabled" if loop_song else "disabled"
+        # FIXED: Use per-guild state instead of global
+        state = get_guild_state(interaction.guild.id)
+        state.loop_song = not state.loop_song
+        status = "enabled" if state.loop_song else "disabled"
         await interaction.response.send_message(f"Looping is now {status}.", ephemeral=True)
         channel = interaction.channel
         await channel.send(f"Looping is now {status}.")
@@ -1063,6 +1105,8 @@ async def join(interaction: discord.Interaction):
 async def leave(interaction: discord.Interaction):
     if interaction.guild.voice_client:
         await interaction.guild.voice_client.disconnect()
+        # FIXED: Clean up guild state on leave to prevent memory leaks
+        cleanup_guild_state(interaction.guild.id)
         embed = discord.Embed(title="Voice Channel", description="Disconnected from the voice channel.", color=discord.Color.green())
         await interaction.response.send_message(embed=embed)
     else:
@@ -1142,8 +1186,9 @@ async def play(interaction: discord.Interaction, query: str):
             await interaction.followup.send(embed=embed)
             return
 
-        # Add the song to the queue  
-        song_queue.append((interaction, query, player))
+        # FIXED: Add the song to the per-guild queue
+        state = get_guild_state(interaction.guild.id)
+        state.song_queue.append((interaction, query, player))
 
         await interaction.followup.send(
             f"Added **{player.title}** to the queue.",
@@ -1153,7 +1198,7 @@ async def play(interaction: discord.Interaction, query: str):
         # If nothing is currently playing, start the next song
         voice_client = interaction.guild.voice_client
         if not voice_client.is_playing():
-            await play_next_song()
+            await play_next_song(guild_id=interaction.guild.id)
 
     except Exception as e:
         embed = discord.Embed(
@@ -1163,16 +1208,42 @@ async def play(interaction: discord.Interaction, query: str):
         )
         await interaction.followup.send(embed=embed)
         
-async def play_next_song():
-    global current_song, previous_message, current_song_start
+async def play_next_song(guild_id: int = None, guild_voice_client = None):
+    """
+    FIXED: Now uses per-guild state instead of global state
+    Args:
+        guild_id: The guild ID to play music for
+        guild_voice_client: The voice client (fallback to get guild_id from current_song)
+    """
+    # Get guild_id from voice_client if not provided
+    if guild_id is None and guild_voice_client:
+        guild_id = guild_voice_client.guild.id
+    
+    # Get per-guild state
+    state = get_guild_state(guild_id) if guild_id else None
+    
+    # Fallback to legacy global state if guild_id not available (shouldn't happen)
+    if state is None:
+        logging.warning("[MUSIC] No guild_id provided to play_next_song, using deprecated global state")
+        # Legacy behavior using deprecated globals
+        global current_song, previous_message, current_song_start, song_queue, loop_song
+        state_current_song = current_song
+        state_previous_message = previous_message
+        state_song_queue = song_queue
+        state_loop_song = loop_song
+    else:
+        state_current_song = state.current_song
+        state_previous_message = state.previous_message
+        state_song_queue = state.song_queue
+        state_loop_song = state.loop_song
     
     # Edit previous message if it exists
-    if previous_message:
+    if state_previous_message:
         try:
             # Get info from current song that just finished
-            if not current_song:
+            if not state_current_song:
                 raise ValueError("No current_song to summarize")
-            _, _, old_player = current_song
+            _, _, old_player = state_current_song
             played_embed = discord.Embed(
                 title="Played",
                 description=f"[{old_player.title}]({old_player.url})",
@@ -1185,27 +1256,38 @@ async def play_next_song():
             
             if hasattr(old_player.data, 'get') and old_player.data.get('thumbnail'):
                 played_embed.set_thumbnail(url=old_player.data['thumbnail'])
-            await previous_message.edit(embed=played_embed, view=None)
+            await state_previous_message.edit(embed=played_embed, view=None)
         except Exception as e:
             logging.error(f"Failed to edit previous message: {e}")
 
-    if loop_song and current_song:
-        interaction, query, player = current_song
-    elif song_queue:
-        interaction, query, player = song_queue.pop(0)
-        current_song = (interaction, query, player)
+    if state_loop_song and state_current_song:
+        interaction, query, player = state_current_song
+    elif state_song_queue:
+        interaction, query, player = state_song_queue.pop(0)
+        if state:
+            state.current_song = (interaction, query, player)
+        else:
+            current_song = (interaction, query, player)
     else:
-        current_song = None
+        if state:
+            state.current_song = None
+        else:
+            current_song = None
         return
 
     try:
         # Player is already a YTDLSource object, ready to use
         duration = player.duration or 0
-        current_song_start = time.time()
+        if state:
+            state.current_song_start = time.time()
+        else:
+            current_song_start = time.time()
 
         # Use the player directly as the audio source
         source = player
 
+        # FIXED: Capture guild_id for the callback
+        callback_guild_id = interaction.guild.id
         def after_playing(error):
             if error:
                 # Log more details about FFmpeg errors to help diagnose Railway issues
@@ -1215,8 +1297,9 @@ async def play_next_song():
                     logging.error(f"This may indicate invalid URL or auth headers on Railway")
                 else:
                     logging.error(f"Playback error: {error}")
+            # FIXED: Pass guild_id to play_next_song so it uses the right per-guild state
             eventloop.event_loop.call_soon_threadsafe(
-                lambda: asyncio.create_task(play_next_song())
+                lambda: asyncio.create_task(play_next_song(guild_id=callback_guild_id))
             )
 
         interaction.guild.voice_client.play(
@@ -1248,7 +1331,13 @@ async def play_next_song():
         )
         view = MusicView(interaction)
         view.set_url(player.url)
-        previous_message = await interaction.followup.send(embed=embed, view=view)
+        new_message = await interaction.followup.send(embed=embed, view=view)
+        
+        # Store previous message in state
+        if state:
+            state.previous_message = new_message
+        else:
+            previous_message = new_message
 
     except Exception as e:
         logging.error(f"Playback error: {e}")
@@ -1263,12 +1352,14 @@ async def play_next_song():
 @app_commands.command(name="np", description="Show the currently playing song.")
 async def now_playing(interaction: discord.Interaction):
     try:
-        if current_song and current_song_start:
-            _, _, info = current_song
+        # FIXED: Use per-guild state
+        state = get_guild_state(interaction.guild.id)
+        if state.current_song and state.current_song_start:
+            _, _, info = state.current_song
             
             # Calculate progress
             duration = info.get('duration', 0)
-            elapsed = int(time.time() - current_song_start)
+            elapsed = int(time.time() - state.current_song_start)
             remaining = max(0, duration - elapsed)
             
             # Create progress bar (20 chars wide)
@@ -1323,9 +1414,11 @@ async def queue(interaction: discord.Interaction):
     await interaction.response.defer()  # Defer the response
 
     try:
-        if song_queue:
+        # FIXED: Use per-guild state
+        state = get_guild_state(interaction.guild.id)
+        if state.song_queue:
             description = ""
-            for i, (inter, query, player) in enumerate(song_queue):
+            for i, (inter, query, player) in enumerate(state.song_queue):
                 description += f"{i+1}. [{player.title}]({player.url})\n"
             embed = discord.Embed(
                 title="Current Queue",

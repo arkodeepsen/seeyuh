@@ -6,7 +6,17 @@ import logging, os, httpx, asyncio, json
 from concurrent.futures import ThreadPoolExecutor
 from more_itertools import chunked
 from filelock import FileLock
-executor = ThreadPoolExecutor()
+
+# FIXED: Use bounded ThreadPoolExecutor with max_workers to prevent thread leaks
+# Previously: executor = ThreadPoolExecutor() with no limit caused unbounded thread growth
+executor = ThreadPoolExecutor(max_workers=4)  # Limit to 4 worker threads max
+
+def cleanup_executor():
+    """Clean up the thread pool executor - call this on bot shutdown"""
+    global executor
+    if executor:
+        executor.shutdown(wait=False)
+        logging.info("[MEMORY] 🧹 ThreadPoolExecutor cleaned up")
 
 # Load environment variables
 load_dotenv()

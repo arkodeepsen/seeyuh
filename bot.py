@@ -68,10 +68,57 @@ bot = commands.Bot(command_prefix='/', intents=intents())
 async def check_inactivity():
     for vc in bot.voice_clients:
         if not vc.is_playing() and not vc.is_paused():
+            guild_id = vc.guild.id
             await vc.disconnect()
+            # FIXED: Clean up music state when disconnecting due to inactivity
+            try:
+                from engine.commands.music import cleanup_guild_state
+                cleanup_guild_state(guild_id)
+            except Exception as e:
+                logging.error(f"Failed to cleanup music state: {e}")
             channel = vc.channel
             embed = discord.Embed(title="Voice Channel", description="Left the voice channel due to inactivity.", color=discord.Color.orange())
             await channel.send(embed=embed)
+
+# FIXED: New periodic memory cleanup task to prevent memory leaks
+@tasks.loop(hours=1)  # Run every hour
+async def periodic_memory_cleanup():
+    """Periodic cleanup to prevent memory leaks - runs every hour"""
+    import gc
+    import psutil
+    
+    try:
+        # Get memory usage before cleanup
+        process = psutil.Process()
+        memory_before = process.memory_info().rss / 1024 / 1024
+        
+        logging.info(f"[MEMORY] 🧹 Starting periodic cleanup (Memory: {memory_before:.1f}MB)")
+        
+        # Clean up music cache
+        try:
+            from engine.commands.music import clear_music_cache
+            clear_music_cache()
+        except Exception as e:
+            logging.error(f"Failed to clear music cache: {e}")
+        
+        # Clean up video voice cache
+        try:
+            from engine.commands.video import cleanup_voice_cache
+            cleanup_voice_cache()
+        except Exception as e:
+            logging.error(f"Failed to clear voice cache: {e}")
+        
+        # Force garbage collection
+        gc.collect()
+        
+        # Get memory usage after cleanup
+        memory_after = process.memory_info().rss / 1024 / 1024
+        saved = memory_before - memory_after
+        
+        logging.info(f"[MEMORY] ✅ Cleanup complete (Memory: {memory_after:.1f}MB, Freed: {saved:.1f}MB)")
+        
+    except Exception as e:
+        logging.error(f"[MEMORY] ❌ Periodic cleanup failed: {e}")
             
 @app.get("/status")
 def health_check():
@@ -265,12 +312,27 @@ async def on_ready():
     # Start the inactivity check task if not already running
     if not check_inactivity.is_running():
         check_inactivity.start()
+    # FIXED: Start periodic memory cleanup task
+    if not periodic_memory_cleanup.is_running():
+        periodic_memory_cleanup.start()
+        logging.info("[MEMORY] 🧹 Periodic memory cleanup task started (runs every hour)")
     eventloop.event_loop = asyncio.get_running_loop()
     logging.info(f"Connected to Discord Gateway Region: {bot.latency:.2f} ms")
     logging.info(f'Logged in as {bot.user}')
     # Generate and cache invites without blocking the event loop
     asyncio.create_task(generate_and_cache_invites(bot))
     asyncio.create_task(sync_guilds_and_users(bot))
+
+# FIXED: Clean up guild state when bot leaves a server
+@bot.event
+async def on_guild_remove(guild):
+    """Clean up memory when bot is removed from a server"""
+    try:
+        from engine.commands.music import cleanup_guild_state
+        cleanup_guild_state(guild.id)
+        logging.info(f"[MEMORY] 🧹 Cleaned up state for guild {guild.name} (ID: {guild.id})")
+    except Exception as e:
+        logging.error(f"Failed to cleanup guild state on remove: {e}")
 
 # Define the main function to run both the bot and HTTP server concurrently
 async def main():

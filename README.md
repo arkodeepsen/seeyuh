@@ -37,9 +37,25 @@ Seeyuh Bot is a powerful, AI-driven Discord bot designed for dynamic and multimo
   - `/help`: Get a list of all available commands.
   - `/info [@user]`: Fetch detailed information about the bot or tagged users.
   - `/ping`: Measure bot latency with a fun twist!
-  - `/imagine`: Generate AI-powered images from prompts.
+  - `/imagine`: Generate AI-powered images with Qwen-Image (see below)
 - **Normal Commands**:  
   Handles basic text-based commands for classic Discord bot vibes.
+
+### 🎨 **AI Image Generation (`/imagine`)**
+Generate stunning images with 25+ AI models:
+- **Multiple Models**: Qwen-Image, FLUX.1, Stable Diffusion 3.5, and 20+ more models
+- **Aspect Ratio Presets**: Choose from 8 preset ratios (1:1, 16:9, 9:16, 4:3, 3:4, 21:9, 3:2, 2:3)
+- **High Quality**: 1K+ resolution with customizable inference steps
+- **Real-time Status**: Loading animations with live progress updates (for Qwen-Image)
+- **Custom Options**: Adjust model, width, height, steps, seed, and negative prompts
+
+**Example Usage:**
+```
+/imagine prompt: a beautiful sunset over mountains
+         model: Qwen-Image
+         aspect_ratio: 16:9 Landscape
+         steps: 75
+```
 
 ### 🎮 **Games and Entertainment**
 - Interactive mini-games for users to enjoy within the server.
@@ -76,7 +92,9 @@ Seeyuh Bot is a powerful, AI-driven Discord bot designed for dynamic and multimo
 - **Framework**: discord.py
 - **Database**: Supabase (for context and chat history)
 - **Hosting**: Railway
-- **AI Models**: Google Gemini API for image and text processing
+- **AI Models**: 
+  - Google Gemini API for text processing
+  - HuggingFace Models (25+ models including FLUX, Stable Diffusion, etc.)
 - **APIs**: Reddit, YouTube, Google Custom Search
 
 ---
@@ -85,6 +103,19 @@ Seeyuh Bot is a powerful, AI-driven Discord bot designed for dynamic and multimo
 - Tokens and sensitive data are stored securely in environment variables (`.env`).
 - No sensitive information is shared or logged by the bot.
 - Your messages might be saved for context but are deleted at regular intervals.
+
+## ⚙️ **Setup**
+Required environment variables in `.env`:
+```env
+DISCORD_TOKEN=your_discord_token
+QWEN_IMAGE_API_URL=your_runpod_url
+HF_API_KEY=your_huggingface_key
+SUPABASE_URL=your_supabase_url
+SUPABASE_KEY=your_supabase_key
+# ... other API keys
+```
+
+See `.env.example` for complete template.
 
 ---
 

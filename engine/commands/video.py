@@ -249,8 +249,23 @@ def create_video_streaming_ffmpeg(frame_data_list, output_path, audio_bitrate=96
         print(f"[FFMPEG] ❌ Error concatenating segments: {e}")
         raise
 
-# Voice assignment system for users
+# FIXED: Voice assignment system with memory leak prevention
+# Maximum size to prevent unbounded growth across all servers
+MAX_VOICE_CACHE_SIZE = 200  # Reasonable limit for active users
 user_voice_assignments = {}
+
+def cleanup_voice_cache():
+    """Clean up voice assignments when cache gets too large - prevents memory leaks"""
+    global user_voice_assignments
+    if len(user_voice_assignments) > MAX_VOICE_CACHE_SIZE:
+        # Remove oldest 50% of entries (LRU-style cleanup)
+        items_to_remove = len(user_voice_assignments) - (MAX_VOICE_CACHE_SIZE // 2)
+        for _ in range(items_to_remove):
+            if user_voice_assignments:
+                # Remove first item (oldest in insertion order for Python 3.7+)
+                oldest_key = next(iter(user_voice_assignments))
+                del user_voice_assignments[oldest_key]
+        print(f"[MEMORY] 🧹 Cleaned up voice cache: {items_to_remove} entries removed, {len(user_voice_assignments)} remaining")
 
 def get_edge_tts_voices():
     """Return list of verified Edge TTS voices for Edge TTS 7.2.0"""
@@ -271,6 +286,10 @@ def get_edge_tts_voices():
 
 def assign_voice_to_user(user_id):
     """Assign a random Edge TTS voice to a user (persistent for video session)"""
+    # Check cache size and cleanup if needed (prevents unbounded growth)
+    if len(user_voice_assignments) >= MAX_VOICE_CACHE_SIZE:
+        cleanup_voice_cache()
+    
     if user_id not in user_voice_assignments:
         voices = get_edge_tts_voices()
         user_voice_assignments[user_id] = random.choice(voices)
