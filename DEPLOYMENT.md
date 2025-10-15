@@ -164,7 +164,7 @@ def cleanup_executor():
 
 ## 🆕 NEW FEATURES ADDED
 
-### Periodic Memory Cleanup Task
+### 1. Periodic Memory Cleanup Task
 **Location:** `bot.py`
 
 A new background task that runs **every hour** to automatically clean up memory:
@@ -191,6 +191,28 @@ async def periodic_memory_cleanup():
 - ✅ Video voice assignments
 - ✅ Python garbage collection
 - ✅ Logs memory usage before/after
+
+---
+
+### 2. Supabase Keep-Alive Task
+**Location:** `bot.py`
+
+A new background task that runs **every 6 hours** to prevent Supabase from pausing:
+
+```python
+@tasks.loop(hours=6)
+async def keep_supabase_alive():
+    """Ping Supabase every 6 hours to prevent project from pausing"""
+    # Simple lightweight query
+    response = supabase.table('guilds').select('guild_id').limit(1).execute()
+    logging.info("[SUPABASE] ✅ Ping successful - project stays active")
+```
+
+**Why this is needed:**
+- ⚠️ Supabase free tier pauses projects after 7 days of inactivity
+- ✅ Pinging every 6 hours keeps the project active
+- ✅ Lightweight query (only fetches 1 row)
+- ✅ Prevents data loss from paused projects
 
 ---
 
@@ -259,10 +281,12 @@ python bot.py
 
 ### 2. Monitor Logs
 Watch for these new log messages:
-- `[MEMORY] 🧹 Periodic memory cleanup task started`
+- `[MEMORY] 🧹 Periodic memory cleanup task started (runs every hour)`
+- `[SUPABASE] 🔄 Keep-alive task started (runs every 6 hours)`
 - `[MEMORY] 🧹 Cleaned up music state for guild X`
 - `[MEMORY] 🧹 Cleaned up voice cache: X entries removed`
 - `[MEMORY] ✅ Cleanup complete (Memory: XMB, Freed: YMB)`
+- `[SUPABASE] ✅ Ping successful - project stays active`
 
 ### 3. Deploy to Railway
 ```bash
@@ -295,11 +319,13 @@ git push
 
 | File | Changes | Impact |
 |------|---------|--------|
-| `engine/commands/music.py` | Per-guild state, cleanup functions | **CRITICAL** - Fixes massive memory leak |
+| `engine/commands/music.py` | Per-guild state, cleanup functions, NoneType fix | **CRITICAL** - Fixes massive memory leak + crashes |
 | `engine/commands/video.py` | Bounded voice cache with cleanup | **CRITICAL** - Prevents unbounded growth |
 | `engine/db.py` | Bounded ThreadPoolExecutor | **HIGH** - Prevents thread leaks |
 | `engine/ai/gemini.py` | Reduced LRU cache sizes | **MODERATE** - Saves 50-100MB |
-| `bot.py` | Added cleanup tasks and event handlers | **HIGH** - Automated maintenance |
+| `bot.py` | Added cleanup tasks, Supabase keep-alive, event handlers | **HIGH** - Automated maintenance |
+| `requirements.txt` | Updated discord.py to 2.6.4, PyNaCl, audioop-lts | **HIGH** - Fixes voice connection errors |
+| `DEPLOYMENT.md` | Complete documentation | **INFO** - Deployment guide |
 
 ---
 
@@ -309,11 +335,13 @@ git push
 - [ ] Music commands work (`/play`, `/queue`, `/skip`, `/leave`)
 - [ ] Video generation works (`chat meme`)
 - [ ] AI responses work (mentions with questions)
-- [ ] Check logs for `[MEMORY]` cleanup messages
+- [ ] Check logs for `[MEMORY]` cleanup messages (every hour)
+- [ ] Check logs for `[SUPABASE]` ping messages (every 6 hours)
 - [ ] Monitor Railway memory usage (should be <200MB)
 - [ ] Test across multiple servers (ensure per-guild state works)
 - [ ] Leave and rejoin voice channels (ensure cleanup works)
 - [ ] Remove bot from test server (ensure guild cleanup works)
+- [ ] Verify Supabase project stays active (check after 7 days)
 
 ---
 
@@ -351,8 +379,9 @@ These fixes address **the root causes** of your Railway RAM crashes. The combina
 - Bounded caches with automatic cleanup
 - Periodic memory maintenance
 - Event-driven cleanup on disconnects
+- Supabase keep-alive to prevent project pausing
 
-Should completely eliminate the memory leak issues you've been experiencing. Your bot should now run stably on Railway's 512MB plan with plenty of headroom!
+Should completely eliminate the memory leak issues you've been experiencing. Your bot should now run stably on Railway's 512MB plan with plenty of headroom, and your Supabase project will stay active indefinitely!
 
 **Estimated time to stability:** Immediate after deployment
 **Expected memory reduction:** 60-80%

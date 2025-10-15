@@ -119,6 +119,26 @@ async def periodic_memory_cleanup():
         
     except Exception as e:
         logging.error(f"[MEMORY] ❌ Periodic cleanup failed: {e}")
+
+# FIXED: Keep Supabase project active (prevents auto-pause on free tier)
+@tasks.loop(hours=6)  # Run every 6 hours
+async def keep_supabase_alive():
+    """Ping Supabase every 6 hours to prevent project from pausing"""
+    try:
+        logging.info("[SUPABASE] 🔄 Pinging Supabase to keep project active...")
+        
+        # Simple query to keep connection alive
+        # Check if guilds table exists (lightweight query)
+        response = supabase.table('guilds').select('guild_id').limit(1).execute()
+        
+        if response:
+            logging.info("[SUPABASE] ✅ Ping successful - project stays active")
+        else:
+            logging.warning("[SUPABASE] ⚠️ Ping returned no data, but connection established")
+            
+    except Exception as e:
+        logging.error(f"[SUPABASE] ❌ Ping failed: {e}")
+        # Don't crash the bot if Supabase ping fails - just log it
             
 @app.get("/status")
 def health_check():
@@ -316,6 +336,10 @@ async def on_ready():
     if not periodic_memory_cleanup.is_running():
         periodic_memory_cleanup.start()
         logging.info("[MEMORY] 🧹 Periodic memory cleanup task started (runs every hour)")
+    # FIXED: Start Supabase keep-alive task
+    if not keep_supabase_alive.is_running():
+        keep_supabase_alive.start()
+        logging.info("[SUPABASE] 🔄 Keep-alive task started (runs every 6 hours)")
     eventloop.event_loop = asyncio.get_running_loop()
     logging.info(f"Connected to Discord Gateway Region: {bot.latency:.2f} ms")
     logging.info(f'Logged in as {bot.user}')
