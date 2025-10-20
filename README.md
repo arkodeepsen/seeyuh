@@ -37,22 +37,22 @@ Seeyuh Bot is a powerful, AI-driven Discord bot designed for dynamic and multimo
   - `/help`: Get a list of all available commands.
   - `/info [@user]`: Fetch detailed information about the bot or tagged users.
   - `/ping`: Measure bot latency with a fun twist!
-  - `/imagine`: Generate AI-powered images with Qwen-Image (see below)
+  - `/imagine`: Generate AI-powered images (see below)
 - **Normal Commands**:  
   Handles basic text-based commands for classic Discord bot vibes.
 
 ### 🎨 **AI Image Generation (`/imagine`)**
 Generate stunning images with 25+ AI models:
-- **Multiple Models**: Qwen-Image, FLUX.1, Stable Diffusion 3.5, and 20+ more models
+- **Multiple Models**: seeyuh-image-high (unlimited), FLUX.1, Stable Diffusion 3.5, and 20+ more models
 - **Aspect Ratio Presets**: Choose from 8 preset ratios (1:1, 16:9, 9:16, 4:3, 3:4, 21:9, 3:2, 2:3)
 - **High Quality**: 1K+ resolution with customizable inference steps
-- **Real-time Status**: Loading animations with live progress updates (for Qwen-Image)
+- **Real-time Status**: Loading animations with live progress updates
 - **Custom Options**: Adjust model, width, height, steps, seed, and negative prompts
 
 **Example Usage:**
 ```
 /imagine prompt: a beautiful sunset over mountains
-         model: Qwen-Image
+         model: seeyuh-image-high (unlimited)
          aspect_ratio: 16:9 Landscape
          steps: 75
 ```

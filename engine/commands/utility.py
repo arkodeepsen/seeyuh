@@ -2070,7 +2070,7 @@ async def generate_image_and_text_gemini(prompt: str) -> tuple[str | None, io.By
 AVAILABLE_MODELS = {
     "Qwen-Image": {
         "model_id": "qwen-image",  # Special identifier for Qwen API
-        "description": "Image generated using Qwen-Image (High Quality, Fast Generation)"
+        "description": "Image generated using seeyuh-image-high (unlimited) (Fast Generation)"
     },
     "FLUX.1-schnell": {
         "model_id": "black-forest-labs/FLUX.1-schnell",
@@ -2235,8 +2235,37 @@ AVAILABLE_MODELS = {
 
 }
 
+# Create mapping from internal model values to display names
+MODEL_DISPLAY_NAMES = {
+    "Qwen-Image": "seeyuh-image-high (unlimited)",
+    "stable-diffusion-3.5-turbo": "Stable Diffusion 3.5 Turbo",
+    "FLUX.1-schnell": "FLUX.1-schnell",
+    "stable-diffusion-3.5-large": "Stable Diffusion 3.5 Large",
+    "FLUX.1-dev": "FLUX.1-dev",
+    "flux-ghibsky-illustration": "FLUX Ghibsky Illustration",
+    "Flux-Super-Realism-LoRA": "FLUX Super Realism LoRA",
+    "FLUX_master": "FLUX Master Highres",
+    "stable-diffusion-xl-base-1.0": "Stable Diffusion XL Base 1.0",
+    "RealVisXL_V4.0": "RealVisXL V4.0",
+    "epiCPhotoGasm": "epiCPhotoGasm",
+    "HyperRemix": "HyperRemix",
+    "AnalogMadness-realistic-model-v5": "AnalogMadness-realistic-model-v5",
+    "ZHMix-Dramatic-v2.0": "ZHMix-Dramatic-v2.0",
+    "MilkyWonderland_v1": "MilkyWonderland_v1",
+    "openjourney": "OpenJourney",
+    "LusterMix_v1.5_safetensors": "LusterMix_v1.5_safetensors",
+    "Chip_n_DallE": "Chip_n_DallE",
+    "ZemiHR_v2_diffusers": "ZemiHR_v2_diffusers",
+    "meinamix-meinav11-sd15": "meinamix-meinav11-sd15",
+    "ya3p_VAE": "ya3p_VAE",
+    "Maji5PlusCCTV": "maJi5PlusCCTV",
+    "DonutHoleMix_Beta": "DonutHoleMix_Beta",
+    "DucHaiten-Real3D-V1": "DucHaiten-Real3D-V1",
+    "Gap_2.6": "Gap_2.6",
+}
+
 MODEL_CHOICES = [
-    app_commands.Choice(name="Qwen-Image (Default - High Quality)", value="Qwen-Image"),
+    app_commands.Choice(name="seeyuh-image-high (Default - unlimited)", value="Qwen-Image"),
     app_commands.Choice(name="Stable Diffusion 3.5 Turbo", value="stable-diffusion-3.5-turbo"),
     app_commands.Choice(name="FLUX.1-schnell", value="FLUX.1-schnell"),
     app_commands.Choice(name="Stable Diffusion 3.5 Large", value="stable-diffusion-3.5-large"),
@@ -2339,7 +2368,7 @@ async def imagine_command(
             color=discord.Color.blue()
         )
         embed.set_image(url=f"attachment://{loading_gif_filename}")
-        embed.set_footer(text=f"Model: {model} | Resolution: {final_width or 1024}x{final_height or 1024}")
+        embed.set_footer(text=f"Model: {MODEL_DISPLAY_NAMES.get(model, model)} | Resolution: {final_width or 1024}x{final_height or 1024}")
         
         # Send loading message with attached GIF
         loading_message = await interaction.followup.send(embed=embed, file=loading_gif_file, wait=True)
