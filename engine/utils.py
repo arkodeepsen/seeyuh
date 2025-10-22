@@ -54,8 +54,9 @@ def pexels_env():
 
 def qwen_env():
     load_dotenv()  # Load environment variables from a .env file
-    QWEN_IMAGE_API_URL = os.getenv('QWEN_IMAGE_API_URL')
-    return QWEN_IMAGE_API_URL
+    RUNPOD_ENDPOINT_ID = os.getenv('RUNPOD_ENDPOINT_ID')
+    RUNPOD_API_KEY = os.getenv('RUNPOD_API_KEY')
+    return RUNPOD_ENDPOINT_ID, RUNPOD_API_KEY
 
 def intents():
     # Define the bot with intents

@@ -1704,9 +1704,9 @@ if not HF_API_KEY:
     logging.error("Hugging Face API Key not found. Please set HF_API_KEY in your environment variables.")
 
 # Qwen Image API URL
-QWEN_IMAGE_API_URL = qwen_env()
-if not QWEN_IMAGE_API_URL:
-    logging.error("Qwen Image API URL not found. Please set QWEN_IMAGE_API_URL in your environment variables.")
+RUNPOD_ENDPOINT_ID, RUNPOD_API_KEY = qwen_env()
+if not RUNPOD_ENDPOINT_ID or not RUNPOD_API_KEY:
+    logging.error("RunPod credentials not found. Please set RUNPOD_ENDPOINT_ID and RUNPOD_API_KEY in your environment variables.")
 
 # Aspect ratio presets for Qwen Image (1K quality)
 ASPECT_RATIOS = {
@@ -1740,6 +1740,40 @@ def check_explicit_content(prompt: str) -> bool:
     prompt_lower = prompt.lower()
     return any(keyword in prompt_lower for keyword in EXPLICIT_KEYWORDS)
 
+async def _fallback_to_gemini(prompt: str) -> io.BytesIO | None:
+    """
+    Fallback to Gemini image generation when RunPod fails.
+    
+    Args:
+        prompt: Text description of what to generate
+    
+    Returns:
+        io.BytesIO containing the generated PNG image, or None on failure
+    """
+    try:
+        logging.info(f"Using Gemini fallback for image generation: {prompt[:50]}...")
+        client = genai.Client()
+        response = client.models.generate_content(
+            model="gemini-2.0-flash-preview-image-generation",
+            contents=[prompt],
+            config=genai.types.GenerateContentConfig(
+                response_modalities=["IMAGE", "TEXT"]
+            )
+        )
+        
+        # Extract image from response
+        for part in response.candidates[0].content.parts:
+            if hasattr(part, 'inline_data') and part.inline_data is not None:
+                image_bytes = part.inline_data.data
+                logging.info("Image generated successfully via Gemini fallback")
+                return io.BytesIO(image_bytes)
+        
+        logging.error("No image data in Gemini response")
+        return None
+    except Exception as e:
+        logging.error(f"Gemini fallback also failed: {e}")
+        return None
+
 async def generate_image_qwen(
     prompt,
     negative_prompt=" ",  # Space character enables CFG
@@ -1753,7 +1787,8 @@ async def generate_image_qwen(
     status_callback=None  # Callback for status updates
 ):
     """
-    Generate an image using the Qwen Image API (always uses async endpoint).
+    Generate an image using the RunPod Serverless Qwen Image API.
+    Falls back to Gemini if RunPod fails.
     
     Args:
         prompt: Text description of what to generate
@@ -1770,186 +1805,138 @@ async def generate_image_qwen(
     Returns:
         io.BytesIO containing the generated PNG image, or None on failure
     """
-    if not QWEN_IMAGE_API_URL:
-        logging.error("Qwen Image API URL not configured")
-        return None
+    if not RUNPOD_ENDPOINT_ID or not RUNPOD_API_KEY:
+        logging.error("RunPod credentials not configured, falling back to Gemini")
+        return await _fallback_to_gemini(prompt)
     
-    # Prepare request payload
+    # Prepare request payload for RunPod serverless
     payload = {
-        "prompt": prompt,
-        "negative_prompt": negative_prompt,
-        "width": width,
-        "height": height,
-        "num_inference_steps": steps,
-        "true_cfg_scale": cfg_scale
+        "input": {
+            "prompt": prompt,
+            "negative_prompt": negative_prompt,
+            "width": width,
+            "height": height,
+            "num_inference_steps": steps,
+            "true_cfg_scale": cfg_scale
+        }
     }
     
     if seed is not None:
-        payload["seed"] = seed
+        payload["input"]["seed"] = seed
     
     try:
-        # Always use async endpoint for reliability
-        logging.info(f"Using async endpoint for Qwen image generation: {prompt[:50]}...")
+        logging.info(f"Using RunPod serverless for Qwen image generation: {prompt[:50]}...")
         
-        # Browser-like headers to bypass Cloudflare
+        # RunPod serverless headers
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Authorization': f'Bearer {RUNPOD_API_KEY}',
             'Content-Type': 'application/json'
         }
         
-        # Step 1: Start async job
+        runpod_url = f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}/run"
+        
+        # Step 1: Submit job to RunPod serverless
         async with aiohttp.ClientSession(headers=headers) as session:
             async with session.post(
-                f"{QWEN_IMAGE_API_URL}/generate_async",
+                runpod_url,
                 json=payload,
                 timeout=aiohttp.ClientTimeout(total=60)
             ) as response:
                 if response.status != 200:
                     error_text = await response.text()
-                    logging.error(f"Failed to start Qwen async job: {response.status}, {error_text}")
-                    return None
+                    logging.error(f"Failed to submit RunPod job: {response.status}, {error_text}")
+                    logging.info("Falling back to Gemini...")
+                    return await _fallback_to_gemini(prompt)
                 
                 result = await response.json()
-                job_id = result.get("job_id")
-                job_status = result.get("status", "unknown")
+                job_id = result.get("id")
                 
                 if not job_id:
-                    logging.error("No job_id returned from Qwen API")
-                    return None
+                    logging.error("No job_id returned from RunPod")
+                    return await _fallback_to_gemini(prompt)
                 
-                logging.info(f"Qwen job started: {job_id}, status: {job_status}")
-        
-        # Step 2: Poll for completion with robust error handling
-        max_attempts = 120  # 120 attempts * 2 seconds = 240 seconds (4 minutes)
-        poll_interval = 2  # Check every 2 seconds for faster response
-        attempt = 0
-        status = "queued"
-        failed_checks = 0
-        max_failed_checks = 5  # Allow up to 5 consecutive failed status checks
-        
-        async with aiohttp.ClientSession(headers=headers) as session:
-            while attempt < max_attempts:
+                logging.info(f"RunPod job submitted: {job_id}")
+            
+            # Step 2: Poll for completion
+            status_url = f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}/status/{job_id}"
+            max_attempts = 200  # 200 attempts * 3 seconds = 10 minutes
+            poll_interval = 3
+            
+            for attempt in range(max_attempts):
                 await asyncio.sleep(poll_interval)
-                attempt += 1
-                elapsed = attempt * poll_interval
                 
                 try:
                     async with session.get(
-                        f"{QWEN_IMAGE_API_URL}/status/{job_id}",
+                        status_url,
                         timeout=aiohttp.ClientTimeout(total=30)
                     ) as status_response:
                         if status_response.status != 200:
-                            failed_checks += 1
-                            logging.warning(f"Failed to check Qwen job status: {status_response.status} (failed checks: {failed_checks}/{max_failed_checks})")
-                            
-                            if failed_checks >= max_failed_checks:
-                                logging.error(f"Too many failed status checks ({failed_checks}), giving up")
-                                return None
+                            logging.warning(f"Failed to check status: {status_response.status}")
                             continue
                         
                         status_data = await status_response.json()
                         status = status_data.get("status")
-                        failed_checks = 0  # Reset on successful check
                         
-                        # Log progress every 10 seconds
-                        if attempt % 5 == 0:
-                            logging.info(f"Qwen job {job_id} status: {status} (after {elapsed}s)")
-                        
-                        # Call status callback if provided
+                        # Update status callback if provided
                         if status_callback:
                             try:
+                                elapsed = (attempt + 1) * poll_interval
                                 await status_callback(status, elapsed, max_attempts * poll_interval)
                             except Exception as e:
                                 logging.error(f"Status callback error: {e}")
                         
-                        if status == "done":
-                            logging.info(f"Qwen job completed: {job_id} (after {elapsed} seconds)")
-                            break
-                        elif status == "error":
-                            error_detail = status_data.get("detail", "Unknown error")
-                            logging.error(f"Qwen job failed: {error_detail}")
-                            if status_callback:
-                                try:
-                                    await status_callback("error", elapsed, max_attempts * poll_interval, error_detail)
-                                except Exception as e:
-                                    logging.error(f"Status callback error: {e}")
-                            return None
+                        if status == "COMPLETED":
+                            output = status_data.get("output")
+                            if not output:
+                                logging.error("No output in RunPod response")
+                                return await _fallback_to_gemini(prompt)
+                            
+                            image_b64 = output.get("image")
+                            result_seed = output.get("seed")
+                            
+                            if not image_b64:
+                                logging.error("No image data in RunPod result")
+                                return await _fallback_to_gemini(prompt)
+                            
+                            # Decode base64 image
+                            image_bytes = base64.b64decode(image_b64)
+                            logging.info(f"Qwen image generated successfully via RunPod. Seed: {result_seed}")
+                            return io.BytesIO(image_bytes)
+                            
+                        elif status == "FAILED":
+                            error_msg = status_data.get("error", "Unknown error")
+                            logging.error(f"RunPod job failed: {error_msg}")
+                            return await _fallback_to_gemini(prompt)
+                        
+                        elif status in ["IN_QUEUE", "IN_PROGRESS"]:
+                            # Still processing, continue polling
+                            if attempt % 5 == 0:  # Log every 15 seconds
+                                logging.info(f"RunPod job {job_id} status: {status} (attempt {attempt + 1}/{max_attempts})")
+                            continue
+                        else:
+                            logging.warning(f"Unknown RunPod status: {status}")
+                            continue
                 
                 except asyncio.TimeoutError:
-                    failed_checks += 1
-                    logging.warning(f"Timeout checking status (attempt {attempt}, failed checks: {failed_checks}/{max_failed_checks})")
-                    if failed_checks >= max_failed_checks:
-                        logging.error("Too many timeouts checking status, giving up")
-                        return None
+                    logging.warning(f"Timeout checking status (attempt {attempt + 1})")
                     continue
-                    
-                except aiohttp.ClientError as e:
-                    failed_checks += 1
-                    logging.warning(f"Network error checking status (attempt {attempt}): {e} (failed checks: {failed_checks}/{max_failed_checks})")
-                    if failed_checks >= max_failed_checks:
-                        logging.error("Too many network errors, giving up")
-                        return None
-                    continue
-                    
                 except Exception as e:
-                    failed_checks += 1
-                    logging.warning(f"Unexpected error checking status (attempt {attempt}): {e} (failed checks: {failed_checks}/{max_failed_checks})")
-                    if failed_checks >= max_failed_checks:
-                        logging.error("Too many errors, giving up")
-                        return None
+                    logging.warning(f"Error checking status: {e}")
                     continue
             
-            if status != "done":
-                logging.error(f"Qwen job timed out after {max_attempts * poll_interval} seconds ({max_attempts} attempts)")
-                return None
-            
-            # Step 3: Get result with retries
-            result_retries = 3
-            for retry in range(result_retries):
-                try:
-                    async with session.get(
-                        f"{QWEN_IMAGE_API_URL}/result/{job_id}",
-                        timeout=aiohttp.ClientTimeout(total=60)
-                    ) as result_response:
-                        if result_response.status != 200:
-                            error_text = await result_response.text()
-                            logging.error(f"Failed to get Qwen result: {result_response.status}, {error_text}")
-                            if retry < result_retries - 1:
-                                await asyncio.sleep(2)
-                                continue
-                            return None
-                        
-                        result_data = await result_response.json()
-                        image_b64 = result_data.get("image")
-                        result_seed = result_data.get("seed")
-                        
-                        if not image_b64:
-                            logging.error("No image data in Qwen result")
-                            return None
-                        
-                        # Decode base64 image
-                        image_bytes = base64.b64decode(image_b64)
-                        logging.info(f"Qwen image generated successfully. Seed: {result_seed}")
-                        return io.BytesIO(image_bytes)
-                        
-                except Exception as e:
-                    logging.error(f"Error getting result (retry {retry + 1}/{result_retries}): {e}")
-                    if retry < result_retries - 1:
-                        await asyncio.sleep(2)
-                        continue
-                    return None
-            
-            return None
+            # If we get here, we timed out
+            logging.error(f"RunPod job timed out after {max_attempts * poll_interval} seconds")
+            return await _fallback_to_gemini(prompt)
         
     except asyncio.TimeoutError:
-        logging.error("Qwen image generation timed out")
-        return None
+        logging.error("RunPod image generation timed out, falling back to Gemini")
+        return await _fallback_to_gemini(prompt)
     except aiohttp.ClientError as e:
-        logging.error(f"Qwen API client error: {e}")
-        return None
+        logging.error(f"RunPod API client error: {e}, falling back to Gemini")
+        return await _fallback_to_gemini(prompt)
     except Exception as e:
-        logging.error(f"Unexpected error in Qwen image generation: {e}")
-        return None
+        logging.error(f"Unexpected error in RunPod image generation: {e}, falling back to Gemini")
+        return await _fallback_to_gemini(prompt)
     
 async def generate_image(
     prompt,
