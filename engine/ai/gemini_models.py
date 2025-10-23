@@ -60,43 +60,43 @@ pro10creative = genai.GenerativeModel(
 )
 
 pro15creative = genai.GenerativeModel(
-    model_name='gemini-1.5-pro-latest',
+    model_name='gemini-pro-latest',
     generation_config=very_creative_pro,
     safety_settings=safety_settings
 )
 
 pro15normal = genai.GenerativeModel(
-    model_name='gemini-1.5-pro-latest',
+    model_name='gemini-pro-latest',
     generation_config=slightly_creative_pro,
     safety_settings=safety_settings
 )   
 
 flash15normal = genai.GenerativeModel(
-    model_name='gemini-1.5-flash-latest',
+    model_name='gemini-flash-latest',
     generation_config=slightly_creative_flash,
     safety_settings=safety_settings
 )
 
 flash15creative = genai.GenerativeModel(
-    model_name='gemini-1.5-flash-latest',
+    model_name='gemini-flash-latest',
     generation_config=very_creative_flash,
     safety_settings=safety_settings
 )
 
 flash158bn = genai.GenerativeModel(
-    model_name='gemini-1.5-flash-8b',
+    model_name='gemini-2.0-flash-lite-001',
     generation_config=slightly_creative_flash,
     safety_settings=safety_settings
 )
 
 flash158bc = genai.GenerativeModel(
-    model_name='gemini-1.5-flash-8b',
+    model_name='gemini-2.0-flash-lite-001',
     generation_config=very_creative_flash,
     safety_settings=safety_settings
 )
 
 flash2 = genai.GenerativeModel(
-    model_name='gemini-2.0-flash-exp',
+    model_name='gemini-2.0-flash',
     generation_config=slightly_creative_flash,
     safety_settings=safety_settings
 )

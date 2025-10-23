@@ -6,6 +6,7 @@ from google.generativeai import caching
 from typing import Optional
 import subprocess
 import re
+from google.genai import types
             
 load_dotenv()
 
@@ -22,6 +23,19 @@ logging.basicConfig(
 GOOGLE_API_KEY = os.getenv('GEMINI_PRO_API_KEY')
 genai.configure(api_key=GOOGLE_API_KEY)
 from engine.ai.gemini import genai_client
+
+# YouTube URL pattern
+YOUTUBE_PATTERN = re.compile(
+    r'(?:https?://)?(?:www\.)?' 
+    r'(?:youtube\.com/watch\?v=|youtu\.be/)' 
+    r'([a-zA-Z0-9_-]{11})'
+)
+
+# General URL pattern (excluding YouTube)
+GENERAL_URL_PATTERN = re.compile(
+    r'https?://(?!(?:www\.)?(?:youtube\.com|youtu\.be))[^\s]+',
+    re.IGNORECASE
+)
 
 async def wait_for_file_active(file_obj, timeout_seconds: int = 300, poll_interval: float = 1.5):
     """Poll Gemini Files API until the uploaded file becomes ACTIVE.
@@ -208,6 +222,141 @@ async def extract_content_from_file(sample_file, prompt, is_av=False, duration=0
         return None
 
 # Download and process an attachment from a URL
+async def handle_url_context(bot, message, urls: list):
+    """Handle general URLs using URL context tool"""
+    try:
+        text_input = message.content.strip().replace(f"<@{bot.user.id}>", "").replace("seeyuh", "").strip()
+        # Remove URLs from the prompt
+        for url in urls:
+            text_input = text_input.replace(url, '').strip()
+        
+        if not text_input:
+            text_input = f"Analyze and summarize the content from the following URL{'s' if len(urls) > 1 else ''}: {', '.join(urls)}"
+        else:
+            # Include URLs in the prompt for context
+            text_input = f"{text_input}\n\nRelevant URLs: {', '.join(urls)}"
+        
+        logging.info(f"Processing {len(urls)} URL(s) with URL context tool")
+        async with message.channel.typing():
+            active_model = await get_active_model()
+            logging.info(f"Using model: {active_model}")
+            
+            # Configure URL context tool
+            tools = [{"url_context": {}}]
+            
+            for attempt in range(2):
+                try:
+                    response = await asyncio.to_thread(
+                        genai_client.models.generate_content,
+                        model=active_model,
+                        contents=text_input,
+                        config=types.GenerateContentConfig(tools=tools)
+                    )
+                    
+                    if response and response.candidates and response.candidates[0].content.parts:
+                        full_text = []
+                        for part in response.candidates[0].content.parts:
+                            if hasattr(part, 'text') and part.text:
+                                full_text.append(part.text)
+                        
+                        text = '\n'.join(full_text).strip()
+                        if text:
+                            # Log URL context metadata if available
+                            if hasattr(response.candidates[0], 'url_context_metadata'):
+                                logging.info(f"URL context metadata: {response.candidates[0].url_context_metadata}")
+                            
+                            # Chunk response if too long
+                            if len(text) <= 2000:
+                                await message.reply(text)
+                            else:
+                                # Send in meaningful chunks
+                                remaining = text
+                                while len(remaining) > 2000:
+                                    slice_ = remaining[:2000]
+                                    cut = max(slice_.rfind('\n\n'), slice_.rfind('\n'), slice_.rfind('. '))
+                                    if cut < 1000:
+                                        cut = 2000
+                                    await message.reply(remaining[:cut].strip())
+                                    remaining = remaining[cut:].lstrip()
+                                if remaining:
+                                    await message.reply(remaining)
+                            return text
+                    break
+                except Exception as e:
+                    logging.error(f"URL context processing attempt {attempt + 1} failed: {str(e)}")
+                    if "quota" in str(e).lower():
+                        last_quota_failure = datetime.datetime.now(datetime.timezone.utc)
+                        if active_model == PRIMARY_MODEL:
+                            active_model = FALLBACK_MODEL
+                            continue
+                    if attempt < 1:
+                        await asyncio.sleep(2)
+                    else:
+                        await message.reply(f"❌ Failed to process URL(s): {str(e)}")
+                        return None
+    except Exception as e:
+        logging.error(f"URL context handling error: {e}")
+        await message.reply(f"❌ Error processing URL(s): {str(e)}")
+        return None
+
+async def handle_youtube_url(bot, message, youtube_url: str):
+    """Handle YouTube URL directly via Gemini API"""
+    try:
+        text_input = message.content.strip().replace(f"<@{bot.user.id}>", "").replace("seeyuh", "").strip()
+        # Remove the URL from the prompt
+        text_input = re.sub(YOUTUBE_PATTERN, '', text_input).strip()
+        if not text_input:
+            text_input = "Please summarize this video in detail."
+        
+        logging.info(f"Processing YouTube URL: {youtube_url}")
+        async with message.channel.typing():
+            active_model = await get_active_model()
+            logging.info(f"Using model: {active_model}")
+            
+            # Create content with YouTube URL
+            content = types.Content(
+                parts=[
+                    types.Part(file_data=types.FileData(file_uri=youtube_url)),
+                    types.Part(text=f"You are a chill discord bot with multimodal AI features. Your responses are genz style.\nCurrent query: {text_input}")
+                ]
+            )
+            
+            for attempt in range(2):
+                try:
+                    response = await asyncio.to_thread(
+                        genai_client.models.generate_content,
+                        model=active_model,
+                        contents=content
+                    )
+                    if response and response.text:
+                        # Chunk response if too long
+                        text = response.text
+                        if len(text) <= 2000:
+                            await message.reply(text)
+                        else:
+                            # Send in chunks
+                            chunks = [text[i:i+2000] for i in range(0, len(text), 2000)]
+                            for chunk in chunks:
+                                await message.reply(chunk)
+                        return text
+                    break
+                except Exception as e:
+                    logging.error(f"YouTube processing attempt {attempt + 1} failed: {str(e)}")
+                    if "quota" in str(e).lower():
+                        last_quota_failure = datetime.datetime.now(datetime.timezone.utc)
+                        if active_model == PRIMARY_MODEL:
+                            active_model = FALLBACK_MODEL
+                            continue
+                    if attempt < 1:
+                        await asyncio.sleep(2)
+                    else:
+                        await message.reply(f"❌ Failed to process YouTube video: {str(e)}")
+                        return None
+    except Exception as e:
+        logging.error(f"YouTube URL handling error: {e}")
+        await message.reply(f"❌ Error processing YouTube URL: {str(e)}")
+        return None
+
 async def handle_attachment(bot, message, attachment):
     file_path = None
     try:
@@ -243,64 +392,109 @@ async def handle_attachment(bot, message, attachment):
                     await message.reply("Failed to download the file.")
                     return
 
-        # If the file is an image, use Gemini image generation model for editing
+        # If the file is an image, check for editing keywords
         if content_type.startswith('image/'):
             from PIL import Image
             import io
             from engine.ai.gemini import genai_client
+            
+            # Get the user's prompt
+            text_input = message.content.strip().replace(f"<@{bot.user.id}>", "").replace("seeyuh", "").strip()
+            if not text_input:
+                text_input = "Explain the content of the image."
+            
+            # Define editing keywords
+            editing_keywords = ['edit', 'generate', 'make', 'change', 'add', 'replace', 'remove', 'create', 
+                              'modify', 'transform', 'alter', 'adjust', 'draw', 'paint', 'apply', 'insert']
+            
+            # Check if prompt contains editing keywords
+            should_edit = any(keyword in text_input.lower() for keyword in editing_keywords)
+            
             try:
                 pil_image = Image.open(file_path).convert("RGB")
-                # Use the message content as the prompt
-                text_input = message.content.strip().replace(f"<@{bot.user.id}>", "").replace("seeyuh", "").strip()
-                if not text_input:
-                    text_input = "Explain the content of the image."
                 
-                # Get active image model with fallback support
-                active_image_model = await get_active_image_model()
-                logging.info(f"Using image model: {active_image_model}")
-                
-                for attempt in range(2):  # Try primary then fallback
-                    try:
-                        response = genai_client.models.generate_content(
-                            model=active_image_model,
-                            contents=[text_input, pil_image],
-                            config={'response_modalities': ['TEXT', 'IMAGE']}
-                        )
-                        break  # Success, exit retry loop
-                    except Exception as e:
-                        logging.error(f"Image model {active_image_model} failed: {e}")
-                        if "quota" in str(e).lower():
-                            last_quota_failure = datetime.datetime.now(datetime.timezone.utc)
-                            logging.warning(f"Quota exhausted for {active_image_model}")
+                if should_edit:
+                    # Use image editing model
+                    logging.info("Editing keywords detected, using image editing model")
+                    active_image_model = await get_active_image_model()
+                    logging.info(f"Using image model: {active_image_model}")
+                    
+                    async with message.channel.typing():
+                        for attempt in range(2):  # Try primary then fallback
+                            try:
+                                response = await asyncio.to_thread(
+                                    genai_client.models.generate_content,
+                                    model=active_image_model,
+                                    contents=[text_input, pil_image],
+                                    config={'response_modalities': ['TEXT', 'IMAGE']}
+                                )
+                                break  # Success, exit retry loop
+                            except Exception as e:
+                                logging.error(f"Image model {active_image_model} failed: {e}")
+                                if "quota" in str(e).lower():
+                                    last_quota_failure = datetime.datetime.now(datetime.timezone.utc)
+                                    logging.warning(f"Quota exhausted for {active_image_model}")
+                                
+                                if attempt == 0 and active_image_model == PRIMARY_IMAGE_MODEL:
+                                    active_image_model = FALLBACK_IMAGE_MODEL
+                                    logging.info(f"Switching to fallback image model: {active_image_model}")
+                                    continue
+                                else:
+                                    raise e
                         
-                        if attempt == 0 and active_image_model == PRIMARY_IMAGE_MODEL:
-                            active_image_model = FALLBACK_IMAGE_MODEL
-                            logging.info(f"Switching to fallback image model: {active_image_model}")
-                            continue
-                        else:
-                            raise e
-                
-                # Collect image + text to send together
-                out_text = None
-                out_img_bytes = None
-                for part in response.candidates[0].content.parts:
-                    if hasattr(part, 'text') and part.text and not out_text:
-                        out_text = part.text
-                    elif hasattr(part, 'inline_data') and part.inline_data is not None and out_img_bytes is None:
-                        out_img_bytes = part.inline_data.data
-                if out_img_bytes:
-                    with io.BytesIO(out_img_bytes) as output:
-                        output.seek(0)
-                        file = discord.File(fp=output, filename="edited_image.png")
-                        await message.reply(content=(out_text or None), file=file)
-                        return "Image edited and sent."
-                if out_text:
-                    await message.reply(out_text)
-                    return "Image edited."
+                        # Collect image + text to send together
+                        out_text = None
+                        out_img_bytes = None
+                        for part in response.candidates[0].content.parts:
+                            if hasattr(part, 'text') and part.text and not out_text:
+                                out_text = part.text
+                            elif hasattr(part, 'inline_data') and part.inline_data is not None and out_img_bytes is None:
+                                out_img_bytes = part.inline_data.data
+                        if out_img_bytes:
+                            with io.BytesIO(out_img_bytes) as output:
+                                output.seek(0)
+                                file = discord.File(fp=output, filename="edited_image.png")
+                                await message.reply(content=(out_text or None), file=file)
+                                return "Image edited and sent."
+                        if out_text:
+                            await message.reply(out_text)
+                            return "Image edited."
+                else:
+                    # Use normal Gemini model for image analysis
+                    logging.info("No editing keywords detected, using normal Gemini model")
+                    active_model = await get_active_model()
+                    logging.info(f"Using model: {active_model}")
+                    
+                    async with message.channel.typing():
+                        model = genai.GenerativeModel(active_model)
+                        prompt = f"You are a chill discord bot with multimodal AI features. Your responses are genz style.\nCurrent query: {text_input}"
+                        
+                        for attempt in range(2):
+                            try:
+                                response = await asyncio.to_thread(model.generate_content, [pil_image, prompt])
+                                if response and response.text:
+                                    await message.reply(response.text[:2000])
+                                    return response.text
+                                break
+                            except Exception as e:
+                                logging.error(f"Attempt {attempt + 1} failed: {str(e)}")
+                                if "quota" in str(e).lower():
+                                    last_quota_failure = datetime.datetime.now(datetime.timezone.utc)
+                                    logging.warning(f"Quota exhausted for {active_model}, switching to fallback")
+                                    if active_model == PRIMARY_MODEL:
+                                        active_model = FALLBACK_MODEL
+                                        model = genai.GenerativeModel(active_model)
+                                        continue
+                                if attempt < 1:
+                                    await asyncio.sleep(2)
+                                else:
+                                    await message.reply("Failed to analyze the image.")
+                                    return "Failed to analyze the image."
+                        
             except Exception as e:
-                logging.error(f"Gemini image edit error: {e}")
-                await message.reply(f"❌ Error editing image: {str(e)}")
-                return f"Error editing image: {str(e)}"
+                logging.error(f"Gemini image processing error: {e}")
+                await message.reply(f"❌ Error processing image: {str(e)}")
+                return f"Error processing image: {str(e)}"
 
         # Check if file is video
         is_av = attachment.content_type.startswith(('video/', 'audio/'))
@@ -468,6 +662,44 @@ async def handle_attachment(bot, message, attachment):
 async def handle_message_files(bot, message):
     """Collect multiple attachments and URLs from the message/thread, send to Gemini in one call."""
     try:
+        # Check for YouTube URLs first
+        youtube_urls = YOUTUBE_PATTERN.findall(message.content or "")
+        if youtube_urls:
+            # Process first YouTube URL found
+            yt_url = f"https://www.youtube.com/watch?v={youtube_urls[0]}"
+            return await handle_youtube_url(bot, message, yt_url)
+        
+        # Check referenced message for YouTube URLs
+        if message.reference:
+            try:
+                ref = await message.channel.fetch_message(message.reference.message_id)
+                youtube_urls = YOUTUBE_PATTERN.findall(ref.content or "")
+                if youtube_urls:
+                    yt_url = f"https://www.youtube.com/watch?v={youtube_urls[0]}"
+                    return await handle_youtube_url(bot, message, yt_url)
+            except Exception:
+                pass
+        
+        # Check for general URLs (non-YouTube, non-image attachments)
+        general_urls = GENERAL_URL_PATTERN.findall(message.content or "")
+        if message.reference:
+            try:
+                ref = await message.channel.fetch_message(message.reference.message_id)
+                general_urls.extend(GENERAL_URL_PATTERN.findall(ref.content or ""))
+            except Exception:
+                pass
+        
+        # Filter out image URLs that will be handled separately
+        image_extensions = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg'}
+        non_image_urls = [
+            url for url in general_urls 
+            if not any(url.lower().endswith(ext) for ext in image_extensions)
+        ]
+        
+        # If we have general URLs and no attachments, use URL context tool
+        if non_image_urls and not message.attachments:
+            return await handle_url_context(bot, message, non_image_urls[:10])  # Limit to 10 URLs
+        
         # Collect file sources: attachments + URLs in message and referenced message
         urls = []
         url_pattern = re.compile(r"https?://[^\s]+", re.IGNORECASE)

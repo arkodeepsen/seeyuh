@@ -429,6 +429,7 @@ utility.welcome_message.category = "Utility"
 utility.welcome_channel.category = "Utility"
 utility.welcome_show.category = "Utility"
 utility.welcome_reset.category = "Utility"
+utility.animate_command.category = "Utility"
 bot.tree.add_command(utility.say_command)
 bot.tree.add_command(utility.emoji_command)
 bot.tree.add_command(utility.avatar_command)
@@ -465,6 +466,7 @@ bot.tree.add_command(utility.welcome_message)
 bot.tree.add_command(utility.welcome_channel)
 bot.tree.add_command(utility.welcome_show)
 bot.tree.add_command(utility.welcome_reset)
+bot.tree.add_command(utility.animate_command)
 
 # Register the commands from fun.py
 fun.roast_command.category = "Fun"

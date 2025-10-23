@@ -58,6 +58,12 @@ def qwen_env():
     RUNPOD_API_KEY = os.getenv('RUNPOD_API_KEY')
     return RUNPOD_ENDPOINT_ID, RUNPOD_API_KEY
 
+def infinitetalk_env():
+    load_dotenv()  # Load environment variables from a .env file
+    INFINITETALK_ENDPOINT_ID = os.getenv('INFINITETALK_ENDPOINT_ID')
+    INFINITETALK_API_KEY = os.getenv('INFINITETALK_API_KEY', os.getenv('RUNPOD_API_KEY'))  # Fallback to RUNPOD_API_KEY
+    return INFINITETALK_ENDPOINT_ID, INFINITETALK_API_KEY
+
 def intents():
     # Define the bot with intents
     intents = discord.Intents.default()

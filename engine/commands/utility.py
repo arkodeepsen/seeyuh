@@ -14,8 +14,59 @@ from bs4 import BeautifulSoup
 from PIL import Image, ImageDraw, ImageFont
 from contextlib import contextmanager
 from filelock import FileLock
-from engine.utils import load_env, get_reddit_access_token, unsplash_env, hf_env, pexels_env, qwen_env
+from engine.utils import load_env, get_reddit_access_token, unsplash_env, hf_env, pexels_env, qwen_env, infinitetalk_env
 from engine.db import get_welcome_settings, set_welcome_settings
+
+# S3/Network Volume Configuration for InfiniteTalk (from environment)
+S3_ENDPOINT = os.getenv("S3_ENDPOINT", "https://s3api-eu-cz-1.runpod.io")
+S3_REGION = os.getenv("S3_REGION", "eu-cz-1")
+S3_BUCKET = os.getenv("S3_BUCKET", "efrqbt1i4d")
+
+# Bot domain configuration (required for download URLs)
+BOT_DOMAIN = os.getenv("BOT_DOMAIN", "https://your-bot-domain.com")
+
+# S3 Uploader for InfiniteTalk
+class S3Uploader:
+    """Handle automatic uploads to RunPod Network Volume."""
+
+    def __init__(self, access_key: str, secret_key: str):
+        import boto3
+        from botocore.exceptions import ClientError
+        self.s3_client = boto3.client(
+            's3',
+            endpoint_url=S3_ENDPOINT,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            region_name=S3_REGION
+        )
+
+    def upload_file(self, file_bytes: bytes, filename: str, folder: str = "") -> str:
+        """
+        Upload file to network volume.
+
+        Returns: Path for RunPod API (e.g., /runpod-volume/images/file.jpg)
+        """
+        # Generate unique filename to avoid conflicts
+        import uuid
+        unique_id = uuid.uuid4().hex[:8]
+        name, ext = os.path.splitext(filename)
+        s3_key = f"{folder}{name}_{unique_id}{ext}" if folder else f"{name}_{unique_id}{ext}"
+
+        # Remove leading slash
+        s3_key = s3_key.lstrip('/')
+
+        try:
+            self.s3_client.put_object(
+                Bucket=S3_BUCKET,
+                Key=s3_key,
+                Body=file_bytes
+            )
+
+            # Return path for RunPod API
+            return f"/runpod-volume/{s3_key}"
+
+        except Exception as e:
+            raise Exception(f"S3 upload failed: {e}")
 from engine.ai.gemini_multimodal import handle_interaction
 from engine.ai.gemini import code_ai_response, explain_ai_response, ask_ai_response, translate, prompt_ai_response, get_tts_text
 from engine.ai.gemini_models import (
@@ -3286,6 +3337,577 @@ async def welcome_channel(interaction: discord.Interaction, channel: discord.Tex
         return
     set_welcome_settings(str(interaction.guild.id), channel_id=str(channel.id))
     await interaction.response.send_message(f"📢 Welcome channel set to {channel.mention}")
+
+
+# Aspect ratio presets for InfiniteTalk (custom resolutions supported)
+aspect_ratio_choices = [
+    app_commands.Choice(name="16:9 - 854px (854x480)", value="854x480"),
+    app_commands.Choice(name="9:16 - 854px Portrait (480x854)", value="480x854"),
+    app_commands.Choice(name="1:1 - 512px (512x512)", value="512x512"),
+    app_commands.Choice(name="16:9 - 512px (512x288)", value="512x288"),
+    app_commands.Choice(name="16:9 - 768px (768x432)", value="768x432"),
+    app_commands.Choice(name="9:16 - 512px (288x512)", value="288x512"),
+    app_commands.Choice(name="9:16 - 768px Portrait (432x768)", value="432x768")
+]
+
+def get_dimensions_from_preset(preset: str) -> tuple:
+    """Convert preset string to width and height"""
+    try:
+        width, height = preset.split('x')
+        return (int(width), int(height))
+    except:
+        return (512, 512)  # Default
+
+@app_commands.command(name="animate", description="Animate an image/video with audio using Seeyuh-Animate-S2V")
+@app_commands.describe(
+    media="Image or video to animate (PNG/JPG/MP4/MOV)",
+    audio="Audio file (WAV/MP3) - optional if using text",
+    audio2="Secondary audio file for multi-person mode (optional)",
+    text="Text for TTS audio - optional if using audio file",
+    prompt="Animation prompt/style - optional, AI will use default if empty",
+    resolution="Output aspect ratio preset",
+    person_count="Number of people in the animation",
+    language="Language for text-to-speech (if using text)"
+)
+@app_commands.choices(
+    resolution=aspect_ratio_choices,
+    person_count=[
+        app_commands.Choice(name="Single Person", value="single"),
+        app_commands.Choice(name="Multi-Person", value="multi")
+    ],
+    language=tts_language_choices
+)
+async def animate_command(
+    interaction: discord.Interaction,
+    media: discord.Attachment,
+    audio: discord.Attachment = None,
+    audio2: discord.Attachment = None,
+    text: str = None,
+    prompt: str = None,
+    resolution: app_commands.Choice[str] = None,
+    person_count: app_commands.Choice[str] = None,
+    language: app_commands.Choice[str] = None
+):
+    """Animate an image/video with audio using InfiniteTalk AI from RunPod"""
+    
+    # Load InfiniteTalk credentials
+    INFINITETALK_ENDPOINT_ID, INFINITETALK_API_KEY = infinitetalk_env()
+
+    if not INFINITETALK_ENDPOINT_ID or not INFINITETALK_API_KEY:
+        await interaction.response.send_message(
+            "❌ InfiniteTalk is not configured. Please set `INFINITETALK_ENDPOINT_ID` and `INFINITETALK_API_KEY` environment variables.",
+            ephemeral=True
+        )
+        return
+
+    # Get S3 credentials for network volume uploads
+    s3_access_key = os.getenv("RUNPOD_VOLUME_ACCESS_KEY", "")
+    s3_secret_key = os.getenv("RUNPOD_VOLUME_SECRET_KEY", "")
+
+    if not s3_access_key or not s3_secret_key:
+        await interaction.response.send_message(
+            "❌ S3 credentials not configured. Please set `RUNPOD_VOLUME_ACCESS_KEY` and `RUNPOD_VOLUME_SECRET_KEY` environment variables.",
+            ephemeral=True
+        )
+        return
+    
+    # Validate media format (image or video)
+    is_video = media.content_type and media.content_type.startswith('video/')
+    is_image = media.content_type and media.content_type.startswith('image/')
+    
+    if not is_image and not is_video:
+        await interaction.response.send_message(
+            "❌ Please provide a valid image (PNG/JPG) or video (MP4/MOV) file.",
+            ephemeral=True
+        )
+        return
+    
+    # Validate audio/text input
+    person_count_value = person_count.value if person_count else "single"
+    if not audio and not text:
+        await interaction.response.send_message(
+            "❌ You must provide either:\n"
+            "• An audio file, OR\n"
+            "• Text for text-to-speech\n\n"
+            "If you provide text without a language, AI will detect the best language automatically.",
+            ephemeral=True
+        )
+        return
+
+    # Validate second audio for multi-person mode
+    if person_count_value == "multi" and audio and not audio2:
+        await interaction.response.send_message(
+            "❌ Multi-person mode requires two audio files. Please provide both primary and secondary audio files.",
+            ephemeral=True
+        )
+        return
+    
+    # Validate audio format if provided
+    if audio and audio.content_type and not audio.content_type.startswith('audio/'):
+        await interaction.response.send_message(
+            "❌ Please provide a valid audio file (WAV, MP3).",
+            ephemeral=True
+        )
+        return
+    
+    await interaction.response.defer()
+    
+    try:
+        # Initialize S3 uploader
+        s3_uploader = S3Uploader(s3_access_key, s3_secret_key)
+
+        # Upload media to S3
+        media_bytes = await media.read()
+        media_type = "video" if is_video else "image"
+        media_path = s3_uploader.upload_file(media_bytes, media.filename, folder=media_type + "s")
+        logging.info(f"Uploaded media to network volume: {media_path}")
+
+        # Get dimensions from resolution preset
+        width, height = get_dimensions_from_preset(resolution.value if resolution else "512x512")
+
+        # Prepare base payload with network volume
+        person_count_value = person_count.value if person_count else "single"
+        payload = {
+            "input": {
+                "prompt": prompt if prompt else "Create a natural, expressive talking animation that matches the audio perfectly with realistic facial movements and lip sync",
+                "input_type": media_type,  # "image" or "video"
+                "person_count": person_count_value,
+                "width": width,
+                "height": height,
+                "network_volume": True
+            }
+        }
+
+        # Add media path based on input type
+        if media_type == "image":
+            payload["input"]["image_path"] = media_path
+        else:
+            payload["input"]["video_path"] = media_path
+        
+        # Handle audio source
+        audio_source = None
+        if audio:
+            # User provided audio file - upload to S3
+            audio_bytes = await audio.read()
+            audio_path = s3_uploader.upload_file(audio_bytes, audio.filename, folder="audio")
+            payload["input"]["wav_path"] = audio_path
+            audio_source = f"audio file: {audio.filename}"
+            logging.info(f"Uploaded primary audio to network volume: {audio_path}")
+
+            # Handle second audio for multi-person mode
+            if person_count_value == "multi" and audio2:
+                audio2_bytes = await audio2.read()
+                audio2_path = s3_uploader.upload_file(audio2_bytes, audio2.filename, folder="audio")
+                payload["input"]["wav_path_2"] = audio2_path
+                audio_source += f" + {audio2.filename}"
+                logging.info(f"Uploaded secondary audio to network volume: {audio2_path}")
+        
+        elif text:
+            # Use text-to-speech
+            tts_text = text
+            tts_language = language.value if language else None
+            
+            # If no language specified, use AI to detect language and generate appropriate text
+            if not tts_language:
+                logging.info(f"No language specified, using AI to detect and optimize text...")
+                
+                # Use AI to analyze text and determine best language
+                ai_prompt = f"""Analyze this text and determine the most appropriate language code and potentially improve the text for natural speech.
+
+Text: {text}
+
+Return ONLY a JSON object with this exact format (no markdown, no code blocks):
+{{"text": "optimized text for speech", "language": "language-code"}}
+
+Language codes: en-US, en-GB, es, fr, de, it, pt, ru, ja, ko, zh, hi, ar, nl, pl, tr, vi, th, el, sv, da, fi, no, cs, bn
+
+If text is already good, return it as-is. Only improve if needed for better speech synthesis."""
+                
+                try:
+                    ai_response = await get_tts_text(ai_prompt, "en")
+                    # Parse AI response
+                    ai_response = ai_response.strip()
+                    # Remove markdown code blocks if present
+                    if ai_response.startswith('```'):
+                        ai_response = ai_response.split('```')[1]
+                        if ai_response.startswith('json'):
+                            ai_response = ai_response[4:]
+                    
+                    ai_data = json.loads(ai_response)
+                    tts_text = ai_data.get("text", text)
+                    tts_language = ai_data.get("language", "en-US")
+                    logging.info(f"AI detected language: {tts_language}, optimized text: {tts_text[:50]}...")
+                except Exception as e:
+                    logging.warning(f"AI language detection failed, using defaults: {e}")
+                    tts_language = "en-US"
+            
+            # Generate TTS audio using edge-tts with gTTS fallback
+            tts_temp_path = TEMP_DIR / f'tts_{interaction.user.id}_{int(time.time())}.mp3'
+            
+            try:
+                import edge_tts
+                
+                # Map our language codes to edge-tts voices
+                voice_map = {
+                    "en-US": "en-US-AriaNeural",
+                    "en-GB": "en-GB-SoniaNeural",
+                    "es": "es-ES-ElviraNeural",
+                    "fr": "fr-FR-DeniseNeural",
+                    "de": "de-DE-KatjaNeural",
+                    "it": "it-IT-ElsaNeural",
+                    "pt": "pt-BR-FranciscaNeural",
+                    "ru": "ru-RU-SvetlanaNeural",
+                    "ja": "ja-JP-NanamiNeural",
+                    "ko": "ko-KR-SunHiNeural",
+                    "zh": "zh-CN-XiaoxiaoNeural",
+                    "hi": "hi-IN-SwaraNeural",
+                    "ar": "ar-SA-ZariyahNeural",
+                    "nl": "nl-NL-ColetteNeural",
+                    "pl": "pl-PL-ZofiaNeural",
+                    "tr": "tr-TR-EmelNeural",
+                    "vi": "vi-VN-HoaiMyNeural",
+                    "th": "th-TH-PremwadeeNeural",
+                    "el": "el-GR-AthinaNeural",
+                    "sv": "sv-SE-SofieNeural",
+                    "da": "da-DK-ChristelNeural",
+                    "fi": "fi-FI-NooraNeural",
+                    "no": "nb-NO-PernilleNeural",
+                    "cs": "cs-CZ-VlastaNeural",
+                    "bn": "bn-IN-TanishaaNeural"
+                }
+                
+                voice = voice_map.get(tts_language, "en-US-AriaNeural")
+                
+                # Generate audio with edge-tts
+                communicate = edge_tts.Communicate(tts_text, voice)
+                await communicate.save(str(tts_temp_path))
+                
+                audio_source = f"TTS (edge-tts): '{tts_text[:30]}...' in {tts_language}"
+                logging.info(f"Generated TTS audio with edge-tts: {tts_text[:50]} in {tts_language}")
+                
+            except (ImportError, Exception) as edge_error:
+                logging.warning(f"edge-tts failed: {edge_error}, falling back to gTTS")
+                
+                try:
+                    from gtts import gTTS
+                    
+                    # Map to gTTS language codes
+                    gtts_lang_map = {
+                        "en-US": "en", "en-GB": "en", "es": "es", "fr": "fr",
+                        "de": "de", "it": "it", "pt": "pt", "ru": "ru",
+                        "ja": "ja", "ko": "ko", "zh": "zh-CN", "hi": "hi",
+                        "ar": "ar", "nl": "nl", "pl": "pl", "tr": "tr",
+                        "vi": "vi", "th": "th", "el": "el", "sv": "sv",
+                        "da": "da", "fi": "fi", "no": "no", "cs": "cs", "bn": "bn"
+                    }
+                    
+                    gtts_lang = gtts_lang_map.get(tts_language, "en")
+                    tts = gTTS(text=tts_text, lang=gtts_lang)
+                    tts.save(str(tts_temp_path))
+                    
+                    audio_source = f"TTS (gTTS): '{tts_text[:30]}...' in {tts_language}"
+                    logging.info(f"Generated TTS audio with gTTS fallback: {tts_text[:50]} in {gtts_lang}")
+                    
+                except Exception as gtts_error:
+                    logging.error(f"Both edge-tts and gTTS failed: {gtts_error}")
+                    await interaction.followup.send(f"❌ Failed to generate text-to-speech. Install edge-tts or gTTS: `pip install edge-tts gtts`")
+                    return
+            
+            # Upload generated audio to S3
+            try:
+                async with aiofiles.open(tts_temp_path, 'rb') as f:
+                    tts_audio_bytes = await f.read()
+
+                # Upload TTS audio to S3
+                tts_filename = f"tts_{interaction.user.id}_{int(time.time())}.mp3"
+                audio_path = s3_uploader.upload_file(tts_audio_bytes, tts_filename, folder="tts")
+                payload["input"]["wav_path"] = audio_path
+                logging.info(f"Uploaded TTS audio to network volume: {audio_path}")
+
+                # Cleanup temp file
+                tts_temp_path.unlink()
+
+            except Exception as e:
+                logging.error(f"Failed to upload TTS audio: {e}")
+                if tts_temp_path.exists():
+                    tts_temp_path.unlink()
+                await interaction.followup.send(f"❌ Failed to process TTS audio: {str(e)}")
+                return
+        
+        # Handle prompt
+        if prompt:
+            payload["input"]["prompt"] = prompt
+            logging.info(f"Using custom prompt: {prompt}")
+        else:
+            # Use default prompt
+            payload["input"]["prompt"] = "Create a natural, expressive talking animation that matches the audio perfectly with realistic facial movements and lip sync"
+            logging.info("Using default animation prompt")
+        
+        # Headers for RunPod API
+        headers = {
+            'Authorization': f'Bearer {INFINITETALK_API_KEY}',
+            'Content-Type': 'application/json'
+        }
+        
+        # Submit job to InfiniteTalk RunPod endpoint
+        runpod_url = f"https://api.runpod.ai/v2/{INFINITETALK_ENDPOINT_ID}/run"
+        
+        logging.info(f"Submitting InfiniteTalk job for {interaction.user.name}...")
+        
+        async with aiohttp.ClientSession() as session:
+            # Submit job
+            async with session.post(runpod_url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    logging.error(f"InfiniteTalk submission failed: {response.status} - {error_text}")
+                    await interaction.followup.send(f"❌ Failed to submit animation job: {response.status}")
+                    return
+                
+                result = await response.json()
+                job_id = result.get('id')
+                
+                if not job_id:
+                    await interaction.followup.send("❌ Failed to get job ID from InfiniteTalk")
+                    return
+                
+                logging.info(f"InfiniteTalk job submitted: {job_id}")
+                
+                # Pick a random loading GIF (same as /imagine)
+                loading_gif_path = random.choice(LOADING_GIFS)
+                loading_gif_filename = os.path.basename(loading_gif_path)
+                
+                # Load the local GIF file
+                loading_gif_file = discord.File(loading_gif_path, filename=loading_gif_filename)
+                
+                # Create initial embed with loading GIF
+                embed = discord.Embed(
+                    title="🎬 Animation In Progress",
+                    description=f"**Job ID:** `{job_id}`\n**Status:** Submitting to RunPod...",
+                    color=discord.Color.blue()
+                )
+                embed.add_field(name="🖼️ Media", value=f"{media_type} ({media.filename})", inline=True)
+                embed.add_field(name="🔊 Audio", value=audio_source[:100], inline=True)
+                
+                # Fix aspect ratio display
+                resolution_name = resolution.name if resolution else "1:1 - 512px (512x512)"
+                embed.add_field(name="📐 Resolution", value=f"{resolution_name}", inline=True)
+                
+                if prompt:
+                    embed.add_field(name="💭 Prompt", value=prompt[:200] + ('...' if len(prompt) > 200 else ''), inline=False)
+                
+                embed.set_image(url=f"attachment://{loading_gif_filename}")
+                embed.set_footer(text="This may take 20-30 minutes for complex animations")
+                
+                status_message = await interaction.followup.send(embed=embed, file=loading_gif_file)
+            
+            # Poll for completion (up to 40 minutes for long jobs)
+            status_url = f"https://api.runpod.ai/v2/{INFINITETALK_ENDPOINT_ID}/status/{job_id}"
+            max_attempts = 480  # 40 minutes max (5s intervals)
+            attempt = 0
+            last_status = None
+            start_time = time.time()
+            
+            while attempt < max_attempts:
+                await asyncio.sleep(5)  # Wait 5 seconds between polls
+                attempt += 1
+                elapsed = time.time() - start_time
+                
+                async with session.get(status_url, headers=headers) as status_response:
+                    if status_response.status != 200:
+                        logging.error(f"Failed to check job status: {status_response.status}")
+                        continue
+                    
+                    status_data = await status_response.json()
+                    job_status = status_data.get('status')
+                    
+                    logging.info(f"InfiniteTalk job {job_id} status: {job_status} (attempt {attempt}/{max_attempts}, {elapsed:.0f}s elapsed)")
+                    
+                    # Update embed every 30 seconds or when status changes
+                    if job_status != last_status or attempt % 6 == 0:
+                        embed.description = f"**Job ID:** `{job_id}`\n**Status:** {job_status}\n**Elapsed Time:** {elapsed/60:.1f} minutes"
+                        embed.color = discord.Color.orange() if job_status == "IN_PROGRESS" else discord.Color.blue()
+                        
+                        try:
+                            await status_message.edit(embed=embed)
+                        except:
+                            pass
+                        
+                        last_status = job_status
+                    
+                    if job_status == 'COMPLETED':
+                        output = status_data.get('output')
+                        
+                        if not output:
+                            embed.title = "❌ Animation Failed"
+                            embed.description = "Animation completed but no output found."
+                            embed.color = discord.Color.red()
+                            await status_message.edit(embed=embed)
+                            return
+                        
+                        # Handle different output formats
+                        video_url = None
+                        if isinstance(output, dict):
+                            # Try different possible field names for the video
+                            video_url = (output.get('video_url') or
+                                       output.get('video_path') or
+                                       output.get('output') or
+                                       output.get('result') or
+                                       output.get('video'))
+
+                            # If video_path starts with /runpod-volume/, download directly from S3
+                            if video_url and video_url.startswith('/runpod-volume/'):
+                                filename = video_url.split('/')[-1]
+                                logging.info(f"Downloading video directly from S3: {filename}")
+
+                                # Download directly from S3 instead of using backend URL
+                                try:
+                                    # Initialize S3 client
+                                    import boto3
+                                    from botocore.exceptions import ClientError
+
+                                    s3_client = boto3.client(
+                                        's3',
+                                        endpoint_url=S3_ENDPOINT,
+                                        aws_access_key_id=s3_access_key,
+                                        aws_secret_access_key=s3_secret_key,
+                                        region_name=S3_REGION
+                                    )
+
+                                    # Get video from S3
+                                    s3_response = s3_client.get_object(Bucket=S3_BUCKET, Key=filename)
+                                    video_bytes = s3_response['Body'].read()
+
+                                    logging.info(f"Successfully downloaded {len(video_bytes)} bytes from S3")
+
+                                    # Send video directly without URL-based download
+                                    temp_video = TEMP_DIR / f'animated_{interaction.user.id}_{job_id}.mp4'
+                                    try:
+                                        async with aiofiles.open(temp_video, 'wb') as f:
+                                            await f.write(video_bytes)
+
+                                        # Delete the status embed and send video
+                                        try:
+                                            await status_message.delete()
+                                        except:
+                                            pass
+
+                                        # Send the animated video
+                                        exec_time = status_data.get('executionTime', 0) / 1000
+                                        await interaction.followup.send(
+                                            f"✅ **Animation Complete!**\n"
+                                            f"⏱️ Total Time: {elapsed/60:.1f} minutes (Execution: {exec_time:.1f}s)\n"
+                                            f"🎬 Generated by InfiniteTalk AI\n"
+                                            f"📐 {width}x{height}",
+                                            file=discord.File(temp_video, filename=f"animated_{job_id}.mp4")
+                                        )
+
+                                        logging.info(f"Animation sent successfully for job {job_id}")
+                                        return
+
+                                    finally:
+                                        # Cleanup
+                                        if temp_video.exists():
+                                            temp_video.unlink()
+
+                                except Exception as s3_error:
+                                    logging.error(f"Failed to download from S3: {s3_error}")
+                                    # Fall back to trying the backend URL if S3 fails
+                                    video_url = f"{BOT_DOMAIN}/infinittalk/download-public/{filename}"
+                                    logging.info(f"Falling back to backend URL: {video_url}")
+                                    # Continue with URL-based download
+                        elif isinstance(output, str):
+                            video_url = output
+                        elif isinstance(output, list) and len(output) > 0:
+                            video_url = output[0]
+                        
+                        if not video_url:
+                            logging.error(f"Could not extract video URL from output: {output}")
+                            embed.title = "❌ Animation Failed"
+                            embed.description = "Animation completed but video URL not found in output."
+                            embed.color = discord.Color.red()
+                            await status_message.edit(embed=embed)
+                            return
+                        
+                        logging.info(f"Animation completed! Video URL: {video_url}")
+                        
+                        # Update embed to show downloading
+                        embed.title = "📥 Downloading Video"
+                        embed.description = f"**Job ID:** `{job_id}`\n**Status:** Downloading completed video..."
+                        embed.color = discord.Color.green()
+                        try:
+                            await status_message.edit(embed=embed)
+                        except:
+                            pass
+                        
+                        # Download the video
+                        async with session.get(video_url, timeout=aiohttp.ClientTimeout(total=120)) as video_response:
+                            if video_response.status != 200:
+                                embed.title = "❌ Download Failed"
+                                embed.description = f"Failed to download video: {video_response.status}"
+                                embed.color = discord.Color.red()
+                                await status_message.edit(embed=embed)
+                                return
+                            
+                            video_bytes = await video_response.read()
+                            
+                            # Save to temp file
+                            temp_video = TEMP_DIR / f'animated_{interaction.user.id}_{job_id}.mp4'
+                            try:
+                                async with aiofiles.open(temp_video, 'wb') as f:
+                                    await f.write(video_bytes)
+                                
+                                # Delete the status embed and send video
+                                try:
+                                    await status_message.delete()
+                                except:
+                                    pass
+                                
+                                # Send the animated video
+                                exec_time = status_data.get('executionTime', 0) / 1000
+                                await interaction.followup.send(
+                                    f"✅ **Animation Complete!**\\n"
+                                    f"⏱️ Total Time: {elapsed/60:.1f} minutes (Execution: {exec_time:.1f}s)\\n"
+                                    f"🎬 Generated by InfiniteTalk AI\\n"
+                                    f"📐 {width}x{height} ({resolution.name if resolution else 'Square'})",
+                                    file=discord.File(temp_video, filename=f"animated_{job_id}.mp4")
+                                )
+                                
+                                logging.info(f"Animation sent successfully for job {job_id}")
+                                return
+                                
+                            finally:
+                                # Cleanup
+                                if temp_video.exists():
+                                    temp_video.unlink()
+                    
+                    elif job_status == 'FAILED':
+                        error_msg = status_data.get('error', 'Unknown error')
+                        logging.error(f"InfiniteTalk job failed: {error_msg}")
+                        
+                        embed.title = "❌ Animation Failed"
+                        embed.description = f"**Job ID:** `{job_id}`\n**Error:** {error_msg}"
+                        embed.color = discord.Color.red()
+                        await status_message.edit(embed=embed)
+                        return
+                    
+                    elif job_status in ['IN_QUEUE', 'IN_PROGRESS']:
+                        # Still processing, continue polling
+                        continue
+                    
+                    else:
+                        logging.warning(f"Unknown job status: {job_status}")
+            
+            # Timeout
+            embed.title = "⏱️ Animation Timed Out"
+            embed.description = f"**Job ID:** `{job_id}`\n**Status:** Timeout after {max_attempts * 5 / 60:.0f} minutes\nThe job may still be processing on RunPod."
+            embed.color = discord.Color.red()
+            await status_message.edit(embed=embed)
+    
+    except asyncio.TimeoutError:
+        await interaction.followup.send("❌ Request timed out. Please try again.")
+    except Exception as e:
+        logging.error(f"InfiniteTalk animation error: {e}", exc_info=True)
+        await interaction.followup.send(f"❌ An error occurred: {str(e)}")
 
 
 @app_commands.command(name="welcome-show", description="Show current welcome configuration")

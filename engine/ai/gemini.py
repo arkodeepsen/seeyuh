@@ -313,9 +313,8 @@ URL_PATTERN = re.compile(
     r'(?:https?:)?\/\/(?:[\w-]+\.)+[\w-]+(?:\/[^\s]*)?'  # Other URLs
 )
 
-# NOTE: lru_cache doesn't work with async functions - this cache is ineffective
-# FIXED: Reduced from 50 to 20 and added note for future async cache implementation
-@lru_cache(maxsize=20)
+# NOTE: Removed lru_cache - doesn't work with async functions
+# TODO: Implement proper async caching with aiocache or similar library
 async def scrape_url(url: str) -> str:
     """Scrape content from specific URL"""
     # Add protocol if missing
@@ -328,7 +327,7 @@ async def scrape_url(url: str) -> str:
     
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers) as resp:
+            async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                 if resp.status == 200:
                     html = await resp.text()
                     soup = BeautifulSoup(html, 'html.parser')
@@ -339,7 +338,8 @@ async def scrape_url(url: str) -> str:
                         
                     text = soup.get_text()
                     lines = [line.strip() for line in text.splitlines() if line.strip()]
-                    return "\n".join(lines)[:1000]
+                    # Increased from 1000 to 5000 chars - we have 1M token context window
+                    return "\n".join(lines)[:5000]
     except Exception as e:
         logging.error(f"Failed to scrape {url}: {e}")
         return None
@@ -445,13 +445,15 @@ async def enhance_search_query(query: str, context: str) -> str:
     Avoids external DDG chat dependency per upstream changes.
     """
     try:
-        # Keep this tiny; models should not hallucinate beyond user prompt.
+        # With 1M context window, we can provide more context for better query generation
         systemInstruction = (
-            "Given a user's question and minimal context, produce a concise web search query. "
+            "Given a user's question and conversation context, produce a concise web search query. "
             "Return only the query text without quotes."
         )
-        prompt = f"Context: {context[:500]}\nQuestion: {query}\nQuery:"
-        response = await try_model_chain((systemInstruction, prompt), 'flash2')
+        # Increased from 500 to 2000 chars - leverage 1M token context window
+        prompt = f"Context: {context[:2000]}\nQuestion: {query}\nQuery:"
+        # Use flash 8B for fast search query generation
+        response = await try_model_chain((systemInstruction, prompt), 'flash158bn')
         if response and response.text:
             candidate = response.text.strip().splitlines()[0][:200]
             # fallback to original if too short
@@ -460,12 +462,104 @@ async def enhance_search_query(query: str, context: str) -> str:
         logging.warning(f"Gemini query enhancement fallback: {e}")
     return query
 
-# NOTE: lru_cache doesn't work with async functions - this cache is ineffective
-# FIXED: Reduced from 100 to 30 and added note for future async cache implementation
-@lru_cache(maxsize=30)
-async def get_search_results(query: str, prompt: str, num_results: int = 3) -> str:    
-    search_type = get_search_type(query)
-    enhanced_query = await enhance_search_query(query, prompt)
+async def analyze_search_need(user_prompt: str) -> dict:
+    """Analyze user prompt to determine if search is needed and generate optimal search query.
+    
+    Uses needs_realtime_data heuristic first. If it says NO, skip search completely.
+    If it says YES, ask AI to confirm and optimize query (handles false positives).
+    
+    Returns dict with:
+        - search_needed (bool): Whether web search is needed
+        - search_query (str): Optimized search query if needed
+    """
+    # Step 1: Fast heuristic check
+    heuristic_result = needs_realtime_data(user_prompt)
+    
+    # If heuristic says NO search needed, trust it completely
+    if not heuristic_result:
+        logging.info("Heuristic: No search needed")
+        return {
+            "search_needed": False,
+            "search_query": ""
+        }
+    
+    # Step 2: Heuristic says YES, use AI to confirm and optimize (catches false positives)
+    logging.info("Heuristic suggests search, using AI to confirm and optimize query")
+    try:
+        from google.genai import types
+        
+        # Use fast 8B model for analysis
+        analysis_prompt = f"""Analyze if this user query needs real-time web search or can be answered from your knowledge.
+
+User query: {user_prompt}
+
+Determine:
+1. Does this need current/real-time information from the web? (news, prices, weather, recent events, current status)
+2. If yes, generate an optimal web search query (concise, 3-8 words max, ONLY include essential search terms, NO bot names or usernames)
+3. If no, return empty search query
+
+Examples:
+- "what's the weather today" → needs search, query: "weather today"
+- "explain quantum physics" → no search needed, query: ""
+- "who won the game yesterday" → needs search, query: "game results yesterday"
+- "write me a poem" → no search needed, query: ""
+- "what is happening to us stock market" → needs search, query: "us stock market today"
+- "seeyuh what's the news" → needs search, query: "latest news today"
+
+IMPORTANT: Generate clean search queries WITHOUT bot names, usernames, or irrelevant words.
+"""
+        
+        # Define JSON schema for structured output
+        schema = types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "search_needed": types.Schema(type=types.Type.BOOLEAN),
+                "search_query": types.Schema(type=types.Type.STRING)
+            },
+            required=["search_needed", "search_query"]
+        )
+        
+        # Use flash lite for fast analysis
+        response = await asyncio.to_thread(
+            genai_client.models.generate_content,
+            model="gemini-2.0-flash-lite-001",
+            contents=analysis_prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=schema
+            )
+        )
+        
+        if response and response.text:
+            import json
+            result = json.loads(response.text)
+            logging.info(f"AI Search analysis: {result}")
+            return result
+    except Exception as e:
+        logging.error(f"AI Search analysis failed, using heuristic fallback: {e}")
+    
+    # Fallback: Use heuristic result with extracted query
+    return {
+        "search_needed": True,
+        "search_query": extract_current_query(user_prompt)
+    }
+
+# NOTE: Removed lru_cache - doesn't work with async functions
+# TODO: Implement proper async caching with TTL (aiocache, cachetools.TTLCache, etc.)
+async def get_search_results(query: str, prompt: str, num_results: int = 8) -> str:    
+    # Analyze if search is actually needed
+    search_analysis = await analyze_search_need(prompt)
+    
+    if not search_analysis["search_needed"]:
+        logging.info("Search not needed based on AI analysis")
+        return ""
+    
+    # Use analyzed search query instead of raw prompt
+    search_query = search_analysis["search_query"] or query
+    logging.info(f"Original query: '{query}' | AI optimized query: '{search_query}'")
+    
+    search_type = get_search_type(search_query)
+    enhanced_query = await enhance_search_query(search_query, prompt)
     try:
         backends = [b.strip() for b in os.getenv('DDG_TEXT_BACKENDS', 'google,brave,yahoo,auto').split(',') if b.strip()]
         results = None
@@ -524,8 +618,11 @@ async def get_search_results(query: str, prompt: str, num_results: int = 3) -> s
         formatted_results = []
         for r in results:
                 if search_type == 'text':
-                    entry = f"Title: {r.get('title', 'No Title')}\n"
-                    entry += f"Description: {r.get('body', 'No Description')}\n"
+                    entry = f"## {r.get('title', 'No Title')}\n"
+                    entry += f"**Source:** {r.get('href', 'N/A')}\n"
+                    # Include more description text with 1M context window
+                    body = r.get('body', 'No Description')[:800]  # Increased from implicit ~200 to 800
+                    entry += f"**Content:** {body}\n"
                     if r.get('date'):
                         entry += f"Date: {r['date']}\n" 
                     url = r.get('href', '#')
@@ -599,12 +696,37 @@ async def get_search_results(query: str, prompt: str, num_results: int = 3) -> s
         logging.error(f"DuckDuckGo search error: {e}")
         return f"Search failed: {str(e)}"
     
-# NOTE: lru_cache doesn't work with async functions - this cache is ineffective
-# FIXED: Reduced from 100 to 30 and added note for future async cache implementation
-@lru_cache(maxsize=30) 
+# NOTE: Removed lru_cache - doesn't work with async functions
+# TODO: Consider implementing smart caching strategy:
+#   - Cache static knowledge queries (definitions, explanations)
+#   - Skip caching for real-time/personalized queries
+#   - Use message/user context as cache key
 async def get_ai_response(prompt, message):
     current_query = extract_current_query(prompt)
     logging.info(f"Extracted query: {current_query}")
+    
+    # Build conversation history context (leverage 1M token window)
+    conversation_context = ""
+    try:
+        # Get bot user reference (message.guild.me is the Member object)
+        bot_user = message.guild.me if message.guild else None
+        
+        # Get recent messages from channel (last 10 messages)
+        recent_messages = []
+        async for msg in message.channel.history(limit=10):
+            if bot_user and msg.author != bot_user and not msg.content.startswith('!'):
+                # Include user messages for context
+                recent_messages.append(f"User: {msg.content[:500]}")
+            elif bot_user and msg.author == bot_user:
+                # Include bot responses
+                recent_messages.append(f"Assistant: {msg.content[:500]}")
+        
+        if recent_messages:
+            recent_messages.reverse()  # Chronological order
+            conversation_context = "\n\n## Recent Conversation\n" + "\n".join(recent_messages[-5:])  # Last 5 exchanges
+            logging.info(f"Added {len(recent_messages[-5:])} messages to context")
+    except Exception as e:
+        logging.warning(f"Could not fetch conversation history: {e}")
     
     # (Removed duplicate early image branch; handled below via model switch)
     
@@ -623,9 +745,10 @@ async def get_ai_response(prompt, message):
         active_image_model = await get_active_image_model()
         model_name = active_image_model
     else:
-        model_name = 'gemini-2.0-flash-thinking-exp-01-21' if use_thinking else 'flash2'
+        model_name = 'thinking' if use_thinking else 'flash2'
     
     # Handle web enrichment for both text and image requests
+    # Build structured context with conversation history + search results
     if not is_image:
         # Check for URLs first and skip image-like URLs
         urls = URL_PATTERN.findall(current_query)
@@ -645,11 +768,25 @@ async def get_ai_response(prompt, message):
             logging.info(f"Real-time data needed (query: {current_query})")
             search_results = await get_search_results(current_query, prompt)
             if search_results:
+                # Build structured context
+                structured_context = ""
+                if conversation_context:
+                    structured_context += conversation_context + "\n\n"
+                
+                structured_context += "## Web Search Results\n"
+                structured_context += search_results + "\n\n"
+                structured_context += "## Current Query\n"
+                structured_context += f"User is asking: {current_query}\n\n"
+                
                 prompt = (
-                    f"Based on current data for '{current_query}':\n\n"
-                    f"{search_results}\n\n"
-                    f"{prompt}"
+                    f"{structured_context}"
+                    f"{prompt}\n\n"
+                    f"Please provide an accurate, up-to-date response based on the search results above."
                 )
+                logging.info(f"Context size: ~{len(structured_context)} chars")
+            elif conversation_context:
+                # No search results but have conversation context
+                prompt = f"{conversation_context}\n\n{prompt}"
     else:
         # For image requests that ask for information + image (like "who is X show me image")
         # Extract the information query part and search for it
@@ -663,16 +800,34 @@ async def get_ai_response(prompt, message):
             logging.info(f"Image request with info query: {info_query}")
             search_results = await get_search_results(info_query, prompt)
             if search_results:
+                # Structured context for image generation
+                image_context = ""
+                if conversation_context:
+                    image_context += conversation_context + "\n\n"
+                
+                image_context += f"## Information about '{info_query}'\n"
+                image_context += search_results + "\n\n"
+                
                 prompt = (
-                    f"Based on information about '{info_query}':\n\n"
-                    f"{search_results}\n\n"
-                    f"{prompt}\n\nGenerate both informative text and a relevant image."
+                    f"{image_context}"
+                    f"{prompt}\n\n"
+                    f"Generate both informative text and a relevant image based on the above information."
                 )
+            elif conversation_context:
+                # Just conversation context for images
+                prompt = f"{conversation_context}\n\n{prompt}"
         
     systemInstruction = f"You are a discord bot named seeyuh. arkodeep is your developer, your responses are chill asf and very informal gen-z style. You are an automoderation, entertainment, music and games bot but also designed to help users with their queries. You will generate responses using AI and try using same languge as the query. You can provide information about the bot, list available commands, respond to user queries and access latest data from internet. You can use the `/help` command to see available commands."
     current_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    query = f"\n{systemInstruction} Today's date and time is {current_datetime}", f"\n{prompt}"
-    logging.info(f"Query to AI: {query}")
+    
+    # Add conversation context if not already in prompt and available
+    if conversation_context and conversation_context not in prompt:
+        query = f"\n{systemInstruction} Today's date and time is {current_datetime}\n{conversation_context}", f"\n{prompt}"
+    else:
+        query = f"\n{systemInstruction} Today's date and time is {current_datetime}", f"\n{prompt}"
+    # Estimate token usage (rough: ~4 chars per token for English)
+    estimated_tokens = len(str(query)) // 4
+    logging.info(f"Query to AI | Estimated tokens: ~{estimated_tokens:,} / 1,000,000 ({(estimated_tokens/1000000)*100:.2f}% of context window)")
     try:
         if is_image:
             # For image generation, pass prompt twice as provided by user
