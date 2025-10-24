@@ -3360,7 +3360,8 @@ def get_dimensions_from_preset(preset: str) -> tuple:
 
 @app_commands.command(name="animate", description="Animate an image/video with audio using Seeyuh-Animate-S2V")
 @app_commands.describe(
-    media="Image or video to animate (PNG/JPG/MP4/MOV)",
+    media="Image or video to animate (PNG/JPG/MP4/MOV) - optional if using image_link",
+    image_link="Direct image/video URL - optional if uploading media",
     audio="Audio file (WAV/MP3) - optional if using text",
     audio2="Secondary audio file for multi-person mode (optional)",
     text="Text for TTS audio - optional if using audio file",
@@ -3379,7 +3380,8 @@ def get_dimensions_from_preset(preset: str) -> tuple:
 )
 async def animate_command(
     interaction: discord.Interaction,
-    media: discord.Attachment,
+    media: discord.Attachment = None,
+    image_link: str = None,
     audio: discord.Attachment = None,
     audio2: discord.Attachment = None,
     text: str = None,
@@ -3411,16 +3413,62 @@ async def animate_command(
         )
         return
     
-    # Validate media format (image or video)
-    is_video = media.content_type and media.content_type.startswith('video/')
-    is_image = media.content_type and media.content_type.startswith('image/')
-    
-    if not is_image and not is_video:
+    # Validate that either media or image_link is provided
+    if not media and not image_link:
         await interaction.response.send_message(
-            "❌ Please provide a valid image (PNG/JPG) or video (MP4/MOV) file.",
+            "❌ You must provide either:\n"
+            "• An image/video file upload (media parameter), OR\n"
+            "• A direct image/video URL (image_link parameter)",
             ephemeral=True
         )
         return
+
+    if media and image_link:
+        await interaction.response.send_message(
+            "❌ Please provide either a file upload OR an image link, not both.",
+            ephemeral=True
+        )
+        return
+
+    # Validate media format (image or video)
+    is_video = False
+    is_image = False
+    media_filename = None
+    media_url_for_thumbnail = None
+
+    if media:
+        is_video = media.content_type and media.content_type.startswith('video/')
+        is_image = media.content_type and media.content_type.startswith('image/')
+        media_filename = media.filename
+        media_url_for_thumbnail = media.url
+
+        if not is_image and not is_video:
+            await interaction.response.send_message(
+                "❌ Please provide a valid image (PNG/JPG) or video (MP4/MOV) file.",
+                ephemeral=True
+            )
+            return
+    elif image_link:
+        # Validate URL format
+        if not image_link.startswith(('http://', 'https://')):
+            await interaction.response.send_message(
+                "❌ Please provide a valid URL starting with http:// or https://",
+                ephemeral=True
+            )
+            return
+
+        # Determine if it's a video or image based on URL extension
+        lower_url = image_link.lower()
+        if any(lower_url.endswith(ext) for ext in ['.mp4', '.mov', '.avi', '.webm', '.mkv']):
+            is_video = True
+        elif any(lower_url.endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']):
+            is_image = True
+        else:
+            # Default to image if extension is unclear
+            is_image = True
+
+        media_filename = image_link.split('/')[-1].split('?')[0] or 'media_from_url'
+        media_url_for_thumbnail = image_link
     
     # Validate audio/text input
     person_count_value = person_count.value if person_count else "single"
@@ -3456,10 +3504,34 @@ async def animate_command(
         # Initialize S3 uploader
         s3_uploader = S3Uploader(s3_access_key, s3_secret_key)
 
-        # Upload media to S3
-        media_bytes = await media.read()
+        # Download/read media and upload to S3
+        media_bytes = None
+        if media:
+            # Read from Discord attachment
+            media_bytes = await media.read()
+        elif image_link:
+            # Download from URL
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(image_link, timeout=aiohttp.ClientTimeout(total=60)) as response:
+                        if response.status != 200:
+                            await interaction.followup.send(
+                                f"❌ Failed to download media from URL. Status code: {response.status}",
+                                ephemeral=True
+                            )
+                            return
+                        media_bytes = await response.read()
+                        logging.info(f"Downloaded {len(media_bytes)} bytes from {image_link}")
+            except Exception as e:
+                logging.error(f"Error downloading from URL: {e}")
+                await interaction.followup.send(
+                    f"❌ Failed to download media from URL: {str(e)}",
+                    ephemeral=True
+                )
+                return
+
         media_type = "video" if is_video else "image"
-        media_path = s3_uploader.upload_file(media_bytes, media.filename, folder=media_type + "s")
+        media_path = s3_uploader.upload_file(media_bytes, media_filename, folder=media_type + "s")
         logging.info(f"Uploaded media to network volume: {media_path}")
 
         # Get dimensions from resolution preset
@@ -3685,19 +3757,26 @@ If text is already good, return it as-is. Only improve if needed for better spee
                     description=f"**Job ID:** `{job_id}`\n**Status:** Submitting to RunPod...",
                     color=discord.Color.blue()
                 )
-                embed.add_field(name="🖼️ Media", value=f"{media_type} ({media.filename})", inline=True)
+                embed.add_field(name="🖼️ Media", value=f"{media_type} ({media_filename})", inline=True)
                 embed.add_field(name="🔊 Audio", value=audio_source[:100], inline=True)
-                
+
                 # Fix aspect ratio display
                 resolution_name = resolution.name if resolution else "1:1 - 512px (512x512)"
                 embed.add_field(name="📐 Resolution", value=f"{resolution_name}", inline=True)
-                
+
                 if prompt:
                     embed.add_field(name="💭 Prompt", value=prompt[:200] + ('...' if len(prompt) > 200 else ''), inline=False)
-                
+
+                # Set thumbnail to user's input image/video (only works for images)
+                if is_image and media_url_for_thumbnail:
+                    embed.set_thumbnail(url=media_url_for_thumbnail)
+
                 embed.set_image(url=f"attachment://{loading_gif_filename}")
-                embed.set_footer(text="This may take 20-30 minutes for complex animations")
-                
+                embed.set_footer(
+                    text=f"{interaction.client.user.name} | This may take 20-30 minutes for complex animations",
+                    icon_url=interaction.client.user.display_avatar.url
+                )
+
                 status_message = await interaction.followup.send(embed=embed, file=loading_gif_file)
             
             # Poll for completion (up to 40 minutes for long jobs)
@@ -3741,7 +3820,11 @@ If text is already good, return it as-is. Only improve if needed for better spee
                             embed.title = "❌ Animation Failed"
                             embed.description = "Animation completed but no output found."
                             embed.color = discord.Color.red()
-                            await status_message.edit(embed=embed)
+                            try:
+                                await status_message.edit(embed=embed)
+                            except discord.HTTPException as e:
+                                logging.warning(f"Failed to edit status message: {e}. Sending to channel.")
+                                await interaction.channel.send(embed=embed)
                             return
                         
                         # Handle different output formats
@@ -3785,29 +3868,62 @@ If text is already good, return it as-is. Only improve if needed for better spee
                                         async with aiofiles.open(temp_video, 'wb') as f:
                                             await f.write(video_bytes)
 
-                                        # Delete the status embed and send video
-                                        try:
-                                            await status_message.delete()
-                                        except:
-                                            pass
-
-                                        # Send the animated video
+                                        # Update the status embed with completion message
                                         exec_time = status_data.get('executionTime', 0) / 1000
-                                        await interaction.followup.send(
-                                            f"✅ **Animation Complete!**\n"
-                                            f"⏱️ Total Time: {elapsed/60:.1f} minutes (Execution: {exec_time:.1f}s)\n"
-                                            f"🎬 Generated by InfiniteTalk AI\n"
-                                            f"📐 {width}x{height}",
-                                            file=discord.File(temp_video, filename=f"animated_{job_id}.mp4")
+
+                                        # Create completion embed
+                                        completion_embed = discord.Embed(
+                                            title="✅ Animation Complete!",
+                                            description=f"**Job ID:** `{job_id}`\n"
+                                                       f"⏱️ **Total Time:** {elapsed/60:.1f} minutes (Execution: {exec_time:.1f}s)\n"
+                                                       f"🎬 **Generated by:** seeyuh-animate-s2v\n"
+                                                       f"📐 **Resolution:** {width}x{height}",
+                                            color=discord.Color.green()
                                         )
 
-                                        logging.info(f"Animation sent successfully for job {job_id}")
+                                        # Keep thumbnail if it was set
+                                        if is_image and media_url_for_thumbnail:
+                                            completion_embed.set_thumbnail(url=media_url_for_thumbnail)
+
+                                        completion_embed.set_footer(
+                                            text=f"{interaction.client.user.name} | Completed at {time.strftime('%H:%M:%S')}",
+                                            icon_url=interaction.client.user.display_avatar.url
+                                        )
+
+                                        # Update status message with result and attach video
+                                        try:
+                                            await status_message.edit(
+                                                embed=completion_embed,
+                                                attachments=[discord.File(temp_video, filename=f"animated_{job_id}.mp4")]
+                                            )
+                                            logging.info(f"Animation sent successfully for job {job_id}")
+                                        except discord.HTTPException as e:
+                                            # Fallback: Token expired or edit failed - send to channel directly
+                                            logging.warning(f"Failed to edit status message: {e}. Sending new message to channel.")
+                                            try:
+                                                await status_message.delete()
+                                            except:
+                                                pass
+                                            # Use channel.send() instead of interaction.followup.send()
+                                            await interaction.channel.send(
+                                                embed=completion_embed,
+                                                file=discord.File(temp_video, filename=f"animated_{job_id}.mp4")
+                                            )
+                                            logging.info(f"Animation sent successfully via fallback for job {job_id}")
+
+                                        # Cleanup temp file after sending
+                                        if temp_video.exists():
+                                            temp_video.unlink()
+
                                         return
 
                                     finally:
-                                        # Cleanup
+                                        # Final cleanup in case of any errors
                                         if temp_video.exists():
-                                            temp_video.unlink()
+                                            try:
+                                                temp_video.unlink()
+                                            except:
+                                                pass
 
                                 except Exception as s3_error:
                                     logging.error(f"Failed to download from S3: {s3_error}")
@@ -3825,7 +3941,11 @@ If text is already good, return it as-is. Only improve if needed for better spee
                             embed.title = "❌ Animation Failed"
                             embed.description = "Animation completed but video URL not found in output."
                             embed.color = discord.Color.red()
-                            await status_message.edit(embed=embed)
+                            try:
+                                await status_message.edit(embed=embed)
+                            except discord.HTTPException as e:
+                                logging.warning(f"Failed to edit status message: {e}. Sending to channel.")
+                                await interaction.channel.send(embed=embed)
                             return
                         
                         logging.info(f"Animation completed! Video URL: {video_url}")
@@ -3845,7 +3965,11 @@ If text is already good, return it as-is. Only improve if needed for better spee
                                 embed.title = "❌ Download Failed"
                                 embed.description = f"Failed to download video: {video_response.status}"
                                 embed.color = discord.Color.red()
-                                await status_message.edit(embed=embed)
+                                try:
+                                    await status_message.edit(embed=embed)
+                                except discord.HTTPException as e:
+                                    logging.warning(f"Failed to edit status message: {e}. Sending to channel.")
+                                    await interaction.channel.send(embed=embed)
                                 return
                             
                             video_bytes = await video_response.read()
@@ -3855,39 +3979,76 @@ If text is already good, return it as-is. Only improve if needed for better spee
                             try:
                                 async with aiofiles.open(temp_video, 'wb') as f:
                                     await f.write(video_bytes)
-                                
-                                # Delete the status embed and send video
-                                try:
-                                    await status_message.delete()
-                                except:
-                                    pass
-                                
-                                # Send the animated video
+
+                                # Update the status embed with completion message
                                 exec_time = status_data.get('executionTime', 0) / 1000
-                                await interaction.followup.send(
-                                    f"✅ **Animation Complete!**\\n"
-                                    f"⏱️ Total Time: {elapsed/60:.1f} minutes (Execution: {exec_time:.1f}s)\\n"
-                                    f"🎬 Generated by InfiniteTalk AI\\n"
-                                    f"📐 {width}x{height} ({resolution.name if resolution else 'Square'})",
-                                    file=discord.File(temp_video, filename=f"animated_{job_id}.mp4")
+
+                                # Create completion embed
+                                completion_embed = discord.Embed(
+                                    title="✅ Animation Complete!",
+                                    description=f"**Job ID:** `{job_id}`\n"
+                                               f"⏱️ **Total Time:** {elapsed/60:.1f} minutes (Execution: {exec_time:.1f}s)\n"
+                                               f"🎬 **Generated by:** seeyuh-animate-s2v\n"
+                                               f"📐 **Resolution:** {width}x{height} ({resolution.name if resolution else 'Square'})",
+                                    color=discord.Color.green()
                                 )
-                                
-                                logging.info(f"Animation sent successfully for job {job_id}")
-                                return
-                                
-                            finally:
-                                # Cleanup
+
+                                # Keep thumbnail if it was set
+                                if is_image and media_url_for_thumbnail:
+                                    completion_embed.set_thumbnail(url=media_url_for_thumbnail)
+
+                                completion_embed.set_footer(
+                                    text=f"{interaction.client.user.name} | Completed at {time.strftime('%H:%M:%S')}",
+                                    icon_url=interaction.client.user.display_avatar.url
+                                )
+
+                                # Update status message with result and attach video
+                                try:
+                                    await status_message.edit(
+                                        embed=completion_embed,
+                                        attachments=[discord.File(temp_video, filename=f"animated_{job_id}.mp4")]
+                                    )
+                                    logging.info(f"Animation sent successfully for job {job_id}")
+                                except discord.HTTPException as e:
+                                    # Fallback: Token expired or edit failed - send to channel directly
+                                    logging.warning(f"Failed to edit status message: {e}. Sending new message to channel.")
+                                    try:
+                                        await status_message.delete()
+                                    except:
+                                        pass
+                                    # Use channel.send() instead of interaction.followup.send()
+                                    await interaction.channel.send(
+                                        embed=completion_embed,
+                                        file=discord.File(temp_video, filename=f"animated_{job_id}.mp4")
+                                    )
+                                    logging.info(f"Animation sent successfully via fallback for job {job_id}")
+
+                                # Cleanup temp file after sending
                                 if temp_video.exists():
                                     temp_video.unlink()
+
+                                return
+
+                            finally:
+                                # Final cleanup in case of any errors
+                                if temp_video.exists():
+                                    try:
+                                        temp_video.unlink()
+                                    except:
+                                        pass
                     
                     elif job_status == 'FAILED':
                         error_msg = status_data.get('error', 'Unknown error')
                         logging.error(f"InfiniteTalk job failed: {error_msg}")
-                        
+
                         embed.title = "❌ Animation Failed"
                         embed.description = f"**Job ID:** `{job_id}`\n**Error:** {error_msg}"
                         embed.color = discord.Color.red()
-                        await status_message.edit(embed=embed)
+                        try:
+                            await status_message.edit(embed=embed)
+                        except discord.HTTPException as e:
+                            logging.warning(f"Failed to edit status message: {e}. Sending to channel.")
+                            await interaction.channel.send(embed=embed)
                         return
                     
                     elif job_status in ['IN_QUEUE', 'IN_PROGRESS']:
@@ -3901,13 +4062,23 @@ If text is already good, return it as-is. Only improve if needed for better spee
             embed.title = "⏱️ Animation Timed Out"
             embed.description = f"**Job ID:** `{job_id}`\n**Status:** Timeout after {max_attempts * 5 / 60:.0f} minutes\nThe job may still be processing on RunPod."
             embed.color = discord.Color.red()
-            await status_message.edit(embed=embed)
+            try:
+                await status_message.edit(embed=embed)
+            except discord.HTTPException as e:
+                logging.warning(f"Failed to edit status message: {e}. Sending to channel.")
+                await interaction.channel.send(embed=embed)
     
     except asyncio.TimeoutError:
-        await interaction.followup.send("❌ Request timed out. Please try again.")
+        try:
+            await interaction.followup.send("❌ Request timed out. Please try again.")
+        except discord.HTTPException:
+            await interaction.channel.send("❌ Request timed out. Please try again.")
     except Exception as e:
         logging.error(f"InfiniteTalk animation error: {e}", exc_info=True)
-        await interaction.followup.send(f"❌ An error occurred: {str(e)}")
+        try:
+            await interaction.followup.send(f"❌ An error occurred: {str(e)}")
+        except discord.HTTPException:
+            await interaction.channel.send(f"❌ An error occurred: {str(e)}")
 
 
 @app_commands.command(name="welcome-show", description="Show current welcome configuration")
