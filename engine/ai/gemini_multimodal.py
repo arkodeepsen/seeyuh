@@ -236,21 +236,20 @@ async def handle_url_context(bot, message, urls: list):
             # Include URLs in the prompt for context
             text_input = f"{text_input}\n\nRelevant URLs: {', '.join(urls)}"
         
-        logging.info(f"Processing {len(urls)} URL(s) with URL context tool")
+        logging.info(f"Processing {len(urls)} URL(s)")
         async with message.channel.typing():
             active_model = await get_active_model()
             logging.info(f"Using model: {active_model}")
             
-            # Configure URL context tool
-            tools = [{"url_context": {}}]
+            # URL context tool is not yet available in Python SDK (only REST API)
+            # Just pass URLs directly in content - Gemini 2.5+ can process them
             
             for attempt in range(2):
                 try:
                     response = await asyncio.to_thread(
                         genai_client.models.generate_content,
                         model=active_model,
-                        contents=text_input,
-                        config=types.GenerateContentConfig(tools=tools)
+                        contents=text_input
                     )
                     
                     if response and response.candidates and response.candidates[0].content.parts:
