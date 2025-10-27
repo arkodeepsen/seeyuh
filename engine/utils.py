@@ -140,8 +140,27 @@ image_end_keywords = [
     "produce a concept", "draw this scene", "make a digital art", "generate picture", "draw an image", "draw image", "draw picture", "draw pic",
     "compose a visual", "craft a picture", "display an artwork", "generate image",
 ]      
+
+# Image editing keywords (using "in" for contains matching)
+image_edit_keywords = [
+    'edit', 'plsedit', 'pls edit', 'please edit', 'modify', 'change', 'alter', 'transform', 'adjust',
+    'replace', 'swap', 'switch', 'substitute', 'exchange',
+    'remove', 'delete', 'erase', 'clear', 'take out',
+    'add', 'insert', 'put', 'place', 'include',
+    'background', 'bg', 'backdrop',
+    'inpaint', 'outpaint', 'paint', 'draw on', 'sketch on',
+    'recolor', 'recolour', 'colorize', 'tint',
+    'enhance', 'improve', 'fix', 'correct', 'touch up', 'touchup',
+    'resize', 'crop', 'rotate', 'flip',
+    'blur', 'sharpen', 'brighten', 'darken',
+    'filter', 'effect', 'style'
+]
+
 def is_image_request(message_content):
     message_content_lower = message_content.lower()
+    # Check for image editing keywords first (using "in" for contains)
+    if any(keyword in message_content_lower for keyword in image_edit_keywords):
+        return True
     return any(keyword in message_content_lower for keyword in image_keywords) or any(message_content_lower.endswith(keyword) for keyword in image_end_keywords)
 
 def extract_image_prompt(message_content):

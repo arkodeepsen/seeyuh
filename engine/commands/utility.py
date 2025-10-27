@@ -3216,7 +3216,10 @@ async def edit_image_command(
         text_input = prompt
         response = client.models.generate_content(
             model="gemini-2.0-flash-preview-image-generation",
-            contents=[text_input, pil_image]
+            contents=[text_input, pil_image],
+            config=genai.types.GenerateContentConfig(
+                response_modalities=["TEXT", "IMAGE"]
+            )
         )
 
         # Process response
