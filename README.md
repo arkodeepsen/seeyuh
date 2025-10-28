@@ -3,7 +3,7 @@
 ![Discord Bots](https://top.gg/api/widget/upvotes/690530760540553276.svg)
 ![Discord Bots](https://top.gg/api/widget/servers/690530760540553276.svg)
 
-Seeyuh Bot is a powerful, AI-driven Discord bot designed for dynamic and multimodal interactions. Equipped with advanced features and seamless integration capabilities, it aims to provide a fun, efficient, and intelligent experience for Discord users.
+Seeyuh Bot is a powerful, AI-driven Discord bot designed for dynamic and multimodal interactions. Equipped with advanced features and seamless integration capabilities, it aims to provide a fun, ef...
 
 ---
 
@@ -104,8 +104,7 @@ Generate stunning images with 25+ AI models:
 - No sensitive information is shared or logged by the bot.
 - Your messages might be saved for context but are deleted at regular intervals.
 
-## ⚙️ **Setup**
-Required environment variables in `.env`:
+## ⚙️ **Setup**nRequired environment variables in `.env`:
 ```env
 DISCORD_TOKEN=your_discord_token
 QWEN_IMAGE_API_URL=your_runpod_url
@@ -120,12 +119,15 @@ See `.env.example` for complete template.
 ---
 
 ## 🤝 **Contributions**
-Currently, the project is private. However, suggestions and feature requests are always welcome! Reach out via the bot's support channels for feedback or ideas.
+This repository is now open-source under the GNU Affero General Public License v3.0 (AGPLv3). Contributions are accepted, but this is intentionally "just barely" open-source: any contributions or derivative works that operate the software over a network must be licensed under AGPLv3 as well and you must provide source code for any network-accessible modifications. By submitting a pull request you agree that your contribution will be licensed under AGPLv3.
 
 ---
 
 ## 📄 **License**
-This bot is proprietary and not open-source. Unauthorized copying, redistribution, or commercial use without permission is strictly prohibited.
+This project is licensed under the GNU Affero General Public License v3.0 (AGPLv3). See the LICENSE file for the full terms. In short, this means:
+- You may use, study, and modify the code.
+- If you distribute the software or make it available over a network, you must make the complete corresponding source code available under the same license (AGPLv3).
+- This license is intentionally strict about sharing changes and network use; read LICENSE for full legal text.
 
 ---
 
