@@ -104,17 +104,31 @@ Generate stunning images with 25+ AI models:
 - No sensitive information is shared or logged by the bot.
 - Your messages might be saved for context but are deleted at regular intervals.
 
-## ⚙️ **Setup**nRequired environment variables in `.env`:
+## ⚙️ Setup
+
+Required environment variables — copy and edit the example file: [`.env.example`](.env.example)
+
+1. Copy the template to a local `.env`:
+  - macOS / Linux:
+    ```bash
+    cp .env.example .env
+    ```
+  - Windows (PowerShell):
+    ```powershell
+    Copy-Item .env.example .env
+    ```
+2. Open `.env` and fill in your keys (do not commit `.env` to version control).
+
+Example `.env` keys:
 ```env
 DISCORD_TOKEN=your_discord_token
-QWEN_IMAGE_API_URL=your_runpod_url
 HF_API_KEY=your_huggingface_key
 SUPABASE_URL=your_supabase_url
 SUPABASE_KEY=your_supabase_key
 # ... other API keys
 ```
 
-See `.env.example` for complete template.
+See `.env.example` for the full template and required defaults. Keep sensitive values out of public repositories.
 
 ---
 
@@ -124,10 +138,10 @@ This repository is now open-source under the GNU Affero General Public License v
 ---
 
 ## 📄 **License**
-This project is licensed under the GNU Affero General Public License v3.0 (AGPLv3). See the LICENSE file for the full terms. In short, this means:
+This project is licensed under the [GNU Affero General Public License v3.0 (AGPLv3)](./LICENSE). See the linked LICENSE file for the full terms. In short:
 - You may use, study, and modify the code.
 - If you distribute the software or make it available over a network, you must make the complete corresponding source code available under the same license (AGPLv3).
-- This license is intentionally strict about sharing changes and network use; read LICENSE for full legal text.
+- This license is intentionally strict about sharing changes and network use; read the LICENSE file for the full legal text.
 
 ---
 
