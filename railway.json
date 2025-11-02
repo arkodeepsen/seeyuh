@@ -7,6 +7,6 @@
       "startCommand": "python3 start.py",
       "healthcheckPath": "/status",
       "healthcheckTimeout": 100,
-      "restartPolicyType": "always"
+      "restartPolicyType": "10"
     }
   }
