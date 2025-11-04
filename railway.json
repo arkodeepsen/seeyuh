@@ -6,7 +6,6 @@
     "deploy": {
       "startCommand": "python3 start.py",
       "healthcheckPath": "/status",
-      "healthcheckTimeout": 100,
-      "restartPolicyType": "10"
+      "healthcheckTimeout": 100
     }
   }
