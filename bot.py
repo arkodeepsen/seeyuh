@@ -1147,6 +1147,10 @@ async def on_member_join(member):
 async def on_message(message):
     import random  # Import random at the top to avoid UnboundLocalError
     
+    # CRITICAL: Ignore bot messages FIRST to prevent infinite loops
+    if message.author.bot:
+        return
+    
     # Also check for direct image URLs in replied-to messages
     if (bot.user.mentioned_in(message) or "seeyuh" in message.content.lower()) and message.reference:
         try:
@@ -1189,8 +1193,6 @@ async def on_message(message):
                 from engine.ai.gemini_multimodal import handle_message_files
                 await handle_message_files(bot, message)
             return
-    if message.author.bot:
-        return
     
     # Ignore messages that mention @everyone or @here
     if "@everyone" in message.content or "@here" in message.content:
