@@ -1,8 +1,10 @@
 services:
   - type: web
     name: seeyuh
-    env: python
+    runtime: python
     buildCommand: bash install_ffmpeg.sh && pip install -r requirements.txt
     startCommand: python3 start.py
     healthCheckPath: /status
-    plan: free
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.4"

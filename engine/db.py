@@ -8,15 +8,20 @@ from more_itertools import chunked
 from filelock import FileLock
 
 # FIXED: Use bounded ThreadPoolExecutor with max_workers to prevent thread leaks
-# Previously: executor = ThreadPoolExecutor() with no limit caused unbounded thread growth
-executor = ThreadPoolExecutor(max_workers=4)  # Limit to 4 worker threads max
+# REDUCED: Only 2 workers for Railway's 512MB limit (was 4)
+executor = ThreadPoolExecutor(max_workers=2)
 
 def cleanup_executor():
     """Clean up the thread pool executor - call this on bot shutdown"""
     global executor
     if executor:
-        executor.shutdown(wait=False)
-        logging.info("[MEMORY] 🧹 ThreadPoolExecutor cleaned up")
+        try:
+            executor.shutdown(wait=False, cancel_futures=True)
+            logging.info("[MEMORY] 🧹 ThreadPoolExecutor cleaned up")
+            # Recreate a fresh executor
+            executor = ThreadPoolExecutor(max_workers=2)
+        except Exception as e:
+            logging.error(f"[MEMORY] Executor cleanup error: {e}")
 
 # Load environment variables
 load_dotenv()

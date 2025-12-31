@@ -367,16 +367,28 @@ async def create_audio_source(url: str, headers: dict | None = None) -> discord.
 ytdl = youtube_dl.YoutubeDL(ytdl_options)
 
 # Simple cache for recent searches to avoid re-processing
+# FIXED: Reduced cache size significantly for Railway's 512MB limit
 _search_cache = {}
-_cache_max_size = 50
+_cache_max_size = 20  # Reduced from 50 to 20 entries
 _cache_last_cleanup = time.time()
-_cache_cleanup_interval = 3600  # Clean up every hour
+_cache_cleanup_interval = 1800  # Clean up every 30 mins (was 1 hour)
 
 def clear_music_cache():
     """Clear the music search cache to free memory."""
-    global _search_cache
+    global _search_cache, _guild_music_states
     _search_cache.clear()
-    logging.info("Music search cache cleared")
+    
+    # Also clear inactive guild states (guilds where bot isn't connected)
+    inactive_guilds = []
+    for guild_id in list(_guild_music_states.keys()):
+        state = _guild_music_states[guild_id]
+        if not state.song_queue and state.current_song is None:
+            inactive_guilds.append(guild_id)
+    
+    for guild_id in inactive_guilds:
+        cleanup_guild_state(guild_id)
+    
+    logging.info(f"Music cache cleared. Removed {len(inactive_guilds)} inactive guild states.")
 
 def auto_cleanup_cache():
     """Automatically clean up cache based on time and memory usage."""

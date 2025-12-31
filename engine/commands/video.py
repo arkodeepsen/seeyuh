@@ -250,17 +250,17 @@ def create_video_streaming_ffmpeg(frame_data_list, output_path, audio_bitrate=96
         raise
 
 # FIXED: Voice assignment system with memory leak prevention
-# Maximum size to prevent unbounded growth across all servers
-MAX_VOICE_CACHE_SIZE = 200  # Reasonable limit for active users
+# REDUCED: Maximum size for Railway's 512MB limit
+MAX_VOICE_CACHE_SIZE = 100  # Reduced from 200 to 100
 user_voice_assignments = {}
 
 def cleanup_voice_cache():
     """Clean up voice assignments when cache gets too large - prevents memory leaks"""
     global user_voice_assignments
-    if len(user_voice_assignments) > MAX_VOICE_CACHE_SIZE:
-        # Remove oldest 50% of entries (LRU-style cleanup)
-        items_to_remove = len(user_voice_assignments) - (MAX_VOICE_CACHE_SIZE // 2)
-        for _ in range(items_to_remove):
+    if len(user_voice_assignments) > MAX_VOICE_CACHE_SIZE // 2:  # More aggressive cleanup
+        # Remove oldest 70% of entries (more aggressive for Railway)
+        items_to_remove = len(user_voice_assignments) - (MAX_VOICE_CACHE_SIZE // 4)
+        for _ in range(max(0, items_to_remove)):
             if user_voice_assignments:
                 # Remove first item (oldest in insertion order for Python 3.7+)
                 oldest_key = next(iter(user_voice_assignments))
@@ -1513,11 +1513,12 @@ async def generate_meme_video_nextlevel(messages: list, duration: float = None, 
     
     # Only limit by estimated file size, not duration - let users enjoy longer videos!
     # Calculate maximum messages based on server boost level (for file size, not duration)
+    # REDUCED: Lower limits for Railway's 512MB memory constraint
     max_messages_by_level = {
-        0: 20,  # Level 0: max 20 messages (targeting ~8-9MB)
-        1: 20,  # Level 1: max 20 messages  
-        2: 100, # Level 2: max 100 messages (targeting ~45MB)
-        3: 200  # Level 3: max 200 messages (targeting ~90MB)
+        0: 15,  # Level 0: max 15 messages (was 20) - targeting ~6-7MB
+        1: 15,  # Level 1: max 15 messages (was 20)
+        2: 60,  # Level 2: max 60 messages (was 100) - targeting ~30MB
+        3: 120  # Level 3: max 120 messages (was 200) - targeting ~60MB
     }
     
     boost_level = guild.premium_tier if guild else 0

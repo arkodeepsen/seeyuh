@@ -1,6 +1,36 @@
-import discord, time, uvicorn, asyncio, logging, os, aiohttp, random, re, engine.commands.general as general, engine.commands.utility as utility, engine.commands.fun as fun, engine.commands.music as music, engine.commands.moderation as moderation, engine.commands.misc as misc, engine.commands.rpg as rpg, engine.eventloop as eventloop
+import discord, time, uvicorn, asyncio, logging, os, aiohttp, random, re, gc, engine.commands.general as general, engine.commands.utility as utility, engine.commands.fun as fun, engine.commands.music as music, engine.commands.moderation as moderation, engine.commands.misc as misc, engine.commands.rpg as rpg, engine.eventloop as eventloop
 from discord.ext import commands, tasks
 from fastapi import FastAPI, Request, Response
+
+# Memory management - high limits for Render paid plan
+MEMORY_LIMIT_MB = int(os.getenv('MEMORY_LIMIT_MB', '1800'))  # 1.8GB limit
+MEMORY_WARNING_MB = int(os.getenv('MEMORY_WARNING_MB', '1400'))  # 1.4GB warning
+
+def get_memory_usage_mb():
+    """Get current memory usage in MB"""
+    try:
+        import psutil
+        process = psutil.Process()
+        return process.memory_info().rss / 1024 / 1024
+    except:
+        return 0
+
+def emergency_memory_cleanup():
+    """Emergency cleanup when memory is critically high"""
+    gc.collect()
+    try:
+        # Clear music cache
+        from engine.commands.music import clear_music_cache
+        clear_music_cache()
+    except:
+        pass
+    try:
+        # Clear video voice cache
+        from engine.commands.video import cleanup_voice_cache
+        cleanup_voice_cache()
+    except:
+        pass
+    gc.collect()
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Template
@@ -80,10 +110,10 @@ async def check_inactivity():
             embed = discord.Embed(title="Voice Channel", description="Left the voice channel due to inactivity.", color=discord.Color.orange())
             await channel.send(embed=embed)
 
-# FIXED: New periodic memory cleanup task to prevent memory leaks
-@tasks.loop(hours=1)  # Run every hour
+# FIXED: More aggressive memory cleanup task - every 15 minutes for Railway's 512MB limit
+@tasks.loop(minutes=15)
 async def periodic_memory_cleanup():
-    """Periodic cleanup to prevent memory leaks - runs every hour"""
+    """Periodic cleanup to prevent memory leaks - runs every 15 minutes"""
     import gc
     import psutil
     
@@ -93,6 +123,10 @@ async def periodic_memory_cleanup():
         memory_before = process.memory_info().rss / 1024 / 1024
         
         logging.info(f"[MEMORY] 🧹 Starting periodic cleanup (Memory: {memory_before:.1f}MB)")
+        
+        # CRITICAL: Check if memory is approaching Railway's 512MB limit
+        if memory_before > MEMORY_WARNING_MB:
+            logging.warning(f"[MEMORY] ⚠️ HIGH MEMORY WARNING: {memory_before:.1f}MB > {MEMORY_WARNING_MB}MB threshold")
         
         # Clean up music cache
         try:
@@ -108,8 +142,17 @@ async def periodic_memory_cleanup():
         except Exception as e:
             logging.error(f"Failed to clear voice cache: {e}")
         
-        # Force garbage collection
-        gc.collect()
+        # Clean up database executor (if too many threads)
+        try:
+            from engine.db import cleanup_executor
+            cleanup_executor()
+        except Exception as e:
+            logging.debug(f"Executor cleanup skipped: {e}")
+        
+        # Force garbage collection - multiple generations
+        gc.collect(0)  # Gen 0
+        gc.collect(1)  # Gen 1  
+        gc.collect(2)  # Gen 2 (full)
         
         # Get memory usage after cleanup
         memory_after = process.memory_info().rss / 1024 / 1024
@@ -117,8 +160,36 @@ async def periodic_memory_cleanup():
         
         logging.info(f"[MEMORY] ✅ Cleanup complete (Memory: {memory_after:.1f}MB, Freed: {saved:.1f}MB)")
         
+        # CRITICAL: If still high after cleanup, restart might be needed
+        if memory_after > MEMORY_LIMIT_MB:
+            logging.critical(f"[MEMORY] 🚨 CRITICAL: Memory {memory_after:.1f}MB exceeds limit {MEMORY_LIMIT_MB}MB!")
+            logging.critical(f"[MEMORY] 🚨 Consider restarting the bot to prevent OOM crash")
+        
     except Exception as e:
         logging.error(f"[MEMORY] ❌ Periodic cleanup failed: {e}")
+
+# NEW: Memory watchdog - runs every 5 minutes to catch memory spikes early
+@tasks.loop(minutes=5)
+async def memory_watchdog():
+    """Quick memory check every 5 minutes - emergency cleanup if needed"""
+    try:
+        memory_mb = get_memory_usage_mb()
+        
+        if memory_mb > MEMORY_LIMIT_MB:
+            logging.critical(f"[WATCHDOG] 🚨 CRITICAL MEMORY: {memory_mb:.1f}MB - Emergency cleanup!")
+            emergency_memory_cleanup()
+            gc.collect()
+            
+            # Check again
+            memory_after = get_memory_usage_mb()
+            logging.info(f"[WATCHDOG] After emergency cleanup: {memory_after:.1f}MB")
+            
+        elif memory_mb > MEMORY_WARNING_MB:
+            logging.warning(f"[WATCHDOG] ⚠️ High memory: {memory_mb:.1f}MB - Running cleanup")
+            gc.collect()
+            
+    except Exception as e:
+        logging.error(f"[WATCHDOG] Error: {e}")
 
 # FIXED: Keep Supabase project active (prevents auto-pause on free tier)
 @tasks.loop(hours=6)  # Run every 6 hours
@@ -142,7 +213,28 @@ async def keep_supabase_alive():
             
 @app.get("/status")
 def health_check():
-    return {"status": "ok"}
+    """Health check endpoint with memory info for Railway monitoring"""
+    try:
+        import psutil
+        process = psutil.Process()
+        memory_mb = process.memory_info().rss / 1024 / 1024
+        memory_percent = (memory_mb / 512) * 100  # Railway's 512MB limit
+        
+        status = "ok"
+        if memory_mb > MEMORY_LIMIT_MB:
+            status = "critical"
+        elif memory_mb > MEMORY_WARNING_MB:
+            status = "warning"
+        
+        return {
+            "status": status,
+            "memory_mb": round(memory_mb, 1),
+            "memory_percent": round(memory_percent, 1),
+            "memory_limit_mb": MEMORY_LIMIT_MB,
+            "guilds": len(bot.guilds) if hasattr(bot, 'guilds') else 0
+        }
+    except Exception as e:
+        return {"status": "ok", "error": str(e)}
 
 @app.head("/api/uptimerobot")
 @app.get("/api/uptimerobot")
@@ -332,10 +424,15 @@ async def on_ready():
     # Start the inactivity check task if not already running
     if not check_inactivity.is_running():
         check_inactivity.start()
-    # FIXED: Start periodic memory cleanup task
+    # FIXED: Start periodic memory cleanup task (every 15 mins for Railway)
     if not periodic_memory_cleanup.is_running():
         periodic_memory_cleanup.start()
-        logging.info("[MEMORY] 🧹 Periodic memory cleanup task started (runs every hour)")
+        logging.info("[MEMORY] 🧹 Periodic memory cleanup task started (runs every 15 minutes)")
+    
+    # NEW: Start memory watchdog (every 5 mins for early detection)
+    if not memory_watchdog.is_running():
+        memory_watchdog.start()
+        logging.info(f"[MEMORY] 👀 Memory watchdog started (limit: {MEMORY_LIMIT_MB}MB, warning: {MEMORY_WARNING_MB}MB)")
     # FIXED: Start Supabase keep-alive task
     if not keep_supabase_alive.is_running():
         keep_supabase_alive.start()
@@ -622,7 +719,92 @@ async def on_guild_join(guild):
 # List of greeting emojis
 greeting_emojis = ["👋", "😊", "😃", "🙌", "🤗"]
 
+def _build_simple_welcome_image(avatar_png_bytes: bytes, display_name: str, guild_name: str) -> bytes:
+    """
+    FALLBACK: Simple welcome image when memory is constrained.
+    Returns a static image as MP4-compatible bytes (actually a very short video).
+    """
+    from io import BytesIO
+    from PIL import Image, ImageDraw, ImageFont
+    import tempfile
+    import subprocess
+    import os
+    
+    try:
+        width, height = 1280, 720
+        
+        # Simple gradient background
+        bg = Image.new('RGB', (width, height), '#1a1a2e')
+        draw = ImageDraw.Draw(bg)
+        
+        for y in range(height):
+            blend = y / height
+            color = (
+                int(26 + (40 - 26) * blend),
+                int(26 + (60 - 26) * blend),
+                int(46 + (100 - 46) * blend)
+            )
+            draw.line([(0, y), (width, y)], fill=color)
+        
+        # Avatar
+        avatar = Image.open(BytesIO(avatar_png_bytes)).convert('RGBA')
+        avatar = avatar.resize((200, 200), Image.LANCZOS)
+        mask = Image.new('L', (200, 200), 0)
+        ImageDraw.Draw(mask).ellipse([(0, 0), (200, 200)], fill=255)
+        avatar = Image.composite(avatar, Image.new('RGBA', (200, 200), (0, 0, 0, 0)), mask)
+        bg.paste(avatar, (width//2 - 100, 150), avatar)
+        
+        # Text
+        try:
+            font_bold = ImageFont.truetype("assets/fonts/arialbd.ttf", 56)
+            font_regular = ImageFont.truetype("assets/fonts/arial.ttf", 32)
+        except:
+            font_bold = ImageFont.load_default()
+            font_regular = ImageFont.load_default()
+        
+        title = f"Welcome, {display_name}!"
+        subtitle = f"to {guild_name}"
+        
+        # Center text
+        title_bbox = draw.textbbox((0, 0), title, font=font_bold)
+        title_w = title_bbox[2] - title_bbox[0]
+        draw.text((width//2 - title_w//2, 400), title, fill=(255, 255, 255), font=font_bold)
+        
+        subtitle_bbox = draw.textbbox((0, 0), subtitle, font=font_regular)
+        subtitle_w = subtitle_bbox[2] - subtitle_bbox[0]
+        draw.text((width//2 - subtitle_w//2, 480), subtitle, fill=(200, 220, 255), font=font_regular)
+        
+        # Create minimal video (2 second static)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            img_path = os.path.join(tmpdir, 'welcome.png')
+            video_path = os.path.join(tmpdir, 'welcome.mp4')
+            
+            bg.save(img_path)
+            
+            # Use FFmpeg to create a 2-second video from the image
+            cmd = [
+                'ffmpeg', '-y',
+                '-loop', '1', '-i', img_path,
+                '-c:v', 'libx264', '-preset', 'ultrafast',
+                '-t', '2',
+                '-pix_fmt', 'yuv420p',
+                '-vf', 'scale=1280:720',
+                video_path
+            ]
+            subprocess.run(cmd, capture_output=True, check=True, timeout=30)
+            
+            with open(video_path, 'rb') as f:
+                return f.read()
+                
+    except Exception as e:
+        logging.error(f"[WELCOME] Simple welcome failed: {e}")
+        raise
+
 def _build_welcome_video_bytes(avatar_png_bytes: bytes, display_name: str, guild_name: str, guild_icon_bytes: bytes = None, bot_avatar_bytes: bytes = None) -> bytes:
+    """
+    MEMORY-OPTIMIZED welcome video generation for Railway's 512MB limit.
+    Uses simplified rendering to prevent OOM crashes.
+    """
     from io import BytesIO
     from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps
     import numpy as np
@@ -633,6 +815,18 @@ def _build_welcome_video_bytes(avatar_png_bytes: bytes, display_name: str, guild
     import edge_tts
     import asyncio
     import tempfile, os, random
+    import gc
+    
+    # MEMORY CHECK: Don't generate heavy video if memory is already high
+    try:
+        import psutil
+        current_memory = psutil.Process().memory_info().rss / 1024 / 1024
+        if current_memory > 350:  # 68% of 512MB
+            logging.warning(f"[WELCOME] Memory too high ({current_memory:.1f}MB) - using simplified welcome")
+            # Return a simple static image instead of video
+            return _build_simple_welcome_image(avatar_png_bytes, display_name, guild_name)
+    except:
+        pass
 
     width, height = 1280, 720
     # Gradient background
@@ -1037,8 +1231,14 @@ def _build_welcome_video_bytes(avatar_png_bytes: bytes, display_name: str, guild
                         clip.close()
                 except Exception:
                     pass
+            # MEMORY CLEANUP: Force garbage collection after video generation
+            gc.collect()
         with open(video_path, 'rb') as f:
-            return f.read()
+            video_data = f.read()
+        
+        # Final cleanup after reading video
+        gc.collect()
+        return video_data
 
 
 @bot.event
@@ -1132,8 +1332,14 @@ async def on_member_join(member):
         file = discord.File(fp=io.BytesIO(video_bytes), filename='welcome.mp4')
         await channel.send(content=welcome_text, file=file)
         
+        # MEMORY CLEANUP: Free memory after sending welcome video
+        del video_bytes
+        gc.collect()
+        
     except Exception as e:
         logging.exception(f"Failed to send welcome for {member}: {e}")
+        # MEMORY CLEANUP: Even on error, try to free memory
+        gc.collect()
         # Fallback to simple message
         try:
             # Try to find any channel to send fallback message
