@@ -486,9 +486,9 @@ async def main():
     # Run the HTTP server in the background
     asyncio.get_running_loop().run_in_executor(None, run_http_server)
     
-    # Run the Discord bot with retry logic for rate limits
+    # Run the Discord bot with proper rate limit handling per Discord docs
+    # https://support-dev.discord.com/hc/en-us/articles/6223003921559-My-Bot-is-Being-Rate-Limited
     max_retries = 5
-    base_delay = 30  # Start with 30 seconds
     
     for attempt in range(max_retries):
         try:
@@ -497,19 +497,53 @@ async def main():
             break  # Success, exit retry loop
         except discord.HTTPException as e:
             if e.status == 429:  # Rate limited
-                delay = base_delay * (2 ** attempt)  # Exponential backoff: 30, 60, 120, 240, 480 seconds
-                logging.warning(f"⚠️ Rate limited by Discord/Cloudflare. Waiting {delay} seconds before retry...")
-                await asyncio.sleep(delay)
+                # Parse retry_after from response if available
+                retry_after = getattr(e, 'retry_after', None)
+                if retry_after is None:
+                    # Exponential backoff: 60, 120, 240, 480, 960 seconds (longer waits to avoid Cloudflare ban)
+                    retry_after = 60 * (2 ** attempt)
+                else:
+                    # Add buffer to retry_after to be safe
+                    retry_after = retry_after + 5
+                
+                logging.warning(f"⚠️ Rate limited by Discord (429). Waiting {retry_after} seconds before retry...")
+                logging.warning(f"   This is normal - Discord rate limits are shared across hosting providers.")
+                logging.warning(f"   Cloudflare ban happens after 10,000 invalid requests in 10 minutes.")
+                
+                # Wait the specified time - DO NOT retry faster than this!
+                await asyncio.sleep(retry_after)
             else:
-                logging.error(f"❌ Bot failed to start: {type(e).__name__}: {e}")
-                raise
+                logging.error(f"❌ Bot failed to start: HTTP {e.status} - {e.text}")
+                # For non-429 errors, wait before retry but don't spam
+                await asyncio.sleep(30)
+                if attempt >= max_retries - 1:
+                    raise
+        except discord.LoginFailure as e:
+            logging.error(f"❌ Invalid token! Check your DISCORD_TOKEN environment variable.")
+            raise  # Don't retry invalid tokens
         except Exception as e:
             logging.error(f"❌ Bot failed to start: {type(e).__name__}: {e}")
             import traceback
             logging.error(f"Traceback: {traceback.format_exc()}")
-            raise
+            # Wait before retry to avoid hitting rate limits
+            await asyncio.sleep(60)
+            if attempt >= max_retries - 1:
+                raise
     else:
-        logging.error("❌ Max retries reached. Could not connect to Discord. Try a different hosting region.")
+        logging.error("❌ Max retries reached. Bot could not connect to Discord.")
+        logging.error("   Possible causes:")
+        logging.error("   1. Cloudflare has temporarily banned this IP (wait 10-30 minutes)")
+        logging.error("   2. Discord API is having issues (check status.discord.com)")
+        logging.error("   3. Try a different hosting region")
+        # Keep the web server running but don't crash
+        while True:
+            await asyncio.sleep(300)  # Check every 5 minutes
+            try:
+                logging.info("🔄 Attempting to reconnect to Discord...")
+                await bot.start(DISCORD_TOKEN)
+                break
+            except Exception as e:
+                logging.warning(f"⚠️ Still unable to connect: {e}. Retrying in 5 minutes...")
             
 # Register the commands from general.py
 general.help_command.category = "General"
