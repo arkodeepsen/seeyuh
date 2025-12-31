@@ -262,7 +262,7 @@ ytdl_options = {
     'no_cache': True,
 }
 
-# Set up Railway-compatible User-Agent (no cookies by default - smart handling)
+# Set up Render-compatible User-Agent (no cookies by default - smart handling)
 user_agent = os.getenv('YT_USER_AGENT')
 if user_agent:
     ytdl_options['user_agent'] = user_agent

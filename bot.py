@@ -57,6 +57,12 @@ logging.basicConfig(level=logging.INFO)
 DISCORD_TOKEN, OWNER, url, key = load_env()
 supabase: Client = create_client(url, key)
 
+# DEBUG: Check if token is loaded
+if not DISCORD_TOKEN:
+    logging.critical("❌ DISCORD_TOKEN is not set!")
+else:
+    logging.info(f"✅ Token loaded (length: {len(DISCORD_TOKEN)})")
+
 app = FastAPI()
 # Mount the static files directory
 app.mount("/assets", StaticFiles(directory="assets"), name="assets")
@@ -110,7 +116,7 @@ async def check_inactivity():
             embed = discord.Embed(title="Voice Channel", description="Left the voice channel due to inactivity.", color=discord.Color.orange())
             await channel.send(embed=embed)
 
-# FIXED: More aggressive memory cleanup task - every 15 minutes for Railway's 512MB limit
+# FIXED: More aggressive memory cleanup task - every 15 minutes for Render
 @tasks.loop(minutes=15)
 async def periodic_memory_cleanup():
     """Periodic cleanup to prevent memory leaks - runs every 15 minutes"""
@@ -124,7 +130,7 @@ async def periodic_memory_cleanup():
         
         logging.info(f"[MEMORY] 🧹 Starting periodic cleanup (Memory: {memory_before:.1f}MB)")
         
-        # CRITICAL: Check if memory is approaching Railway's 512MB limit
+        # CRITICAL: Check if memory is approaching Render's limit
         if memory_before > MEMORY_WARNING_MB:
             logging.warning(f"[MEMORY] ⚠️ HIGH MEMORY WARNING: {memory_before:.1f}MB > {MEMORY_WARNING_MB}MB threshold")
         
@@ -213,12 +219,12 @@ async def keep_supabase_alive():
             
 @app.get("/status")
 def health_check():
-    """Health check endpoint with memory info for Railway monitoring"""
+    """Health check endpoint with memory info for Render monitoring"""
     try:
         import psutil
         process = psutil.Process()
         memory_mb = process.memory_info().rss / 1024 / 1024
-        memory_percent = (memory_mb / 512) * 100  # Railway's 512MB limit
+        memory_percent = (memory_mb / 512) * 100  # Render's 512MB free tier limit
         
         status = "ok"
         if memory_mb > MEMORY_LIMIT_MB:
@@ -444,7 +450,7 @@ async def on_ready():
     # Start the inactivity check task if not already running
     if not check_inactivity.is_running():
         check_inactivity.start()
-    # FIXED: Start periodic memory cleanup task (every 15 mins for Railway)
+    # FIXED: Start periodic memory cleanup task (every 15 mins for Render)
     if not periodic_memory_cleanup.is_running():
         periodic_memory_cleanup.start()
         logging.info("[MEMORY] 🧹 Periodic memory cleanup task started (runs every 15 minutes)")
@@ -822,7 +828,7 @@ def _build_simple_welcome_image(avatar_png_bytes: bytes, display_name: str, guil
 
 def _build_welcome_video_bytes(avatar_png_bytes: bytes, display_name: str, guild_name: str, guild_icon_bytes: bytes = None, bot_avatar_bytes: bytes = None) -> bytes:
     """
-    MEMORY-OPTIMIZED welcome video generation for Railway's 512MB limit.
+    MEMORY-OPTIMIZED welcome video generation for Render's 512MB limit.
     Uses simplified rendering to prevent OOM crashes.
     """
     from io import BytesIO

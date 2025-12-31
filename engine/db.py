@@ -8,7 +8,7 @@ from more_itertools import chunked
 from filelock import FileLock
 
 # FIXED: Use bounded ThreadPoolExecutor with max_workers to prevent thread leaks
-# REDUCED: Only 2 workers for Railway's 512MB limit (was 4)
+# REDUCED: Only 2 workers for Render's 512MB limit (was 4)
 executor = ThreadPoolExecutor(max_workers=2)
 
 def cleanup_executor():

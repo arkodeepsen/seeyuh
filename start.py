@@ -6,7 +6,7 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import subprocess
 
-# Memory management for Railway
+# Memory management for Render
 def log_memory_usage(context=""):
     try:
         import psutil

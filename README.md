@@ -8,18 +8,18 @@
 ---
 
 ## 🚦 **Bot Status**
-![Status](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh.up.railway.app%2Fstatus&query=status&prefix=%20&label=Status)
-![Name](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh.up.railway.app%2Fapi%2Fendpoint&query=name&prefix=%20&label=Name)
-![ID](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh.up.railway.app%2Fapi%2Fendpoint&query=id&prefix=%20&label=ID)
-![Uptime](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh.up.railway.app%2Fapi%2Fendpoint&query=uptime&prefix=%20&label=Uptime)
-![Ping](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh.up.railway.app%2Fapi%2Fendpoint&query=ping&prefix=%20&suffix=ms&label=Ping)
-![Users](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh.up.railway.app%2Fapi%2Fendpoint&query=unique_users&prefix=%20&label=Users)
-![Servers](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh.up.railway.app%2Fapi%2Fendpoint&query=guild_count&prefix=%20&label=Servers)
+![Status](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh.onrender.com%2Fstatus&query=status&prefix=%20&label=Status)
+![Name](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh.onrender.com%2Fapi%2Fendpoint&query=name&prefix=%20&label=Name)
+![ID](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh.onrender.com%2Fapi%2Fendpoint&query=id&prefix=%20&label=ID)
+![Uptime](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh.onrender.com%2Fapi%2Fendpoint&query=uptime&prefix=%20&label=Uptime)
+![Ping](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh.onrender.com%2Fapi%2Fendpoint&query=ping&prefix=%20&suffix=ms&label=Ping)
+![Users](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh.onrender.com%2Fapi%2Fendpoint&query=unique_users&prefix=%20&label=Users)
+![Servers](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fseeyuh.onrender.com%2Fapi%2Fendpoint&query=guild_count&prefix=%20&label=Servers)
 
 ---
 
 ## 📦 **Hosting Details**
-- **Platform**: Railway (Cloud Hosting)
+- **Platform**: Render (Cloud Hosting)
 - **Region**: Virginia, USA  
 - **Bot Connection**: Discord US East (optimized latency)
 - **Preferred Port**: 8080 
@@ -182,7 +182,7 @@ Seeyuh is a true agentic AI with sophisticated decision-making capabilities:
 ## 📚 **How to Use**
 1. **Invite Seeyuh Bot** to your Discord server using the invite link.  
    - [**Invite Link**](https://discord.com/oauth2/authorize?client_id=690530760540553276&permissions=8&scope=bot%20applications.commands)
-   - Contact the owner or visit the [official website](https://seeyuh.up.railway.app) for support
+   - Contact the owner or visit the [official website](https://seeyuh.onrender.com) for support
 
 2. **Explore Commands**:
    - Type `/help` to see all available commands organized by category
@@ -208,7 +208,7 @@ Seeyuh is a true agentic AI with sophisticated decision-making capabilities:
 - **Language**: Python 3.11+
 - **Framework**: discord.py (v2.x)
 - **Database**: Supabase (PostgreSQL) - Chat history & context storage
-- **Hosting**: Railway (Cloud Platform)
+- **Hosting**: Render (Cloud Platform)
 - **CDN/Storage**: Network Volume (S3-compatible) for media assets
 
 ### **AI & Machine Learning**
@@ -376,7 +376,7 @@ See [`.env.example`](.env.example) for the complete template with all required k
 
 ### **Deployment**
 The bot is production-ready for deployment on:
-- **Railway** (recommended) - See [DEPLOYMENT.md](DEPLOYMENT.md)
+- **Render** (recommended) - See [DEPLOYMENT.md](DEPLOYMENT.md)
 - **Render** - Use `render.yaml` configuration
 - **Docker** - Use provided `Dockerfile`
 - **Any VPS** - Requires Python 3.11+, FFmpeg, and PostgreSQL
@@ -444,14 +444,14 @@ This license is **intentionally strict** about network use:
 ## 🌐 **Links & Resources**
 
 ### **Official**
-- 🌍 [**Website**](https://seeyuh.up.railway.app) - Live status, metrics, and documentation
+- 🌍 [**Website**](https://seeyuh.onrender.com) - Live status, metrics, and documentation
 - 📊 [**Top.gg Page**](https://top.gg/bot/690530760540553276) - Upvote and review
 - 💬 [**Support Server**](https://discord.gg/ETXgCVYmBb) - Get help, report bugs, suggest features
 - 💰 [**Support Development**](https://paypal.me/arkodeepsen) - Help keep the bot alive!
 
 ### **Documentation**
-- 📖 [Privacy Policy](https://seeyuh.up.railway.app/privacy-policy) - How we handle your data
-- 📜 [Terms of Service](https://seeyuh.up.railway.app/terms) - Usage terms and conditions
+- 📖 [Privacy Policy](https://seeyuh.onrender.com/privacy-policy) - How we handle your data
+- 📜 [Terms of Service](https://seeyuh.onrender.com/terms) - Usage terms and conditions
 - 🚀 [Deployment Guide](DEPLOYMENT.md) - Self-hosting instructions
 
 ### **Developer**
@@ -467,7 +467,7 @@ This license is **intentionally strict** about network use:
 - [discord.py](https://github.com/Rapptz/discord.py) - Discord bot framework
 - [Google Gemini](https://ai.google.dev) - Advanced AI capabilities
 - [Supabase](https://supabase.com) - Database and backend services
-- [Railway](https://railway.app) - Cloud hosting platform
+- [Render](https://render.com) - Cloud hosting platform
 - [FFmpeg](https://ffmpeg.org) - Media processing
 - [HuggingFace](https://huggingface.co) - AI model hub
 - [RunPod](https://runpod.io) - GPU serverless inference
@@ -500,6 +500,6 @@ Thanks to these services for powering various features:
 
 *Seeyuh Bot - Where AI meets creativity*
 
-[Website](https://seeyuh.up.railway.app) • [Support Server](https://discord.gg/ETXgCVYmBb) • [Top.gg](https://top.gg/bot/690530760540553276) • [Donate](https://paypal.me/arkodeepsen)
+[Website](https://seeyuh.onrender.com) • [Support Server](https://discord.gg/ETXgCVYmBb) • [Top.gg](https://top.gg/bot/690530760540553276) • [Donate](https://paypal.me/arkodeepsen)
 
 </div>
