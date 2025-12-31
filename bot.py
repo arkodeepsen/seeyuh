@@ -486,8 +486,15 @@ async def main():
     # Run the HTTP server in the background
     asyncio.get_running_loop().run_in_executor(None, run_http_server)
     
-    # Run the Discord bot
-    await bot.start(DISCORD_TOKEN)
+    # Run the Discord bot with error handling
+    try:
+        logging.info("🔄 Starting Discord bot connection...")
+        await bot.start(DISCORD_TOKEN)
+    except Exception as e:
+        logging.error(f"❌ Bot failed to start: {type(e).__name__}: {e}")
+        import traceback
+        logging.error(f"Traceback: {traceback.format_exc()}")
+        raise
             
 # Register the commands from general.py
 general.help_command.category = "General"
