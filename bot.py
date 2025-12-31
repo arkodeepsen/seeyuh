@@ -243,14 +243,34 @@ async def uptimerobot_check():
 
 @app.get("/api/endpoint")
 def bot_details():
-    return {"name": bot.user.name, "id": bot.user.id, "uptime": time.ctime(bot.uptime), "ping": round(bot.latency * 1000), "unique_users": len(bot.users), "guild_count": len(bot.guilds)}
+    if not bot.is_ready() or not bot.user:
+        return {"status": "starting", "message": "Bot is still connecting..."}
+    return {
+        "name": bot.user.name, 
+        "id": bot.user.id, 
+        "uptime": time.ctime(bot.uptime) if hasattr(bot, 'uptime') else "Starting...", 
+        "ping": round(bot.latency * 1000), 
+        "unique_users": len(bot.users), 
+        "guild_count": len(bot.guilds)
+    }
 
+@app.head("/")
 @app.get("/", response_class=HTMLResponse)
 def home():
     with open("templates/index.ejs") as file:
         template = Template(file.read())
-    bot_uptime = time.strftime("%H:%M:%S", time.gmtime(time.time() - bot.uptime))
-    html_content = template.render(status="ok", bot_name=bot.user.name, bot_uptime=bot_uptime, unique_users = len(bot.users), guild_count = len(bot.guilds))
+    
+    # Handle case where bot hasn't connected yet
+    if hasattr(bot, 'uptime') and bot.uptime:
+        bot_uptime = time.strftime("%H:%M:%S", time.gmtime(time.time() - bot.uptime))
+    else:
+        bot_uptime = "Starting..."
+    
+    bot_name = bot.user.name if bot.user else "Seeyuh"
+    unique_users = len(bot.users) if bot.is_ready() else 0
+    guild_count = len(bot.guilds) if bot.is_ready() else 0
+    
+    html_content = template.render(status="ok", bot_name=bot_name, bot_uptime=bot_uptime, unique_users=unique_users, guild_count=guild_count)
     return HTMLResponse(content=html_content)
 
 @app.get("/policy", response_class=HTMLResponse)
