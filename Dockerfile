@@ -22,5 +22,5 @@ RUN apt-get update && \
 # Expose port for health checks
 EXPOSE 8080
 
-# Run the application directly (not through start.py file watcher)
-CMD ["python3", "bot.py"]
+# Run the application
+CMD ["python3", "start.py"]
