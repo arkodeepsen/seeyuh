@@ -486,15 +486,30 @@ async def main():
     # Run the HTTP server in the background
     asyncio.get_running_loop().run_in_executor(None, run_http_server)
     
-    # Run the Discord bot with error handling
-    try:
-        logging.info("🔄 Starting Discord bot connection...")
-        await bot.start(DISCORD_TOKEN)
-    except Exception as e:
-        logging.error(f"❌ Bot failed to start: {type(e).__name__}: {e}")
-        import traceback
-        logging.error(f"Traceback: {traceback.format_exc()}")
-        raise
+    # Run the Discord bot with retry logic for rate limits
+    max_retries = 5
+    base_delay = 30  # Start with 30 seconds
+    
+    for attempt in range(max_retries):
+        try:
+            logging.info(f"🔄 Starting Discord bot connection... (attempt {attempt + 1}/{max_retries})")
+            await bot.start(DISCORD_TOKEN)
+            break  # Success, exit retry loop
+        except discord.HTTPException as e:
+            if e.status == 429:  # Rate limited
+                delay = base_delay * (2 ** attempt)  # Exponential backoff: 30, 60, 120, 240, 480 seconds
+                logging.warning(f"⚠️ Rate limited by Discord/Cloudflare. Waiting {delay} seconds before retry...")
+                await asyncio.sleep(delay)
+            else:
+                logging.error(f"❌ Bot failed to start: {type(e).__name__}: {e}")
+                raise
+        except Exception as e:
+            logging.error(f"❌ Bot failed to start: {type(e).__name__}: {e}")
+            import traceback
+            logging.error(f"Traceback: {traceback.format_exc()}")
+            raise
+    else:
+        logging.error("❌ Max retries reached. Could not connect to Discord. Try a different hosting region.")
             
 # Register the commands from general.py
 general.help_command.category = "General"
@@ -1444,11 +1459,14 @@ async def on_message(message):
             # React with a random greeting emoji
             await message.add_reaction(random.choice(greeting_emojis))
             return
-        if random.random() < 0.001:  # 0.1% chance
+        if random.random() < 0.005:  # 0.5% chance for donation
             await message.channel.send(
                 "If you enjoy using this bot, consider supporting its development with a small donation: https://paypal.me/arkodeepsen"
             )
-            pass
+        elif random.random() < 0.001:  # 0.1% chance for review
+            await message.channel.send(
+                "If you're enjoying seeyuh, please consider leaving a review on Top.gg! ⭐\nhttps://top.gg/bot/690530760540553276#reviews"
+            )
         
     # Check if the message has attachments and bot is mentioned
     if (bot.user.mentioned_in(message) or "seeyuh" in message.content.lower()):
