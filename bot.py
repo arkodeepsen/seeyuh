@@ -263,7 +263,7 @@ def bot_details():
 @app.head("/")
 @app.get("/", response_class=HTMLResponse)
 def home():
-    with open("templates/index.ejs") as file:
+    with open("templates/index.ejs", encoding="utf-8") as file:
         template = Template(file.read())
     
     # Handle case where bot hasn't connected yet
