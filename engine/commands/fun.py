@@ -1,4 +1,4 @@
-import discord, random, httpx, aiohttp, asyncio, urllib.parse, io, aiofiles, time, logging, os, tempfile
+import discord, json, random, httpx, aiohttp, asyncio, urllib.parse, io, aiofiles, time, logging, os, tempfile
 from discord import app_commands
 from difflib import get_close_matches
 from PIL import Image, ImageDraw, ImageFont
@@ -21,14 +21,14 @@ def safe_tempfile(guild_id: int):
     """Create a temporary file that gets cleaned up after use"""
     temp_dir = Path("./temp")
     temp_dir.mkdir(exist_ok=True)
-    
+
     temp_path = temp_dir / f"sound_{guild_id}_{int(time.time())}.mp3"
     try:
         yield temp_path
     finally:
         if temp_path.exists():
             temp_path.unlink()
-            
+
 # Define the roast command
 @app_commands.command(name="roast", description="Roast a user in a light-hearted way!")
 async def roast_command(interaction: discord.Interaction, user: discord.User):
@@ -45,10 +45,10 @@ async def roast_command(interaction: discord.Interaction, user: discord.User):
 
     # Get the AI response for the roast
     response = await slash_ai_response(roast_prompt)
-    
+
     # Send the roast as a reply after deferring
     await interaction.followup.send(f"{response}")
-    
+
 @app_commands.command(name="compliment", description="Compliment a user in a light-hearted way!")
 async def compliment_command(interaction: discord.Interaction, user: discord.User):
     # Check if the bot is mentioned
@@ -64,10 +64,10 @@ async def compliment_command(interaction: discord.Interaction, user: discord.Use
 
     # Get the AI response for the compliment
     response = await slash_ai_response(compliment_prompt)
-    
+
     # Send the compliment as a reply after deferring
     await interaction.followup.send(f"{response}")
-    
+
 @app_commands.command(name="joke", description="Get a light-hearted joke from the bot!")
 async def joke_command(interaction: discord.Interaction):
     await interaction.response.defer()
@@ -89,63 +89,63 @@ async def joke_command(interaction: discord.Interaction):
         print(f"Unexpected error: {e}")
 
     await interaction.followup.send(joke)
-    
+
 @app_commands.command(name="fact", description="Get a random interesting fact from the bot!")
 async def fact_command(interaction: discord.Interaction):
     # Acknowledge the interaction immediately to prevent timeouts
     await interaction.response.defer()
-    
+
     # Create a fact prompt
     fact_prompt = "Tell a random, interesting fact that will surprise the user."
-    
+
     # Get the AI response for the fact
     response = await slash_ai8b_response(fact_prompt)
-    
+
     # Send the fact as a reply after deferring
     await interaction.followup.send(f"{response}")
-    
+
 @app_commands.command(name="quote", description="Get an inspiring quote from the bot!")
 async def quote_command(interaction: discord.Interaction):
     # Acknowledge the interaction immediately to prevent timeouts
     await interaction.response.defer()
-    
+
     # Create a quote prompt
     quote_prompt = "Share an inspiring, motivational quote that will uplift the user."
-    
+
     # Get the AI response for the quote
     response = await slash_ai8b_response(quote_prompt)
-    
+
     # Send the quote as a reply after deferring
     await interaction.followup.send(f"{response}")
-    
+
 @app_commands.command(name="advice", description="Get a piece of advice from the bot!")
 async def advice_command(interaction: discord.Interaction):
     # Acknowledge the interaction immediately to prevent timeouts
     await interaction.response.defer()
-    
+
     # Create an advice prompt
     advice_prompt = "Give a piece of advice that will help the user in their daily life."
-    
+
     # Get the AI response for the advice
     response = await slash_ai8b_response(advice_prompt)
-    
+
     # Send the advice as a reply after deferring
     await interaction.followup.send(f"{response}")
-    
+
 @app_commands.command(name="riddle", description="Get a fun riddle from the bot!")
 async def riddle_command(interaction: discord.Interaction):
     # Acknowledge the interaction immediately to prevent timeouts
     await interaction.response.defer()
-    
+
     # Create a riddle prompt
     riddle_prompt = "Share a fun, challenging riddle that will make the user think and solve."
-    
+
     # Get the AI response for the riddle
     response = await slash_ai8b_response(riddle_prompt)
-    
+
     # Send the riddle as a reply after deferring
     await interaction.followup.send(f"{response}")
-    
+
 # Define the zodiac signs with emojis
 zodiac_signs = [
     app_commands.Choice(name="Aries ♈", value="Aries"),
@@ -183,18 +183,18 @@ zodiac_emojis = {
 async def horoscope_command(interaction: discord.Interaction, sign: app_commands.Choice[str]):
     # Acknowledge the interaction immediately to prevent timeouts
     await interaction.response.defer()
-    
+
     # Create a horoscope prompt
     horoscope_prompt = f"Share a horoscope prediction for the {sign.value} zodiac sign."
-    
+
     # Get the AI response for the horoscope
     response = await slash_ai8b_response(horoscope_prompt)
-    
+
     # Create an embed for the horoscope prediction
     embed = discord.Embed(title=f"{sign.name} Horoscope", description=response, color=discord.Color.blue())
     embed.set_thumbnail(url=f"https://twemoji.maxcdn.com/v/latest/72x72/{ord(zodiac_emojis[sign.value]):x}.png")
     embed.set_footer(text=interaction.client.user.name, icon_url=interaction.client.user.avatar.url)
-    
+
     # Send the horoscope prediction as a reply after deferring
     await interaction.followup.send(embed=embed)
 
@@ -246,7 +246,7 @@ async def rps_command(interaction: discord.Interaction, choice: app_commands.Cho
 
     # Send the final response
     await interaction.followup.send(embed=embed)
-    
+
 @app_commands.command(name="coinflip", description="Flip a coin and see the result!")
 async def coinflip_command(interaction: discord.Interaction):
     response = random.choice(["Heads", "Tails"])
@@ -265,7 +265,7 @@ async def coinflip_command(interaction: discord.Interaction):
 
     # Send the embed as a reply after deferring
     await interaction.response.send_message(embed=embed)
-    
+
 @app_commands.command(name="dice", description="Roll a dice and see the result!")
 async def dice_command(interaction: discord.Interaction):
     response = random.randint(1, 6)
@@ -288,7 +288,7 @@ async def dice_command(interaction: discord.Interaction):
 
     # Send the embed as a reply after deferring
     await interaction.response.send_message(embed=embed)
-    
+
 @app_commands.command(name="magic8ball", description="Ask the Magic 8-Ball a question!")
 async def magic8ball_command(interaction: discord.Interaction, question: str):
     responses = [
@@ -317,7 +317,7 @@ async def magic8ball_command(interaction: discord.Interaction, question: str):
 
     # Send the Magic 8-Ball response as a reply
     await interaction.response.send_message(f"\n> {question} \n🎱 {response}")
-    
+
 @app_commands.command(name="choose", description="Let the bot choose between multiple options!")
 async def choose_command(interaction: discord.Interaction, options: str):
     # Split the options by commas
@@ -328,7 +328,7 @@ async def choose_command(interaction: discord.Interaction, options: str):
 
     # Send the chosen option as a reply
     await interaction.response.send_message(f"> Choices: {options}\nI choose: {response}")
-    
+
 class TicTacToeButton(discord.ui.Button):
     def __init__(self, x, y):
         super().__init__(style=discord.ButtonStyle.secondary, label="\u200b", row=y)
@@ -415,78 +415,14 @@ async def trivia_command(interaction: discord.Interaction):
     except Exception as e:
         # Use the fallback trivia dictionary (same as before)
         # ... [previous trivia dictionary remains unchanged]
-        trivia = {
-        "What is the capital of France?": "Paris",
-        "What is the largest planet in our solar system?": "Jupiter",
-        "Who painted the Mona Lisa?": "Leonardo da Vinci",
-        "What is the tallest mountain in the world?": "Mount Everest",
-        "What is the currency of Japan?": "Yen",
-        "Who wrote Romeo and Juliet?": "William Shakespeare",
-        "What is the chemical symbol for gold?": "Au",
-        "What is the largest ocean on Earth?": "Pacific Ocean",
-        "Who is known as the father of modern physics?": "Isaac Newton",
-        "What is the largest mammal in the world?": "Blue Whale",
-        "What is the smallest country in the world?": "Vatican City",
-        "Who is the author of the Harry Potter book series?": "J.K. Rowling",
-        "What is the national animal of Australia?": "Kangaroo",
-        "What is the main ingredient in guacamole?": "Avocado",
-        "What is the largest desert in the world?": "Antarctica",
-        "Who discovered penicillin?": "Alexander Fleming",
-        "What is the national flower of Japan?": "Cherry Blossom",
-        "What is the largest species of shark?": "Whale Shark",
-        "Who painted the ceiling of the Sistine Chapel?": "Michelangelo",
-        "What is the largest bird in the world?": "Ostrich",
-        "What is the national sport of Canada?": "Ice Hockey",
-        "Who is the lead singer of the band Queen?": "Freddie Mercury",
-        "What is the national dish of Spain?": "Paella",
-        "What is the largest lake in Africa?": "Lake Victoria",
-        "Who wrote the novel Moby-D?": "Herman Melville",
-        "What is the national animal of China?": "Giant Panda",
-        "What is the largest island in the world?": "Greenland",
-        "Who is the Greek god of the sea?": "Poseidon",
-        "What is the national flower of India?": "Lotus",
-        "What is the national tree of the United States?": "Oak",
-        "Who is known as the father of modern psychology?": "Sigmund Freud",
-        "What is the national sport of Japan?": "Sumo Wrestling",
-        "Who wrote the play Hamlet?": "William Shakespeare",
-        "What is the national bird of the United States?": "Bald Eagle",
-        "What is the national instrument of Scotland?": "Bagpipes",
-        "Who is the author of the novel 1984?": "George Orwell",
-        "What is the national animal of Australia?": "Kangaroo",
-        "What is the national flower of France?": "Lily",
-        "Who painted the Starry Night?": "Vincent van Gogh",
-        "What is the national dish of Italy?": "Pizza",
-        "What is the national animal of Russia?": "Brown Bear",
-        "Who is known as the father of modern chemistry?": "Antoine Lavoisier",
-        "What is the national sport of Brazil?": "Football",
-        "Who wrote the play Macbeth?": "William Shakespeare",
-        "What is the national bird of India?": "Indian Peafowl",
-        "What is the national instrument of Japan?": "Shamisen",
-        "Who is the author of the novel Pride and Prejudice?": "Jane Austen",
-        "What is the national animal of Canada?": "Beaver",
-        "What is the national flower of Australia?": "Golden Wattle",
-        "Who painted the Last Supper?": "Leonardo da Vinci",
-        "What is the national dish of China?": "Peking Duck",
-        "Who is known as the father of modern biology?": "Charles Darwin",
-        "What is the national sport of Australia?": "Cricket",
-        "Who wrote the play Othello?": "William Shakespeare",
-        "What is the national bird of Canada?": "Common Loon",
-        "What is the national instrument of Spain?": "Guitar",
-        "Who is the author of the novel Jane Eyre?": "Charlotte Bronte",
-        "What is the national flower of China?": "Peony",
-        "Who painted the Birth of Venus?": "Sandro Botticelli",
-        "What is the national dish of Japan?": "Sushi",
-        "Who is known as the father of modern mathematics?": "Leonhard Euler",
-        "What is the national sport of England?": "Cricket",
-        "Who wrote the play King Lear?": "William Shakespeare",
-        "What is the national bird of Australia?": "Emu",
-        "What is the national flower of England?": "Rose",
-        "Who painted the Creation of Adam?": "Michelangelo",
-        "What is the national dish of Italy?": "Pasta",
-        "What is the national animal of India?": "Bengal Tiger",
-        "Who is known as the father of modern philosophy?": "René Descartes",
-        "What is the national sport of France?": "Football"
-        }
+        # Load trivia from external JSON file
+        try:
+            with open("engine/commands/assets/trivia.json", "r", encoding="utf-8") as f:
+                trivia = json.load(f)
+        except Exception as file_error:
+            print(f"Error loading trivia file: {file_error}")
+            # Minimal fallback
+            trivia = {"What is the capital of France?": "Paris"}
         question, correct_answer = random.choice(list(trivia.items()))
         all_answers = [correct_answer]
         random.shuffle(all_answers)
@@ -572,7 +508,7 @@ async def rpsls_command(interaction: discord.Interaction, choice: app_commands.C
 
     # Send the final response
     await interaction.followup.send(embed=embed)
-    
+
 # Define the list of words for the game
 words = [
     "apple", "banana", "cherry", "date", "elderberry", "fig", "grape", "honeydew", "kiwi", "lemon",
@@ -584,10 +520,10 @@ words = [
 async def wordle_command(interaction: discord.Interaction):
     # Choose a random word from the list
     word = random.choice(words)
-    
+
     # Create a hidden word with underscores
     hidden_word = ["_" for _ in word]
-    
+
     # Send the initial hidden word as a reply
     await interaction.response.send_message(f"```\n{' '.join(hidden_word)}\n```")
 
@@ -632,7 +568,7 @@ async def wordle_command(interaction: discord.Interaction):
         await interaction.followup.send(f"Congratulations! You guessed the word: {word}")
     else:
         await interaction.followup.send(f"Game over! The word was: {word}")
-    
+
 # Meme command
 @app_commands.command(name="meme", description="Get a random meme from r/memes.")
 async def meme_command(interaction: discord.Interaction):
@@ -667,15 +603,15 @@ async def meme_command(interaction: discord.Interaction):
     except Exception as e:
         await interaction.followup.send("An unexpected error occurred. Please try again later.")
         print(f"Unexpected error: {e}")
-        
+
 @app_commands.command(name="dadjoke", description="Get a random dad joke!")
 async def dadjoke_command(interaction: discord.Interaction, search: str = None):
     await interaction.response.defer()
-    
+
     headers = {
         'Accept': 'application/json',
     }
-    
+
     try:
         async with httpx.AsyncClient() as client:
             # Use base URL if no search term
@@ -693,20 +629,20 @@ async def dadjoke_command(interaction: discord.Interaction, search: str = None):
                 response = await client.get(url, headers=headers)
                 data = response.json()
                 joke = data['joke']
-                
+
         # Create and send the embed with the dad joke
         embed = discord.Embed(
-            title="Dad Joke", 
-            description=joke, 
+            title="Dad Joke",
+            description=joke,
             color=discord.Color.random()
         )
         embed.set_footer(text=interaction.client.user.name, icon_url=interaction.client.user.display_avatar.url)
         await interaction.followup.send(embed=embed)
-    
+
     except Exception as e:
         await interaction.followup.send("Failed to fetch a dad joke. Please try again later.")
         print(f"Error fetching dad joke: {e}")
-        
+
 COW_TYPES = {
     "default": """
     \\   ^__^
@@ -714,24 +650,24 @@ COW_TYPES = {
     | (__ )\\       )\\/\\
     |    ||----w |
     |    ||     ||""",
-    
+
     "dead": """
     \\   ^__^
     \\  (xx)\\_______
     | (__ )\\       )\\/\\
     |    ||----w |
     |    ||     ||""",
-    
+
     "happy": """
     \\   ^__^
     \\  (^^)\\_______
     | (__ )\\       )\\/\\
     |    ||----w |
     |    ||     ||""",
-    
+
     "sleepy": """
     \\   ^__^
-    \\  (--)\\_______ 
+    \\  (--)\\_______
     | (__ )\\       )\\/\\
     |    ||----w |
     |    ||     ||"""
@@ -746,14 +682,14 @@ COW_TYPES = {
 ])
 async def cowsay_command(interaction: discord.Interaction, message: str, cow_type: app_commands.Choice[str] = None):
     await interaction.response.defer()
-    
+
     # Use default cow if no type specified
     cow_art = COW_TYPES[cow_type.value if cow_type else "default"]
-    
+
     # Calculate message box width
     max_width = 40
     message_lines = [message[i:i+max_width] for i in range(0, len(message), max_width)]
-    
+
     # Create message box
     width = max(len(line) for line in message_lines)
     box = ["     " + "_" * (width + 2)]
@@ -765,12 +701,12 @@ async def cowsay_command(interaction: discord.Interaction, message: str, cow_typ
             box.append(f"    | {line:<{width}} |")
         box.append(f"    \\ {message_lines[-1]:<{width}} /")
     box.append("     " + "-" * (width + 2))
-    
+
     # Combine message box with cow art
     final_message = "\n".join(box) + cow_art
-    
+
     await interaction.followup.send(f"```{final_message}```")
-    
+
 # Define the /gif slash command
 @app_commands.command(name="gif", description="Search for a GIF on Giphy.")
 async def gif_command(interaction: discord.Interaction, query: str):
@@ -810,24 +746,24 @@ def add_text_to_image(image: Image.Image, top_text: str, bottom_text: str) -> Im
     # Convert image to RGB mode if needed
     if image.mode not in ('RGB', 'RGBA'):
         image = image.convert('RGB')
-        
+
     # Create drawing context
     draw = ImageDraw.Draw(image)
     width, height = image.size
-    
+
     # Calculate initial font size based on image dimensions
     font_size = int(min(width, height) / 8)  # Start with 1/8th of smallest dimension
     margin = int(height * 0.05)  # 5% margin
-    
+
     try:
         font = ImageFont.truetype("assets/fonts/impact.ttf", font_size)
     except:
         font = ImageFont.load_default()
-        
+
     # Adjust font size until text fits width with margin
     top_text = top_text.upper()
     bottom_text = bottom_text.upper()
-    
+
     def get_fitting_font_size(text: str, max_width: int) -> ImageFont.FreeTypeFont:
         size = font_size
         test_font = font
@@ -838,39 +774,39 @@ def add_text_to_image(image: Image.Image, top_text: str, bottom_text: str) -> Im
             except:
                 test_font = ImageFont.load_default()
         return test_font
-    
+
     # Get font sizes that fit for both texts
     top_font = get_fitting_font_size(top_text, width)
     bottom_font = get_fitting_font_size(bottom_text, width)
-    
+
     # Use smaller of the two fonts for consistency
     final_font = top_font if top_font.size <= bottom_font.size else bottom_font
-    
+
     # Draw top text
     text_width = draw.textlength(top_text, font=final_font)
     x = (width - text_width) / 2
     y = margin
-    
+
     # Draw outline
     outline_width = max(2, int(final_font.size * 0.05))  # Scale outline with font
     for adj in range(-outline_width, outline_width + 1):
         for adj2 in range(-outline_width, outline_width + 1):
             draw.text((x+adj, y+adj2), top_text, font=final_font, fill='black')
     draw.text((x, y), top_text, font=final_font, fill='white')
-    
+
     # Draw bottom text
     text_width = draw.textlength(bottom_text, font=final_font)
     x = (width - text_width) / 2
     y = height - margin - final_font.size
-    
+
     # Draw outline
     for adj in range(-outline_width, outline_width + 1):
         for adj2 in range(-outline_width, outline_width + 1):
             draw.text((x+adj, y+adj2), bottom_text, font=final_font, fill='black')
     draw.text((x, y), bottom_text, font=final_font, fill='white')
-    
+
     return image
-    
+
 # Load all meme templates from file
 with open('engine/meme-templates.txt', 'r') as f:
     MEME_TEMPLATES = [line.strip() for line in f if line.strip()]
@@ -904,29 +840,29 @@ def clean_template_name(name: str) -> str:
 def find_template(user_input: str, templates: list) -> Optional[str]:
     """Find closest matching template using manual and fuzzy matching"""
     user_input = user_input.lower()
-    
+
     # Check manual map first
     for keyword, template_list in MANUAL_TEMPLATE_MAP.items():
         if keyword in user_input:
             return template_list[0]
-    
+
     # Create map of lowercase names to original names
     template_map = {t.lower(): t for t in templates}
-    
+
     # Direct match
     if user_input in template_map:
         return template_map[user_input]
-    
+
     # Check if user input contains any part of the template names
     for template in template_map.keys():
         if user_input in template:
             return template_map[template]
-    
+
     # Fuzzy match with a higher cutoff value
     matches = get_close_matches(user_input, template_map.keys(), n=1, cutoff=0.8)
     if matches:
         return template_map[matches[0]]
-    
+
     return None
 
 async def find_imgflip_template(session, template_name):
@@ -935,18 +871,18 @@ async def find_imgflip_template(session, template_name):
         data = await resp.json()
         if not data['success']:
             return None
-            
+
         memes = data['data']['memes']
         # Clean template name for matching
         clean_search = template_name.lower().replace('-', ' ')
-        
+
         # Try direct match first
         for meme in memes:
             if clean_search in meme['name'].lower():
                 return meme
-                
+
         # Fallback to fuzzy match
-        matches = get_close_matches(clean_search, 
+        matches = get_close_matches(clean_search,
                                   [m['name'].lower() for m in memes],
                                   n=1, cutoff=0.6)
         if matches:
@@ -963,7 +899,7 @@ IMGFLIP_USERNAME, IMGFLIP_PASSWORD = imgflip_env()
 )
 @app_commands.describe(
     top_text="Text for top of meme",
-    bottom_text="Text for bottom of meme", 
+    bottom_text="Text for bottom of meme",
     template="Optional: Specific meme template name",
     custom_url="Optional: Custom image URL to create meme from",
     search="Optional: Search for a meme template using keywords"
@@ -985,7 +921,7 @@ async def memegen_command(
                 from engine.commands.utility import search_ddg
                 search_query = f"{search} meme template"
                 results = await search_ddg(search_query, num_results=5, search_type='image')
-                
+
                 if not results:
                     await interaction.followup.send("❌ No meme templates found.")
                     return
@@ -998,14 +934,14 @@ async def memegen_command(
                         image = await download_image(img_url)
                         if not image:
                             continue
-                            
+
                         image = add_text_to_image(image, top_text, bottom_text)
-                        
+
                         # Convert to bytes for Discord upload
                         with io.BytesIO() as image_binary:
                             image.save(image_binary, 'PNG')
                             image_binary.seek(0)
-                            
+
                             # Send as Discord attachment
                             file = discord.File(fp=image_binary, filename='meme.png')
                             embed = discord.Embed(
@@ -1017,11 +953,11 @@ async def memegen_command(
                             await interaction.followup.send(embed=embed, file=file)
                             success = True
                             break
-                            
+
                     except Exception as e:
                         print(f"Failed with image {img_url}: {e}")
                         continue
-                        
+
                 if not success:
                     await interaction.followup.send("❌ Failed to generate meme with any of the found templates.")
                 return
@@ -1030,24 +966,24 @@ async def memegen_command(
                 print(f"Meme search error: {e}")
                 await interaction.followup.send("❌ Failed to search for meme templates.")
                 return
-            
+
         if custom_url:
             try:
                 # Download and process image
                 image = await download_image(custom_url)
                 image = add_text_to_image(image, top_text, bottom_text)
-                
+
                 # Convert to bytes for Discord upload
                 with io.BytesIO() as image_binary:
                     image.save(image_binary, 'PNG')
                     image_binary.seek(0)
-                    
+
                     # Send as Discord attachment
                     file = discord.File(fp=image_binary, filename='meme.png')
                     embed = discord.Embed(title="Generated Meme", color=discord.Color.blue())
                     embed.set_image(url="attachment://meme.png")
                     await interaction.followup.send(embed=embed, file=file)
-                    
+
             except Exception as e:
                 print(f"Error generating custom meme: {str(e)}")
                 await interaction.followup.send(
@@ -1055,7 +991,7 @@ async def memegen_command(
                     ephemeral=True
                 )
             return
-        
+
         # Template-based meme generation
         if template:
             # Try finding template on Imgflip first
@@ -1070,13 +1006,13 @@ async def memegen_command(
                         'text0': top_text,
                         'text1': bottom_text
                     }
-                    
+
                     async with session.post('https://api.imgflip.com/caption_image', data=params) as resp:
                         data = await resp.json()
                         if not data['success']:
                             await interaction.followup.send("Failed to generate meme.", ephemeral=True)
                             return
-                            
+
                         embed = discord.Embed(
                             title="Generated Meme",
                             description=f"Template: {imgflip_template['name']}",
@@ -1136,12 +1072,12 @@ async def memegen_command(
                     ephemeral=True
                 )
             return
-        
+
         # Convert template name to URL format and encode text
         meme_template = clean_template_name(meme_template)
         encoded_top = urllib.parse.quote(top_text)
         encoded_bottom = urllib.parse.quote(bottom_text)
-        
+
         url = f"http://apimeme.com/meme?meme={meme_template}&top={encoded_top}&bottom={encoded_bottom}"
 
         embed = discord.Embed(
@@ -1154,7 +1090,7 @@ async def memegen_command(
             text=f"Requested by {interaction.user}",
             icon_url=interaction.user.display_avatar.url
         )
-        
+
         await interaction.followup.send(embed=embed)
 
     except Exception as e:
@@ -1167,19 +1103,19 @@ async def memegen_command(
 async def search_sound_effects(query: str) -> list:
     """Search MyInstants for sound effects"""
     search_url = f'http://www.myinstants.com/search/?name={quote(query)}'
-    
+
     async with aiohttp.ClientSession() as session:
         async with session.get(search_url) as response:
             if response.status != 200:
                 return []
-                
+
             soup = BeautifulSoup(await response.text(), 'html.parser')
             results = []
-            
+
             for instant in soup.find_all("div", class_="instant"):
                 button_name = instant.find("a", class_="instant-link")
                 button_name = button_name.text.strip() if button_name else "Unknown"
-                
+
                 small_button = instant.find("button", class_="small-button")
                 if small_button and 'onclick' in small_button.attrs:
                     onclick = small_button['onclick']
@@ -1190,7 +1126,7 @@ async def search_sound_effects(query: str) -> list:
                             "name": button_name,
                             "url": f"https://www.myinstants.com{button_url}"
                         })
-            
+
             return results[:10]  # Limit to first 10 results
 
 async def download_sound(url: str, session: aiohttp.ClientSession) -> bytes:
@@ -1203,12 +1139,12 @@ async def download_sound(url: str, session: aiohttp.ClientSession) -> bytes:
         'Referer': 'https://www.myinstants.com/'
         # Removed Range header to get full content
     }
-    
+
     async with session.get(url, headers=headers) as response:
         if response.status not in (200, 206):  # Accept both 200 and 206
             raise Exception(f"Failed to download sound: {response.status}")
         return await response.read()
-    
+
 NUMBER_EMOJIS = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟']
 
 class SoundboardView(discord.ui.View):
@@ -1216,7 +1152,7 @@ class SoundboardView(discord.ui.View):
         super().__init__(timeout=300)
         self.results = results
         self.original_interaction = interaction
-        
+
         # Add button for each result
         for i, result in enumerate(results):
             button = discord.ui.Button(
@@ -1227,13 +1163,13 @@ class SoundboardView(discord.ui.View):
             )
             button.callback = self.create_callback(i)
             self.add_item(button)
-    
+
     def create_callback(self, index):
         async def button_callback(interaction: discord.Interaction):
             if not interaction.user.voice:
                 try:
                     await interaction.response.send_message(
-                        "❌ You need to be in a voice channel!", 
+                        "❌ You need to be in a voice channel!",
                         ephemeral=True
                     )
                 except discord.errors.InteractionResponded:
@@ -1245,13 +1181,13 @@ class SoundboardView(discord.ui.View):
 
             sound_url = self.results[index]['url']
             temp_path = None
-            
+
             try:
                 # Connect to voice if not already connected
                 if not interaction.guild.voice_client:
                     voice_channel = interaction.user.voice.channel
                     await voice_channel.connect()
-                
+
                 # Acknowledge the interaction first
                 try:
                     await interaction.response.defer(ephemeral=True)
@@ -1261,7 +1197,7 @@ class SoundboardView(discord.ui.View):
                 # Create temp file
                 with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
                     temp_path = tmp.name
-                    
+
                     # Download sound
                     async with aiohttp.ClientSession() as session:
                         async with session.get(sound_url, headers={
@@ -1270,21 +1206,21 @@ class SoundboardView(discord.ui.View):
                         }) as response:
                             if response.status != 200:
                                 raise Exception(f"Failed to download sound: {response.status}")
-                            
+
                             # Write to temp file
                             async with aiofiles.open(temp_path, 'wb') as f:
                                 await f.write(await response.read())
-                
+
                 # Create audio source
                 source = await discord.FFmpegOpusAudio.from_probe(
                     temp_path,
                     options='-filter:a volume=2.0'
                 )
-                
+
                 # Play audio
                 if interaction.guild.voice_client.is_playing():
                     interaction.guild.voice_client.stop()
-                
+
                 def after_playing(error):
                     if error:
                         logging.error(f"Playback error: {error}")
@@ -1293,13 +1229,13 @@ class SoundboardView(discord.ui.View):
                             os.unlink(temp_path)
                     except Exception as e:
                         logging.error(f"Cleanup error: {e}")
-                
+
                 interaction.guild.voice_client.play(source, after=after_playing)
                 await interaction.followup.send(
                     f"▶️ Now playing: {self.results[index]['name']}",
                     ephemeral=True
                 )
-                
+
             except Exception as e:
                 logging.error(f"Sound playback error: {e}")
                 if temp_path and os.path.exists(temp_path):
@@ -1314,7 +1250,7 @@ class SoundboardView(discord.ui.View):
                     )
                 except Exception:
                     pass
-                    
+
         return button_callback
 
 @app_commands.command(
@@ -1327,10 +1263,10 @@ class SoundboardView(discord.ui.View):
 )
 async def soundboard_command(interaction: discord.Interaction, query: str, play: Optional[bool] = False):
     await interaction.response.defer()
-    
+
     try:
         results = await search_sound_effects(query)
-        
+
         if not results:
             await interaction.followup.send("❌ No sound effects found.")
             return
@@ -1340,21 +1276,21 @@ async def soundboard_command(interaction: discord.Interaction, query: str, play:
             description=f"Search results for '{query}'",
             color=discord.Color.blue()
         )
-        
+
         for i, result in enumerate(results, 1):
             embed.add_field(
             name=f"{i}. {result['name']}",
             value=f"[Click here to download]({result['url']})",
             inline=False
             )
-        
+
         view = SoundboardView(results, interaction)
         await interaction.followup.send(embed=embed, view=view)
-        
+
         # Handle play=True option
         if play and results:
             await view.create_callback(0)(interaction)
-            
+
     except Exception as e:
         logging.error(f"Soundboard error: {e}")
         await interaction.followup.send(
