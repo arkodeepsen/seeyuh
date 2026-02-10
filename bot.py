@@ -1,6 +1,7 @@
 import discord, time, uvicorn, asyncio, logging, os, aiohttp, random, re, gc, engine.commands.general as general, engine.commands.utility as utility, engine.commands.fun as fun, engine.commands.music as music, engine.commands.moderation as moderation, engine.commands.misc as misc, engine.commands.rpg as rpg, engine.eventloop as eventloop
+from typing import Optional
 from discord.ext import commands, tasks
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request, Response, Header
 
 # Memory management - high limits for Render paid plan
 MEMORY_LIMIT_MB = int(os.getenv('MEMORY_LIMIT_MB', '1800'))  # 1.8GB limit
@@ -218,8 +219,15 @@ async def keep_supabase_alive():
         # Don't crash the bot if Supabase ping fails - just log it
             
 @app.get("/status")
-def health_check():
+def health_check(x_status_key: Optional[str] = Header(None)):
     """Health check endpoint with memory info for Render monitoring"""
+    # Check if authorized to see detailed metrics
+    status_auth_key = os.getenv("STATUS_AUTH_KEY")
+    show_details = status_auth_key and x_status_key == status_auth_key
+
+    if not show_details:
+        return {"status": "ok"}
+
     try:
         import psutil
         process = psutil.Process()
@@ -240,7 +248,8 @@ def health_check():
             "guilds": len(bot.guilds) if hasattr(bot, 'guilds') else 0
         }
     except Exception as e:
-        return {"status": "ok", "error": str(e)}
+        logging.error(f"Health check failed: {e}")
+        return {"status": "error", "message": "An internal error occurred"}
 
 @app.head("/api/uptimerobot")
 @app.get("/api/uptimerobot")
