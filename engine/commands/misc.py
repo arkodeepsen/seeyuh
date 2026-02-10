@@ -586,12 +586,12 @@ async def itunes(interaction: discord.Interaction, term: str, media: str, entity
     }
 
     api_url = "https://itunes.apple.com/search"
-    response = requests.get(api_url, params=params)
-    if response.status_code != 200:
-        await interaction.followup.send("❌ Failed to retrieve data from iTunes.", ephemeral=True)
-        return
-
-    data = response.json()
+    async with aiohttp.ClientSession() as session:
+        async with session.get(api_url, params=params) as response:
+            if response.status != 200:
+                await interaction.followup.send("❌ Failed to retrieve data from iTunes.", ephemeral=True)
+                return
+            data = await response.json()
     results = data.get('results', [])
     if not results:
         await interaction.followup.send("❌ No results found.", ephemeral=True)
