@@ -43,14 +43,6 @@ from supabase import create_client, Client
 from sqlalchemy.orm import declarative_base
 from sqlalchemy import Column, Integer, String, ForeignKey
 
-# Fix for Pillow compatibility with MoviePy
-try:
-    from PIL import Image
-    if not hasattr(Image, 'ANTIALIAS'):
-        Image.ANTIALIAS = Image.LANCZOS
-except ImportError:
-    pass
-
 logging.basicConfig(level=logging.INFO)
 
 # Load environment variables
@@ -890,9 +882,7 @@ def _build_welcome_video_bytes(avatar_png_bytes: bytes, display_name: str, guild
     from io import BytesIO
     from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps
     import numpy as np
-    from moviepy.editor import ImageClip, AudioFileClip
-    from moviepy.video.VideoClip import VideoClip
-    from moviepy.video.compositing.CompositeVideoClip import CompositeVideoClip
+    from moviepy import ImageClip, AudioFileClip, VideoClip, CompositeVideoClip
     from gtts import gTTS
     import edge_tts
     import asyncio
@@ -1138,7 +1128,7 @@ def _build_welcome_video_bytes(avatar_png_bytes: bytes, display_name: str, guild
         return np.array(bg_animated)
     
     # Create video clip with animated background
-    base_clip = VideoClip(make_animated_frame).set_duration(video_duration)
+    base_clip = VideoClip(make_animated_frame).with_duration(video_duration)
 
     # Random TTS selection
     spoken = f"Welcome {display_name} to {guild_name}."
@@ -1235,8 +1225,8 @@ def _build_welcome_video_bytes(avatar_png_bytes: bytes, display_name: str, guild
             audio_clip = AudioFileClip(audio_path)
             # Align durations to avoid reading past audio end
             safe_duration = min(base_clip.duration or 0, audio_clip.duration or 0) or (audio_clip.duration or base_clip.duration)
-            base_clip = base_clip.set_duration(safe_duration)
-            audio_clip = audio_clip.subclip(0, safe_duration)
+            base_clip = base_clip.with_duration(safe_duration)
+            audio_clip = audio_clip.subclipped(0, safe_duration)
             # Multiple dynamic overlays
             width_i, height_i = width, height
             
@@ -1278,10 +1268,10 @@ def _build_welcome_video_bytes(avatar_png_bytes: bytes, display_name: str, guild
                 
                 return np.array(overlay.convert('RGB'))
             
-            prismatic_clip = VideoClip(prismatic_frame).set_duration(safe_duration).set_fps(30).set_opacity(0.25)
-            particle_clip = VideoClip(particle_frame).set_duration(safe_duration).set_fps(24).set_opacity(0.15)
+            prismatic_clip = VideoClip(prismatic_frame).with_duration(safe_duration).with_fps(30).with_opacity(0.25)
+            particle_clip = VideoClip(particle_frame).with_duration(safe_duration).with_fps(24).with_opacity(0.15)
             
-            final = CompositeVideoClip([base_clip, prismatic_clip, particle_clip]).set_audio(audio_clip)
+            final = CompositeVideoClip([base_clip, prismatic_clip, particle_clip]).with_audio(audio_clip)
             final.write_videofile(
                 video_path,
                 fps=30,

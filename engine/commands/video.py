@@ -16,7 +16,7 @@ import json
 import urllib.parse
 from gtts import gTTS
 from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageFilter
-from moviepy.editor import ImageClip, AudioFileClip, CompositeVideoClip, CompositeAudioClip, concatenate_videoclips, concatenate_audioclips
+from moviepy import ImageClip, AudioFileClip, CompositeVideoClip, CompositeAudioClip, concatenate_videoclips, concatenate_audioclips
 import numpy as np
 
 logging.basicConfig(level=logging.INFO)
@@ -1647,7 +1647,6 @@ async def generate_meme_video_nextlevel(messages: list, duration: float = None, 
             if audio_path and os.path.exists(audio_path):
                 # Get EXACT audio duration for perfect sync
                 try:
-                    from moviepy.editor import AudioFileClip
                     audio_clip = AudioFileClip(audio_path)
                     # Use EXACT audio duration with minimal buffer to prevent drift
                     display_duration = audio_clip.duration + 0.1  # Minimal buffer
@@ -1666,12 +1665,10 @@ async def generate_meme_video_nextlevel(messages: list, duration: float = None, 
             
             # Create video clip with async yields to prevent heartbeat blocking
             try:
-                from moviepy.editor import ImageClip, AudioFileClip, CompositeAudioClip
-                
                 # Yield before heavy MoviePy operations
                 await asyncio.sleep(0.1)
                 
-                image_clip = ImageClip(image_path).set_duration(display_duration)
+                image_clip = ImageClip(image_path).with_duration(display_duration)
                 
                 # Yield after image clip creation
                 await asyncio.sleep(0.05)
@@ -1680,11 +1677,11 @@ async def generate_meme_video_nextlevel(messages: list, duration: float = None, 
                     audio_clip = AudioFileClip(audio_path)
                     # Ensure audio doesn't exceed image duration
                     if audio_clip.duration > display_duration:
-                        audio_clip = audio_clip.subclip(0, display_duration)
+                        audio_clip = audio_clip.subclipped(0, display_duration)
                     
                     # Yield before audio attachment (heavy operation)
                     await asyncio.sleep(0.05)
-                    image_clip = image_clip.set_audio(audio_clip)
+                    image_clip = image_clip.with_audio(audio_clip)
                 
                 # STREAMING APPROACH: Store frame data instead of creating video clips
                 frame_data_list.append((image_path, audio_path, display_duration))
