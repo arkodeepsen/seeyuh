@@ -282,35 +282,36 @@ async def steamnews(interaction: discord.Interaction, game: str):
     game = game.lower()
     await interaction.response.defer(ephemeral=False)
     
-    # Get the app list from Steam
-    api_url = "https://api.steampowered.com/ISteamApps/GetAppList/v2/"
-    response = requests.get(api_url)
-    if response.status_code != 200:
-        await interaction.followup.send("❌ Failed to retrieve app list from Steam.", ephemeral=True)
-        return
-    data = response.json()
-    apps = data['applist']['apps']
-    
-    # Find the app ID and name
-    app_id = None
-    app_name = None
-    for app in apps:
-        if game in app['name'].lower():
-            app_id = app['appid']
-            app_name = app['name']
-            break
-    
-    if app_id is None:
-        await interaction.followup.send("❌ Game not found.", ephemeral=True)
-        return
-    
-    # Get the news for the app
-    api_url = f"https://api.steampowered.com/ISteamNews/GetNewsForApp/v0002/?appid={app_id}&count=5&maxlength=300&format=json"
-    response = requests.get(api_url)
-    if response.status_code != 200:
-        await interaction.followup.send("❌ Failed to retrieve news from Steam.", ephemeral=True)
-        return
-    data = response.json()
+    async with aiohttp.ClientSession() as session:
+        # Get the app list from Steam
+        api_url = "https://api.steampowered.com/ISteamApps/GetAppList/v2/"
+        async with session.get(api_url) as response:
+            if response.status != 200:
+                await interaction.followup.send("❌ Failed to retrieve app list from Steam.", ephemeral=True)
+                return
+            data = await response.json()
+        apps = data['applist']['apps']
+
+        # Find the app ID and name
+        app_id = None
+        app_name = None
+        for app in apps:
+            if game in app['name'].lower():
+                app_id = app['appid']
+                app_name = app['name']
+                break
+
+        if app_id is None:
+            await interaction.followup.send("❌ Game not found.", ephemeral=True)
+            return
+
+        # Get the news for the app
+        api_url = f"https://api.steampowered.com/ISteamNews/GetNewsForApp/v0002/?appid={app_id}&count=5&maxlength=300&format=json"
+        async with session.get(api_url) as response:
+            if response.status != 200:
+                await interaction.followup.send("❌ Failed to retrieve news from Steam.", ephemeral=True)
+                return
+            data = await response.json()
     
     # Check if 'appnews' and 'newsitems' exist in the response
     if 'appnews' not in data or not data['appnews'].get('newsitems'):
