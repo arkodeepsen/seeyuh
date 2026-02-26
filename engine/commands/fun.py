@@ -903,6 +903,9 @@ def clean_template_name(name: str) -> str:
 
 def find_template(user_input: str, templates: list) -> Optional[str]:
     """Find closest matching template using manual and fuzzy matching"""
+    if not user_input.strip():
+        return None
+
     user_input = user_input.lower()
     
     # Check manual map first
